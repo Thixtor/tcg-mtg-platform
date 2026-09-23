@@ -1,80 +1,37 @@
-# **MTG Card Market & Analytics Platform**
+# MTG Card Market & Analytics Platform
 
-Aplicación web Full Stack para la gestión, consulta de precios y análisis de cartas de Magic: The Gathering (MTG). Desarrollada con arquitectura de microservicios contenerizada con Docker.
+Aplicación web Full Stack para la consulta, gestión de inventario, analítica de mercado y construcción de mazos de *Magic: The Gathering* (MTG). La plataforma integra los datos masivos provistos por la API oficial de Scryfall en una base de datos local para realizar consultas de alto rendimiento sin penalizaciones por límites de peticiones.
 
-# **🛠️ Stack Tecnológico**
+---
 
-La plataforma utiliza un ecosistema de tecnologías modernas para garantizar escalabilidad y rendimiento:
+## 🛠️ Stack Tecnológico
 
+- **Backend:** FastAPI (Python 3.10+) con Uvicorn para una arquitectura asíncrona, modular y documentación OpenAPI automática.
+- **Base de Datos:** PostgreSQL en contenedor Docker, configurado con soporte para campos relacionales indexados y columnas `JSONB` (`scryfall_raw_data`) para almacenar el payload completo de las cartas sin pérdida de datos.
+- **ORM & Configuración:** SQLAlchemy para el mapeo objeto-relacional, `psycopg2-binary` como driver de conexión y `python-dotenv` para la gestión segura de variables de entorno.
+- **ETL & Datos Masivos:** Pipeline en Python que procesa volcados masivos en formato JSONL comprimido (`.jsonl.gz`) desde el endpoint `/bulk-data` de Scryfall, descomprimiendo en streaming en memoria (`gzip` + `json`).
+- **Frontend (Próxima Fase):** React con Vite.
+- **Contenerización:** Docker para aislamiento del motor de base de datos y orquestación integral con Docker Compose.
 
-* **Backend:** FastAPI (Python 3.9) \+ Uvicorn para una gestión eficiente de peticiones asíncronas.  
-* **Base de Datos:** PostgreSQL 15 como motor relacional para la persistencia de datos de mercado.  
-* **Frontend:** React con Vite (Node.js) para una interfaz de usuario reactiva y optimizada.  
-* **Infraestructura:** Docker & Docker Compose para la orquestación y despliegue consistente entre entornos.
+---
 
-# **📁 Estructura del Proyecto**
+## 📁 Estructura del Proyecto
 
+```text
 mi-proyecto-tcg/
-
-
-├── docker-compose.yml       \# Orquestación de servicios locales
-├── README.md                \# Documentación del proyecto
+├── README.md
+├── docker-compose.yml           # Orquestación de servicios en producción (en desarrollo)
 ├── backend/
-│   ├── Dockerfile           \# Imagen de Python \+ dependencias del sistema
-│   ├── requirements.txt     \# Dependencias de Python (FastAPI, psycopg2, uvicorn...)
-│   └── main.py              \# Punto de entrada de la API
-└── frontend/
-    ├── Dockerfile           \# Imagen del frontend
-    ├── package.json         \# Dependencias y scripts de npm
-    └── vite.config.js       \# Configuración del servidor de desarrollo
+│   ├── .env                     # Variables de entorno locales (ignorado en git)
+│   ├── .gitignore               # Exclusiones de Git (.env, caches, entornos virtuales)
+│   ├── requirements.txt         # Dependencias Python
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── database.py          # Conexión SQLAlchemy, sesión y lectura de .env
+│   │   ├── models.py            # Modelos ORM (Card con soporte JSONB)
+│   │   └── main.py              # Aplicación FastAPI y definición de endpoints
+│   └── scripts/
+│       ├── __init__.py
+│       └── ingest_scryfall.py   # Script ETL para descarga y carga de Bulk Data Scryfall
+└── frontend/                    # Cliente web en React (fase futura)
 
-# **🚀 Requisitos Previos**
-
-Antes de iniciar el despliegue, asegúrese de contar con las siguientes herramientas instaladas:
-
-1. **Docker Desktop:** Instalado y en ejecución en el sistema.  
-2. **Git:** Para el control de versiones y clonación del código fuente.
-
-# **⚙️ Puesta en Marcha (Despliegue Local)**
-
-## **1\. Clonar el repositorio**
-
-Ejecute los siguientes comandos para obtener una copia local del código:
-
-git clone Person  
-cd File
-
-## **2\. Construir y levantar los contenedores**
-
-Para construir las imágenes por primera vez y levantar todos los servicios en segundo plano, utilice el comando:
-
-`docker compose up -d --build`
-
-## **3\. Verificar el estado de los servicios**
-
-Confirme que todos los contenedores se estén ejecutando correctamente:
-
-`docker compose ps`
-
-# **🌐 Servicios y Puertos**
-
-| Servicio | Acceso Local | Descripción |
-| :---- | :---- | :---- |
-| API Backend | http://localhost:8000 | Puntos de enlace de la API REST |
-| Swagger UI Docs | http://localhost:8000/docs | Documentación interactiva autogenerada |
-| Frontend Web | http://localhost:3000 | Interfaz de usuario final |
-| PostgreSQL | localhost:5432 | Base de datos relacional del sistema |
-
-# **🛠️ Comandos Útiles**
-
-A continuación se detallan los comandos más frecuentes para el mantenimiento del entorno de desarrollo:
-
-* **Ver registros (logs) del backend:**  
-  `docker compose logs -f backend`  
-* **Acceder a la terminal dentro del contenedor backend:**  
-  `docker compose exec backend bash`  
-* **Detener los servicios sin borrar datos:**  
-  `docker compose down`  
-* **Reconstruir un servicio específico tras cambios en dependencias:**  
-  `docker compose build --no-cache backend`  
-  `docker compose up -d backend`

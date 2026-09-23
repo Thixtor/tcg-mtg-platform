@@ -1,17 +1,24 @@
 import os
 import psycopg2
-from fastapi import FastAPI
+from typing import List, Optional
+from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 
-# 1. Crear la instancia principal de la API
+# Herramientas internas
+from app.database import get_db
+from app.models import CartaScryfall  # Importamos la clase real
+from app.schemas import CardResponse
+
+# Instancia principal de FastAPI
 app = FastAPI(
     title="TCG Card Market API",
-    description="Backend para la plataforma de intercambio y gestión de cartas",
+    description="Backend para búsqueda y gestión de cartas MTG",
     version="1.0.0"
 )
 
-# 2. Configurar CORS (Permisos de conexión)
-# Permite que el frontend (React en el puerto 3000) pueda pedir datos sin que el navegador lo bloquee
+# Configuración de CORS
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -19,53 +26,65 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       # Dominios autorizados a conectarse
-    allow_credentials=True,      # Permite envío de cookies o cabeceras de autenticación
-    allow_methods=["*"],         # Permite todos los métodos HTTP (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"],         # Permite todas las cabeceras HTTP
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# 3. Obtener la cadena de conexión a la base de datos desde las variables de entorno de Docker
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# 4. Ruta raíz de verificación
-@app.get("/")
-def read_root():
-    """
-    Ruta básica para comprobar que el backend está encendido y respondiendo.
-    """
-    return {
-        "status": "online",
-        "mensaje": "Servidor backend de TCG funcionando correctamente"
-    }
 
-# 5. Ruta para probar la conexión con PostgreSQL
-@app.get("/db-test")
+# --- Rutas de Diagnóstico ---
+
+@app.get("/", tags=["Diagnóstico"])
+def read_root():
+    """Comprueba que el backend responde."""
+    return {"status": "online", "mensaje": "Servidor backend de TCG funcionando"}
+
+
+@app.get("/db-test", tags=["Diagnóstico"])
 def test_db_connection():
-    """
-    Ruta para verificar que FastAPI puede conectarse a la base de datos PostgreSQL.
-    """
+    """Prueba rápida de conexión cruda a PostgreSQL."""
     try:
-        # Abre la conexión con PostgreSQL usando la URL del docker-compose
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        
-        # Ejecuta una consulta sencilla de prueba
         cur.execute("SELECT version();")
         db_version = cur.fetchone()
-        
-        # Cierra el cursor y la conexión
         cur.close()
         conn.close()
-        
-        return {
-            "status": "success",
-            "mensaje": "Conexión exitosa a PostgreSQL",
-            "version": db_version[0]
-        }
+        return {"status": "success", "version": db_version[0]}
     except Exception as error:
-        return {
-            "status": "error",
-            "mensaje": "No se pudo conectar a la base de datos",
-            "detalle": str(error)
-        }
+        return {"status": "error", "detalle": str(error)}
+
+
+# --- Rutas de Catálogo de Cartas ---
+
+@app.get("/api/cards/search", response_model=List[CardResponse], tags=["Cartas"])
+def search_cards(
+    q: str = Query(..., min_length=2, description="Texto o nombre de la carta a buscar"),
+    set_code: Optional[str] = Query(None, description="Código de la edición (ej. mh3)"),
+    limit: int = Query(20, ge=1, le=100, description="Límite de resultados"),
+    offset: int = Query(0, ge=0, description="Paginación"),
+    db: Session = Depends(get_db)
+):
+    """
+    Busca cartas en el catálogo local por nombre o edición (insensible a mayúsculas).
+    """
+    query = db.query(CartaScryfall).filter(CartaScryfall.name.ilike(f"%{q}%"))
+    
+    if set_code:
+        query = query.filter(func.lower(CartaScryfall.set) == set_code.lower())
+        
+    return query.offset(offset).limit(limit).all()
+
+
+@app.get("/api/cards/{card_id}", response_model=CardResponse, tags=["Cartas"])
+def get_card_by_id(card_id: str, db: Session = Depends(get_db)):
+    """
+    Obtiene los datos completos de una carta por su UUID.
+    """
+    card = db.query(CartaScryfall).filter(CartaScryfall.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Carta no encontrada")
+    return card
