@@ -4,22 +4,30 @@ import psycopg2
 from typing import List, Optional
 from fastapi import FastAPI, Depends, Query, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
-# Herramientas internas
 from app.database import get_db
-from app.models import CartaScryfall, User
-from app.schemas import CardResponse, UserCreate, UserResponse, RequestCodePayload, VerifyCodePayload
+from app.models import CartaScryfall, User, Collection, UserCard
+from app.schemas import (
+    CardResponse,
+    UserCreate,
+    UserResponse,
+    RequestCodePayload,
+    VerifyCodePayload,
+    CollectionCreate,
+    CollectionResponse,
+    AddCardToCollectionPayload,
+    UserCardResponse,
+    TradeMarketItemResponse
+)
 
-# Instancia principal de FastAPI
 app = FastAPI(
     title="TCG Card Market API",
     description="Backend para búsqueda, colecciones e intercambio de cartas MTG",
     version="1.0.0"
 )
 
-# Configuración de CORS
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -34,6 +42,7 @@ app.add_middleware(
 )
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+
 
 # ---------------------------------------------------------
 # RUTAS DE DIAGNÓSTICO
@@ -69,12 +78,10 @@ def get_card_by_id(card_id: str, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------
-# RUTAS DE USUARIOS Y VERIFICACIÓN POR CELULAR (Opción C)
+# RUTAS DE USUARIOS Y VERIFICACIÓN POR CELULAR
 # ---------------------------------------------------------
 @app.post("/api/auth/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, tags=["Usuarios & Auth"])
 def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Registra un nuevo usuario y genera automáticamente el primer código OTP."""
-    # Verificar unicidad
     if db.query(User).filter(User.username == user_data.username).first():
         raise HTTPException(status_code=400, detail="El nombre de usuario ya está registrado")
     if db.query(User).filter(User.email == user_data.email).first():
@@ -82,7 +89,6 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.phone_number == user_data.phone_number).first():
         raise HTTPException(status_code=400, detail="El número de teléfono ya está registrado")
 
-    # Generar código OTP de 6 dígitos
     otp_code = f"{random.randint(100000, 999999)}"
 
     nuevo_usuario = User(
@@ -97,7 +103,6 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(nuevo_usuario)
 
-    # Simulación de envío por WhatsApp / Consola
     print("\n" + "="*50)
     print(f"📱 [DEV WHATSAPP SIMULATOR] Mensaje enviado a {user_data.phone_number}")
     print(f"🔑 Tu código de verificación es: {otp_code}")
@@ -108,7 +113,6 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/api/auth/request-code", tags=["Usuarios & Auth"])
 def request_verification_code(payload: RequestCodePayload, db: Session = Depends(get_db)):
-    """Reenvía o genera un nuevo código OTP para un número registrado."""
     user = db.query(User).filter(User.phone_number == payload.phone_number).first()
     if not user:
         raise HTTPException(status_code=404, detail="Número de teléfono no registrado")
@@ -127,7 +131,6 @@ def request_verification_code(payload: RequestCodePayload, db: Session = Depends
 
 @app.post("/api/auth/verify-code", tags=["Usuarios & Auth"])
 def verify_phone_code(payload: VerifyCodePayload, db: Session = Depends(get_db)):
-    """Valida el código OTP e identifica al usuario como verificado."""
     user = db.query(User).filter(User.phone_number == payload.phone_number).first()
     if not user:
         raise HTTPException(status_code=404, detail="Número de teléfono no encontrado")
@@ -138,7 +141,6 @@ def verify_phone_code(payload: VerifyCodePayload, db: Session = Depends(get_db))
     if user.verification_code != payload.code:
         raise HTTPException(status_code=400, detail="Código de verificación incorrecto")
 
-    # Marcar como verificado y limpiar el código de un solo uso
     user.is_phone_verified = True
     user.verification_code = None
     db.commit()
@@ -149,3 +151,133 @@ def verify_phone_code(payload: VerifyCodePayload, db: Session = Depends(get_db))
         "user_id": user.id,
         "username": user.username
     }
+
+
+# ---------------------------------------------------------
+# RUTAS DE COLECCIONES (BINDERS)
+# ---------------------------------------------------------
+@app.post("/api/users/{user_id}/collections", response_model=CollectionResponse, status_code=status.HTTP_201_CREATED, tags=["Colecciones"])
+def create_collection(user_id: str, payload: CollectionCreate, db: Session = Depends(get_db)):
+    """Crea una colección asegurando que el usuario no supere el límite de 10 colecciones."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Validación de regla de negocio: Máximo 10 colecciones
+    total_collections = db.query(Collection).filter(Collection.user_id == user_id).count()
+    if total_collections >= 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Has alcanzado el límite máximo de 10 colecciones por usuario."
+        )
+
+    nueva_coleccion = Collection(
+        user_id=user_id,
+        name=payload.name,
+        description=payload.description
+    )
+    db.add(nueva_coleccion)
+    db.commit()
+    db.refresh(nueva_coleccion)
+    return nueva_coleccion
+
+
+@app.get("/api/users/{user_id}/collections", response_model=List[CollectionResponse], tags=["Colecciones"])
+def list_user_collections(user_id: str, db: Session = Depends(get_db)):
+    """Lista todas las colecciones de un usuario."""
+    return db.query(Collection).filter(Collection.user_id == user_id).all()
+
+
+@app.post("/api/collections/{collection_id}/cards", response_model=UserCardResponse, status_code=status.HTTP_201_CREATED, tags=["Colecciones"])
+def add_card_to_collection(
+    collection_id: str,
+    payload: AddCardToCollectionPayload,
+    db: Session = Depends(get_db)
+):
+    """Agrega una carta física a una colección con su estado y flag de intercambio."""
+    # 1. Verificar que la colección exista
+    collection = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Colección no encontrada")
+
+    # 2. Verificar que la carta exista en el catálogo de Scryfall local
+    card_catalog = db.query(CartaScryfall).filter(CartaScryfall.id == payload.scryfall_card_id).first()
+    if not card_catalog:
+        raise HTTPException(status_code=404, detail="La carta no existe en el catálogo oficial local")
+
+    # 3. Crear el registro de la carta física
+    user_card = UserCard(
+        collection_id=collection_id,
+        scryfall_card_id=payload.scryfall_card_id,
+        quantity=payload.quantity,
+        condition=payload.condition,
+        language=payload.language,
+        is_foil=payload.is_foil,
+        is_for_trade=payload.is_for_trade,
+        trade_notes=payload.trade_notes
+    )
+    db.add(user_card)
+    db.commit()
+    db.refresh(user_card)
+    return user_card
+
+
+@app.get("/api/collections/{collection_id}/cards", response_model=List[UserCardResponse], tags=["Colecciones"])
+def list_collection_cards(collection_id: str, db: Session = Depends(get_db)):
+    """Lista las cartas físicas almacenadas en una colección específica."""
+    return (
+        db.query(UserCard)
+        .options(joinedload(UserCard.card_catalog))
+        .filter(UserCard.collection_id == collection_id)
+        .all()
+    )
+
+
+# ---------------------------------------------------------
+# RUTA DE MERCADO P2P (CARTAS DISPONIBLES PARA CAMBIO)
+# ---------------------------------------------------------
+@app.get("/api/trade/market", response_model=List[TradeMarketItemResponse], tags=["Intercambio / Trade"])
+def get_trade_market(
+    card_name: Optional[str] = Query(None, description="Filtro opcional por nombre de carta"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    """
+    Lista pública de todas las cartas marcadas para trade (`is_for_trade = True`)
+    cuyos dueños tengan el teléfono verificado.
+    """
+    query = (
+        db.query(UserCard)
+        .join(Collection, UserCard.collection_id == Collection.id)
+        .join(User, Collection.user_id == User.id)
+        .join(CartaScryfall, UserCard.scryfall_card_id == CartaScryfall.id)
+        .filter(UserCard.is_for_trade == True)
+        .filter(User.is_phone_verified == True)
+    )
+
+    if card_name:
+        query = query.filter(CartaScryfall.name.ilike(f"%{card_name}%"))
+
+    results = query.offset(offset).limit(limit).all()
+
+    trade_items = []
+    for item in results:
+        owner = item.collection.owner
+        catalog = item.card_catalog
+        trade_items.append(
+            TradeMarketItemResponse(
+                user_card_id=item.id,
+                card_name=catalog.name,
+                set_code=catalog.set,
+                image_url=catalog.image_url,
+                condition=item.condition,
+                language=item.language,
+                is_foil=item.is_foil,
+                trade_notes=item.trade_notes,
+                owner_username=owner.username,
+                owner_phone=owner.phone_number,
+                owner_reputation=owner.reputation_score
+            )
+        )
+    return trade_items
