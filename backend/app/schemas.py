@@ -151,3 +151,42 @@ class DeckCardDetailResponse(BaseModel):
     # Análisis de posesión física
     status: str              # DISPONIBLE, EN_OTRO_MAZO, FALTANTE
     assigned_other_decks: List[str] = [] # Nombres de otros mazos donde está la carta
+
+# ---------------------------------------------------------
+# 6. ESQUEMAS DE WISHLIST Y MATCHMAKING
+# ---------------------------------------------------------
+class WishlistAddPayload(BaseModel):
+    scryfall_card_id: str
+    quantity: int = 1
+    priority: str = "media"
+
+
+class WishlistItemResponse(BaseModel):
+    id: str
+    user_id: str
+    scryfall_card_id: str
+    quantity: int
+    priority: str
+    card_catalog: Optional[CardResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Estructura del Matchmaking
+class MatchedCard(BaseModel):
+    scryfall_card_id: str
+    card_name: str
+    image_url: Optional[str] = None
+    condition: Optional[str] = None
+    is_foil: Optional[bool] = None
+
+
+class TradeMatchUserResponse(BaseModel):
+    user_id: str
+    username: str
+    phone_number: str
+    reputation_score: int
+    they_have: List[MatchedCard]   # Cartas que ellos tienen en Trade y tú quieres
+    they_want: List[MatchedCard]   # Cartas tuyas en Trade que ellos quieren
+    is_mutual_match: bool          # True si ambos tienen algo que el otro busca
