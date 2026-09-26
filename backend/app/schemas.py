@@ -1,5 +1,5 @@
 from typing import Optional, Any, Dict, List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 # ---------------------------------------------------------
@@ -16,7 +16,7 @@ class CardResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
+        orm_mode = True
 
 # ---------------------------------------------------------
 # 2. ESQUEMAS DE USUARIO Y AUTH

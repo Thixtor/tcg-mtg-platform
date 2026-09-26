@@ -48,17 +48,27 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
+# Configurar middleware de CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# ----------------------------------------------------
+# RUTA DEL FAVICON
+# ----------------------------------------------------
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------
@@ -72,7 +82,7 @@ def read_root():
 # ---------------------------------------------------------
 # RUTAS DEL CATÁLOGO DE CARTAS (Buscador Scryfall)
 # ---------------------------------------------------------
-@app.get("/api/cards/search", response_model=List[CardResponse], tags=["Cartas"])
+@app.get("/api/cards/search", tags=["Cartas"])
 def search_cards(
     q: str = Query(..., min_length=2, description="Texto a buscar"),
     set_code: Optional[str] = Query(None, description="Código de set"),
@@ -82,8 +92,35 @@ def search_cards(
 ):
     query = db.query(CartaScryfall).filter(CartaScryfall.name.ilike(f"%{q}%"))
     if set_code:
-        query = query.filter(func.lower(CartaScryfall.set) == set_code.lower())
-    return query.offset(offset).limit(limit).all()
+        query = query.filter(func.lower(getattr(CartaScryfall, 'set', CartaScryfall.id)) == set_code.lower())
+
+    cartas = query.offset(offset).limit(limit).all()
+
+    resultados = []
+    for c in cartas:
+        # Extraer URL de la imagen de forma tolerante a fallos
+        img = getattr(c, "image_url", None)
+        if not img:
+            image_uris = getattr(c, "image_uris", None)
+            raw = getattr(c, "scryfall_raw_data", None) or {}
+
+            if isinstance(image_uris, dict):
+                img = image_uris.get("normal") or image_uris.get("small")
+            elif isinstance(raw, dict):
+                raw_uris = raw.get("image_uris", {})
+                if isinstance(raw_uris, dict):
+                    img = raw_uris.get("normal") or raw_uris.get("small")
+
+        resultados.append({
+            "id": str(c.id),
+            "name": c.name,
+            "set": getattr(c, "set", getattr(c, "set_code", "")),
+            "type_line": getattr(c, "type_line", None),
+            "mana_cost": getattr(c, "mana_cost", None),
+            "image_url": img
+        })
+
+    return resultados
 
 
 @app.get("/api/cards/{card_id}", response_model=CardResponse, tags=["Cartas"])
