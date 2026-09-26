@@ -34,11 +34,11 @@ services:
     container_name: mtg_frontend
     ports:
       - "3000:3000"
-    depends_on:
-      - backend
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
 
 volumes:
   pgdata:

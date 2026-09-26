@@ -7,7 +7,7 @@ WORKDIR /app
 # 3. Copia de manifiestos de librerías
 COPY package*.json ./
 
-# 4. Ajustes de reintento de red para evitar cortes de descarga y ejecución de instalación
+# 4. Ajustes de reintento de red para evitar cortes y ejecución de instalación
 RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
