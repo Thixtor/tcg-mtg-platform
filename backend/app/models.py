@@ -78,3 +78,34 @@ class UserCard(Base):
 
     collection = relationship("Collection", back_populates="cards")
     card_catalog = relationship("CartaScryfall", back_populates="instances_in_collections")
+
+# ---------------------------------------------------------
+# 5. MAZOS / BIBLIOTECA DE DECKS (Hasta 10 por usuario)
+# ---------------------------------------------------------
+class Deck(Base):
+    __tablename__ = 'decks'
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
+    name = Column(String, nullable=False)               # Ej: "Miirym Dragons", "Atraxa Counters"
+    format = Column(String, default="Commander")         # Commander, Modern, Standard, Pioneer
+    description = Column(String, nullable=True)
+
+    # Relaciones
+    owner = relationship("User", backref="decks")
+    cards = relationship("DeckCard", back_populates="deck", cascade="all, delete-orphan")
+
+
+class DeckCard(Base):
+    __tablename__ = 'deck_cards'
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    deck_id = Column(String, ForeignKey('decks.id'), nullable=False, index=True)
+    scryfall_card_id = Column(String, ForeignKey('cartas.id'), nullable=False, index=True)
+
+    quantity = Column(Integer, default=1, nullable=False)
+    category = Column(String, default="mainboard")      # commander, mainboard, sideboard, maybeboard
+
+    # Relaciones
+    deck = relationship("Deck", back_populates="cards")
+    card_catalog = relationship("CartaScryfall")

@@ -281,3 +281,130 @@ def get_trade_market(
             )
         )
     return trade_items
+
+from app.models import Deck, DeckCard
+from app.schemas import DeckCreate, DeckResponse, AddCardToDeckPayload, DeckCardDetailResponse
+
+# ---------------------------------------------------------
+# RUTAS DE MAZOS (DECKBUILDER)
+# ---------------------------------------------------------
+
+@app.post("/api/users/{user_id}/decks", response_model=DeckResponse, status_code=status.HTTP_201_CREATED, tags=["Mazos / Decks"])
+def create_deck(user_id: str, payload: DeckCreate, db: Session = Depends(get_db)):
+    """Crea un mazo validando el límite máximo de 10 mazos por usuario."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    total_decks = db.query(Deck).filter(Deck.user_id == user_id).count()
+    if total_decks >= 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Has alcanzado el límite máximo de 10 mazos en tu biblioteca."
+        )
+
+    nuevo_mazo = Deck(
+        user_id=user_id,
+        name=payload.name,
+        format=payload.format,
+        description=payload.description
+    )
+    db.add(nuevo_mazo)
+    db.commit()
+    db.refresh(nuevo_mazo)
+    return nuevo_mazo
+
+
+@app.get("/api/users/{user_id}/decks", response_model=List[DeckResponse], tags=["Mazos / Decks"])
+def list_user_decks(user_id: str, db: Session = Depends(get_db)):
+    """Lista todos los mazos del usuario."""
+    return db.query(Deck).filter(Deck.user_id == user_id).all()
+
+
+@app.post("/api/decks/{deck_id}/cards", status_code=status.HTTP_201_CREATED, tags=["Mazos / Decks"])
+def add_card_to_deck(deck_id: str, payload: AddCardToDeckPayload, db: Session = Depends(get_db)):
+    """Agrega una carta de Scryfall al mazo especificado."""
+    deck = db.query(Deck).filter(Deck.id == deck_id).first()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Mazo no encontrado")
+
+    card_catalog = db.query(CartaScryfall).filter(CartaScryfall.id == payload.scryfall_card_id).first()
+    if not card_catalog:
+        raise HTTPException(status_code=404, detail="La carta no existe en el catálogo Scryfall")
+
+    nueva_carta_mazo = DeckCard(
+        deck_id=deck_id,
+        scryfall_card_id=payload.scryfall_card_id,
+        quantity=payload.quantity,
+        category=payload.category
+    )
+    db.add(nueva_carta_mazo)
+    db.commit()
+    db.refresh(nueva_carta_mazo)
+    return {"mensaje": "Carta agregada al mazo correctamente", "deck_card_id": nueva_carta_mazo.id}
+
+
+@app.get("/api/decks/{deck_id}/status", response_model=List[DeckCardDetailResponse], tags=["Mazos / Decks"])
+def get_deck_inventory_status(deck_id: str, db: Session = Depends(get_db)):
+    """
+    Inspecciona las cartas del mazo y determina:
+    - DISPONIBLE: Se posee físicamente en una colección libre.
+    - EN_OTRO_MAZO: Se posee física, pero está armada en otro mazo del usuario.
+    - FALTANTE: No se poseen copias suficientes registradas.
+    """
+    deck = db.query(Deck).filter(Deck.id == deck_id).first()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Mazo no encontrado")
+
+    user_id = deck.user_id
+    deck_cards = db.query(DeckCard).filter(DeckCard.deck_id == deck_id).all()
+
+    reporte = []
+
+    for dc in deck_cards:
+        catalog = dc.card_catalog
+
+        # 1. Total de copias físicas que el usuario posee en todas sus colecciones
+        total_owned = (
+            db.query(func.coalesce(func.sum(UserCard.quantity), 0))
+            .join(Collection, UserCard.collection_id == Collection.id)
+            .filter(Collection.user_id == user_id)
+            .filter(UserCard.scryfall_card_id == dc.scryfall_card_id)
+            .scalar()
+        )
+
+        # 2. Mazos DISTINTOS al actual que usan esta misma carta
+        other_decks_using = (
+            db.query(Deck.name)
+            .join(DeckCard, Deck.id == DeckCard.deck_id)
+            .filter(Deck.user_id == user_id)
+            .filter(Deck.id != deck_id)
+            .filter(DeckCard.scryfall_card_id == dc.scryfall_card_id)
+            .distinct()
+            .all()
+        )
+        other_deck_names = [d[0] for d in other_decks_using]
+
+        # 3. Determinar estado
+        if total_owned >= dc.quantity and len(other_deck_names) == 0:
+            card_status = "DISPONIBLE"
+        elif total_owned >= dc.quantity and len(other_deck_names) > 0:
+            card_status = "EN_OTRO_MAZO"
+        else:
+            card_status = "FALTANTE"
+
+        reporte.append(
+            DeckCardDetailResponse(
+                deck_card_id=dc.id,
+                scryfall_card_id=dc.scryfall_card_id,
+                name=catalog.name,
+                set_code=catalog.set,
+                image_url=catalog.image_url,
+                quantity_needed=dc.quantity,
+                category=dc.category,
+                status=card_status,
+                assigned_other_decks=other_deck_names
+            )
+        )
+
+    return reporte

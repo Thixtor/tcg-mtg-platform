@@ -111,3 +111,43 @@ class TradeMarketItemResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ---------------------------------------------------------
+# 5. ESQUEMAS DE MAZOS (DECKS)
+# ---------------------------------------------------------
+class DeckCreate(BaseModel):
+    name: str
+    format: str = "Commander"
+    description: Optional[str] = None
+
+
+class DeckResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    format: str
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AddCardToDeckPayload(BaseModel):
+    scryfall_card_id: str
+    quantity: int = 1
+    category: str = "mainboard"  # commander, mainboard, sideboard, maybeboard
+
+
+# Esquema del estado de inventario para una carta dentro del mazo
+class DeckCardDetailResponse(BaseModel):
+    deck_card_id: str
+    scryfall_card_id: str
+    name: str
+    set_code: Optional[str] = None
+    image_url: Optional[str] = None
+    quantity_needed: int
+    category: str
+    
+    # Análisis de posesión física
+    status: str              # DISPONIBLE, EN_OTRO_MAZO, FALTANTE
+    assigned_other_decks: List[str] = [] # Nombres de otros mazos donde está la carta
