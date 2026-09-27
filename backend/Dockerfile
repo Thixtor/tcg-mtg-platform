@@ -20,4 +20,4 @@ COPY . .
 EXPOSE 8000
 
 # Comando para iniciar la API con recarga automática para desarrollo
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
