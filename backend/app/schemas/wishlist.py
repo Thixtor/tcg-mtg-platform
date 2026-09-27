@@ -24,7 +24,7 @@ class WishlistItemResponse(BaseModel):
 
     class Config:
         from_attributes = True
-        orm_mode = True
+       
 
 
 class MatchedCard(BaseModel):
@@ -37,7 +37,7 @@ class MatchedCard(BaseModel):
 
     class Config:
         from_attributes = True
-        orm_mode = True
+       
 
 
 class TradeMatchUserResponse(BaseModel):
@@ -52,4 +52,4 @@ class TradeMatchUserResponse(BaseModel):
 
     class Config:
         from_attributes = True
-        orm_mode = True
+        

@@ -1,49 +1,38 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Importación de routers modulares
+# Importación de configuración y routers
+from app.core.config import settings
 from app.routers import cards, auth, collections, decks, wishlist, prices
 
 app = FastAPI(
-    title="MTG Trade & Analytics API",
+    title=settings.PROJECT_NAME,
     description="API REST Full Stack para intercambio de cartas, gestión de inventario, mazos y cotizaciones históricas.",
-    version="1.0.0"
+    version=settings.PROJECT_VERSION
 )
 
-# ---------------------------------------------------------
-# CONFIGURACIÓN DE CORS (Para conexión con React + Vite)
-# ---------------------------------------------------------
-origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
-
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------
-# REGISTRO DE ROUTERS MODULARES
-# ---------------------------------------------------------
-app.include_router(cards.router, prefix="/api")
-app.include_router(auth.router, prefix="/api")
-app.include_router(collections.router, prefix="/api")
-app.include_router(decks.router, prefix="/api")
-app.include_router(wishlist.router, prefix="/api")
-app.include_router(prices.router, prefix="/api")
+# Registro de routers
+app.include_router(cards.router, prefix=settings.API_V1_STR)
+app.include_router(auth.router, prefix=settings.API_V1_STR)
+app.include_router(collections.router, prefix=settings.API_V1_STR)
+app.include_router(decks.router, prefix=settings.API_V1_STR)
+app.include_router(wishlist.router, prefix=settings.API_V1_STR)
+app.include_router(prices.router, prefix=settings.API_V1_STR)
 
 
-# ---------------------------------------------------------
-# HEALTH CHECK
-# ---------------------------------------------------------
 @app.get("/", tags=["Health Check"])
 def health_check():
     return {
         "status": "ok",
-        "service": "MTG Trade & Analytics API",
-        "version": "1.0.0"
+        "service": settings.PROJECT_NAME,
+        "version": settings.PROJECT_VERSION
     }
