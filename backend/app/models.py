@@ -1,5 +1,17 @@
 import uuid
-from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, JSON
+from datetime import date
+from sqlalchemy import (
+    Column, 
+    String, 
+    Integer, 
+    Boolean, 
+    ForeignKey, 
+    JSON, 
+    Numeric, 
+    Date, 
+    Index, 
+    UniqueConstraint
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -20,7 +32,9 @@ class CartaScryfall(Base):
     image_url = Column(String)
     scryfall_raw_data = Column(JSON, nullable=False)
 
+    # Relaciones
     instances_in_collections = relationship("UserCard", back_populates="card_catalog")
+    price_history = relationship("HistoricoPrecio", back_populates="card_catalog", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------
@@ -79,6 +93,7 @@ class UserCard(Base):
     collection = relationship("Collection", back_populates="cards")
     card_catalog = relationship("CartaScryfall", back_populates="instances_in_collections")
 
+
 # ---------------------------------------------------------
 # 5. MAZOS / BIBLIOTECA DE DECKS (Hasta 10 por usuario)
 # ---------------------------------------------------------
@@ -110,6 +125,7 @@ class DeckCard(Base):
     deck = relationship("Deck", back_populates="cards")
     card_catalog = relationship("CartaScryfall")
 
+
 # ---------------------------------------------------------
 # 6. WISHLIST / LISTA DE DESEOS
 # ---------------------------------------------------------
@@ -126,3 +142,42 @@ class WishlistItem(Base):
     # Relaciones
     user = relationship("User", backref="wishlist")
     card_catalog = relationship("CartaScryfall")
+
+
+# ---------------------------------------------------------
+# 7. HISTÓRICO Y EVOLUCIÓN DE PRECIOS (Card Kingdom / TCGplayer)
+# ---------------------------------------------------------
+class HistoricoPrecio(Base):
+    """
+    Registro cronológico de precios para análisis de mercado y gráficos de cotización.
+    Permite comparar la estabilidad y tendencia del valor entre Card Kingdom y TCGplayer.
+    """
+    __tablename__ = 'historico_precios'
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    
+    # Llave foránea vinculada al catálogo de Scryfall
+    scryfall_card_id = Column(String, ForeignKey('cartas.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # Tienda de referencia: 'cardkingdom' o 'tcgplayer'
+    tienda = Column(String(30), nullable=False)
+    
+    # Acabado físico: 'normal' o 'foil'
+    tipo = Column(String(10), nullable=False, default="normal")
+    
+    # Precio monetario en USD (ej. 12.50)
+    precio_usd = Column(Numeric(10, 2), nullable=False)
+    
+    # Fecha del registro de precio
+    fecha = Column(Date, nullable=False, default=date.today)
+
+    # Restricciones e Índices de consulta rápida
+    __table_args__ = (
+        # Evita duplicar el precio de una misma carta, tienda, acabado y día
+        UniqueConstraint('scryfall_card_id', 'tienda', 'tipo', 'fecha', name='uq_historico_carta_tienda_fecha'),
+        # Acelera consultas de gráficos temporales ordenados cronológicamente
+        Index('idx_historico_carta_fecha', 'scryfall_card_id', 'fecha'),
+    )
+
+    # Relación
+    card_catalog = relationship("CartaScryfall", back_populates="price_history")
