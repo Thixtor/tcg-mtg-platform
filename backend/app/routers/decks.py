@@ -2,15 +2,16 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-# Dependencias internas del núcleo
+# Importación de dependencias del núcleo
 from app.database import get_db
-from app.models import User, Deck, DeckCard, UserCard, Collection, CartaScryfall
+from app.models import User, Deck, DeckCard, CartaScryfall
 from app.schemas import (
     DeckCreate,
     DeckResponse,
     AddCardToDeckPayload,
     DeckCardDetailResponse
 )
+from app.services.inventory_service import calculate_deck_availability
 
 router = APIRouter(
     prefix="/decks",
@@ -111,23 +112,18 @@ def add_card_to_deck(
 
 
 # ---------------------------------------------------------
-# 3. DETALLE DE CARTAS Y ESTADO DE DISPONIBILIDAD FÍSICA
+# 3. DISPONIBILIDAD FÍSICA DE CARTAS (DELEGADO A SERVICIO)
 # ---------------------------------------------------------
 @router.get(
     "/{deck_id}/cards",
     response_model=List[DeckCardDetailResponse],
-    summary="Obtener las cartas del mazo con su estado de disponibilidad física"
+    summary="Obtener las cartas del mazo con su estado de disponibilidad física",
+    description="Analiza la posesión real comparando contra los binders del usuario mediante inventory_service."
 )
 def get_deck_cards_with_inventory_status(
     deck_id: str,
     db: Session = Depends(get_db)
 ):
-    """
-    Analiza cada carta del mazo comparándola contra el inventario del usuario:
-    - DISPONIBLE: El usuario tiene copias físicas en sus colecciones.
-    - EN_OTRO_MAZO: La carta está asignada en otro mazo del usuario.
-    - FALTANTE: El usuario no posee la carta físicamente.
-    """
     mazo = db.query(Deck).filter(Deck.id == deck_id).first()
     if not mazo:
         raise HTTPException(
@@ -135,54 +131,5 @@ def get_deck_cards_with_inventory_status(
             detail="Mazo no encontrado."
         )
 
-    cartas_mazo = db.query(DeckCard).filter(DeckCard.deck_id == deck_id).all()
-    user_id = mazo.user_id
-
-    # Obtener qué cartas físicas posee el usuario en sus binders
-    cartas_posesion = (
-        db.query(UserCard.scryfall_card_id)
-        .join(Collection, UserCard.collection_id == Collection.id)
-        .filter(Collection.user_id == user_id)
-        .all()
-    )
-    ids_en_posesion = {c[0] for c in cartas_posesion}
-
-    # Obtener asignaciones en otros mazos del mismo usuario
-    otros_mazos_cards = (
-        db.query(DeckCard.scryfall_card_id, Deck.name)
-        .join(Deck, DeckCard.deck_id == Deck.id)
-        .filter(Deck.user_id == user_id, Deck.id != deck_id)
-        .all()
-    )
-    mapa_otros_mazos = {}
-    for scry_id, nombre_mazo in otros_mazos_cards:
-        mapa_otros_mazos.setdefault(scry_id, []).append(nombre_mazo)
-
-    detalle_resultado = []
-    for dc in cartas_mazo:
-        scry_id = dc.scryfall_card_id
-        carta_cat = dc.card_catalog
-
-        # Determinar status
-        if scry_id in mapa_otros_mazos:
-            estado = "EN_OTRO_MAZO"
-        elif scry_id in ids_en_posesion:
-            estado = "DISPONIBLE"
-        else:
-            estado = "FALTANTE"
-
-        detalle_resultado.append(
-            DeckCardDetailResponse(
-                deck_card_id=dc.id,
-                scryfall_card_id=scry_id,
-                name=carta_cat.name if carta_cat else "Desconocida",
-                set_code=carta_cat.set if carta_cat else None,
-                image_url=carta_cat.image_url if carta_cat else None,
-                quantity_needed=dc.quantity,
-                category=dc.category,
-                status=estado,
-                assigned_other_decks=mapa_otros_mazos.get(scry_id, [])
-            )
-        )
-
-    return detalle_resultado
+    # Delegación limpia a la capa de servicios
+    return calculate_deck_availability(db, mazo)

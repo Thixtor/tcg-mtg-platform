@@ -1,0 +1,1 @@
+# Capa de Servicios: Lógica de negocio y algoritmos del dominio

@@ -2,15 +2,15 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
-# Dependencias internas del núcleo
+# Importación de dependencias del núcleo
 from app.database import get_db
-from app.models import User, WishlistItem, UserCard, Collection, CartaScryfall
+from app.models import User, WishlistItem, CartaScryfall
 from app.schemas import (
     WishlistAddPayload,
     WishlistItemResponse,
-    TradeMatchUserResponse,
-    MatchedCard
+    TradeMatchUserResponse
 )
+from app.services.matchmaking_service import find_trade_matches_for_user
 
 router = APIRouter(
     tags=["Wishlist y Motor de Matchmaking"]
@@ -95,13 +95,13 @@ def remove_from_wishlist(
 
 
 # ---------------------------------------------------------
-# 2. MOTOR DE MATCHMAKING DE INTERCAMBIOS
+# 2. MOTOR DE MATCHMAKING (DELEGADO A SERVICIO)
 # ---------------------------------------------------------
 @router.get(
     "/matchmaking/{user_id}",
     response_model=List[TradeMatchUserResponse],
     summary="Encontrar coincidencias de intercambio para un usuario",
-    description="Cruza la Wishlist del usuario con cartas disponibles para trade de otros usuarios y detecta coincidencias mutuas."
+    description="Cruza la Wishlist del usuario con cartas disponibles de otros usuarios mediante matchmaking_service."
 )
 def get_trade_matches(
     user_id: str,
@@ -114,93 +114,5 @@ def get_trade_matches(
             detail="Usuario no encontrado."
         )
 
-    # 1. Obtener los IDs de cartas que el usuario busca (su wishlist)
-    mi_wishlist = db.query(WishlistItem.scryfall_card_id).filter(WishlistItem.user_id == user_id).all()
-    mis_deseos_ids = {w[0] for w in mi_wishlist}
-
-    if not mis_deseos_ids:
-        return []
-
-    # 2. Obtener las cartas que el usuario tiene para intercambio
-    mis_cartas_trade = (
-        db.query(UserCard.scryfall_card_id)
-        .join(Collection, UserCard.collection_id == Collection.id)
-        .filter(Collection.user_id == user_id, UserCard.is_for_trade == True)
-        .all()
-    )
-    mis_trade_ids = {c[0] for c in mis_cartas_trade}
-
-    # 3. Buscar otros usuarios que tengan cartas que yo deseo en estado is_for_trade
-    otros_con_mis_deseos = (
-        db.query(UserCard, User)
-        .join(Collection, UserCard.collection_id == Collection.id)
-        .join(User, Collection.user_id == User.id)
-        .filter(
-            User.id != user_id,
-            UserCard.is_for_trade == True,
-            UserCard.scryfall_card_id.in_(mis_deseos_ids)
-        )
-        .all()
-    )
-
-    # Agrupar coincidencias por usuario contraparte
-    usuarios_coincidentes = {}
-    for user_card, otro_usuario in otros_con_mis_deseos:
-        if otro_usuario.id not in usuarios_coincidentes:
-            usuarios_coincidentes[otro_usuario.id] = {
-                "user": otro_usuario,
-                "they_have": []
-            }
-        carta_cat = user_card.card_catalog
-        usuarios_coincidentes[otro_usuario.id]["they_have"].append(
-            MatchedCard(
-                scryfall_card_id=user_card.scryfall_card_id,
-                card_name=carta_cat.name if carta_cat else "Carta",
-                image_url=carta_cat.image_url if carta_cat else None,
-                condition=user_card.condition,
-                is_foil=user_card.is_foil
-            )
-        )
-
-    # 4. Comprobar si hay match mutuo (si el otro usuario busca algo de lo que yo ofrezco)
-    resultados: List[TradeMatchUserResponse] = []
-    for otro_id, data in usuarios_coincidentes.items():
-        otro_user = data["user"]
-
-        they_want_records = (
-            db.query(WishlistItem)
-            .filter(
-                WishlistItem.user_id == otro_id,
-                WishlistItem.scryfall_card_id.in_(mis_trade_ids)
-            )
-            .all()
-        )
-
-        they_want_cards = []
-        for wl in they_want_records:
-            carta_cat = wl.card_catalog
-            they_want_cards.append(
-                MatchedCard(
-                    scryfall_card_id=wl.scryfall_card_id,
-                    card_name=carta_cat.name if carta_cat else "Carta",
-                    image_url=carta_cat.image_url if carta_cat else None
-                )
-            )
-
-        is_mutual = len(they_want_cards) > 0
-
-        resultados.append(
-            TradeMatchUserResponse(
-                user_id=otro_user.id,
-                username=otro_user.username,
-                phone_number=otro_user.phone_number,
-                reputation_score=otro_user.reputation_score,
-                they_have=data["they_have"],
-                they_want=they_want_cards,
-                is_mutual_match=is_mutual
-            )
-        )
-
-    # Priorizar en la lista los matches mutuos (primero los intercambios bidireccionales)
-    resultados.sort(key=lambda r: r.is_mutual_match, reverse=True)
-    return resultados
+    # Delegación limpia a la capa de servicios
+    return find_trade_matches_for_user(db, user_id)
