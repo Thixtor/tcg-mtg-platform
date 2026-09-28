@@ -58,6 +58,16 @@ MECHANIC_RULES = [
     }
 ]
 
+def extract_oracle_text(raw_data: dict) -> str:
+    """Extrae el texto de reglas considerando cartas estándar y de doble cara."""
+    if not raw_data:
+        return ""
+    if raw_data.get("oracle_text"):
+        return raw_data["oracle_text"]
+    if "card_faces" in raw_data and isinstance(raw_data["card_faces"], list):
+        return " // ".join(face.get("oracle_text", "") for face in raw_data["card_faces"] if face.get("oracle_text"))
+    return ""
+
 def get_mechanic_ids(oracle_text: str) -> Set[str]:
     text = oracle_text or ""
     return {rule["id"] for rule in MECHANIC_RULES if rule["test"](text)}
@@ -78,9 +88,9 @@ def search_cards_advanced(
     db: Session,
     query_text: Optional[str] = None,
     card_type: Optional[str] = None,
-    colors: Optional[str] = None,       # Ej: "W,U" o "C" (Incoloro)
-    rarity: Optional[str] = None,      # Ej: "rare", "mythic"
-    cmc: Optional[int] = None,         # Coste exacto (o None)
+    colors: Optional[str] = None,
+    rarity: Optional[str] = None,
+    cmc: Optional[int] = None,
     limit: int = 24
 ) -> List[CartaScryfall]:
     """
@@ -93,16 +103,15 @@ def search_cards_advanced(
     if query_text and query_text.strip():
         query = query.filter(CartaScryfall.name.ilike(f"%{query_text.strip()}%"))
 
-    # 1.2 Filtro por tipo de carta (ignorar si es 'all' o cadena vacía)
-        if card_type and card_type.strip() and card_type.lower() != 'all':
-            query = query.filter(CartaScryfall.type_line.ilike(f"%{card_type.strip()}%"))
+    # 1.2 Filtro por tipo de carta (CORREGIDO: Desindentado del bloque query_text)
+    if card_type and card_type.strip() and card_type.lower() != 'all':
+        query = query.filter(CartaScryfall.type_line.ilike(f"%{card_type.strip()}%"))
 
-    # 1.3 Filtro por colores / identidad (ROBUSTO para PostgreSQL JSON)
+    # 1.3 Filtro por colores / identidad
     if colors and colors.strip():
         color_list = [c.strip().upper() for c in colors.split(",") if c.strip()]
         
         if "C" in color_list:
-            # Incoloro: el array en JSON es '[]' o NULL
             query = query.filter(
                 or_(
                     cast(CartaScryfall.scryfall_raw_data['color_identity'], String) == '[]',
@@ -111,7 +120,6 @@ def search_cards_advanced(
                 )
             )
         else:
-            # Buscar cada color (W, U, B, R, G) dentro del array JSON
             for col in color_list:
                 query = query.filter(
                     or_(
@@ -120,23 +128,23 @@ def search_cards_advanced(
                     )
                 )
 
-    # 1.4 Filtro por rareza
+    # 1.4 Filtro por rareza (CORREGIDO: cast a String compatible y agnóstico)
     if rarity and rarity.strip():
-        query = query.filter(CartaScryfall.scryfall_raw_data['rarity'].astext == rarity.strip().lower())
+        query = query.filter(
+            cast(CartaScryfall.scryfall_raw_data['rarity'].as_string(), String).ilike(rarity.strip().lower())
+        )
 
-    # 1.5 Filtro por CMC
+    # 1.5 Filtro por CMC (CORREGIDO: cast a Float vía as_string)
     if cmc is not None:
+        cmc_expr = cast(CartaScryfall.scryfall_raw_data['cmc'].as_string(), Float)
         if cmc >= 6:
-            # 6 o más manás
-            query = query.filter(cast(CartaScryfall.scryfall_raw_data['cmc'].astext, Float) >= 6.0)
+            query = query.filter(cmc_expr >= 6.0)
         else:
-            query = query.filter(cast(CartaScryfall.scryfall_raw_data['cmc'].astext, Float) == float(cmc))
+            query = query.filter(cmc_expr == float(cmc))
 
-    # Ordenar alfabéticamente y limitar
     return query.order_by(CartaScryfall.name.asc()).limit(limit).all()
 
 
-# Compatibilidad con router antiguo
 def search_cards_by_name(db: Session, query_text: str, limit: int = 20) -> List[CartaScryfall]:
     return search_cards_advanced(db, query_text=query_text, limit=limit)
 
@@ -207,8 +215,10 @@ def get_similar_cards(db: Session, card_id: str, limit: int = 6) -> Optional[Dic
         return None
 
     raw_base = base_card.scryfall_raw_data or {}
+    base_oracle = extract_oracle_text(raw_base)
+
     base_data = {
-        "oracle_text": raw_base.get("oracle_text", ""),
+        "oracle_text": base_oracle,
         "type_line": base_card.type_line or raw_base.get("type_line", ""),
         "cmc": raw_base.get("cmc", 0.0),
         "color_identity": raw_base.get("color_identity", [])
@@ -217,22 +227,32 @@ def get_similar_cards(db: Session, card_id: str, limit: int = 6) -> Optional[Dic
 
     base_mechanics = get_mechanic_ids(base_data["oracle_text"])
     role_label = get_primary_role_label(base_data["oracle_text"], base_data["type_line"])
-
     base_primary_type = base_data["type_line"].split("—")[0].replace("Legendary", "").replace("Snow", "").strip()
 
-    query = db.query(CartaScryfall).filter(
-        CartaScryfall.id != base_card.id,
-        CartaScryfall.name != base_card.name,
-        CartaScryfall.type_line.ilike(f"%{base_primary_type}%")
+    # Búsqueda determinista con ORDER BY
+    candidates = (
+        db.query(CartaScryfall)
+        .filter(
+            CartaScryfall.id != base_card.id,
+            CartaScryfall.name != base_card.name,
+            CartaScryfall.type_line.ilike(f"%{base_primary_type}%")
+        )
+        .order_by(CartaScryfall.name.asc())
+        .limit(100)
+        .all()
     )
 
-    candidates = query.limit(100).all()
-
     if len(candidates) < limit:
-        extra_query = db.query(CartaScryfall).filter(
-            CartaScryfall.id != base_card.id,
-            CartaScryfall.name != base_card.name
-        ).limit(100).all()
+        extra_query = (
+            db.query(CartaScryfall)
+            .filter(
+                CartaScryfall.id != base_card.id,
+                CartaScryfall.name != base_card.name
+            )
+            .order_by(CartaScryfall.name.asc())
+            .limit(100)
+            .all()
+        )
         candidates = list({c.id: c for c in (candidates + extra_query)}.values())
 
     scored_candidates = []
@@ -248,7 +268,7 @@ def get_similar_cards(db: Session, card_id: str, limit: int = 6) -> Optional[Dic
                 continue
 
         cand_data = {
-            "oracle_text": cand_raw.get("oracle_text", ""),
+            "oracle_text": extract_oracle_text(cand_raw),
             "type_line": cand.type_line or cand_raw.get("type_line", ""),
             "cmc": cand_raw.get("cmc", 0.0),
             "color_identity": cand_raw.get("color_identity", [])

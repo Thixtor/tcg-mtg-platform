@@ -1,7 +1,7 @@
-from typing import List, Dict, Set
-from sqlalchemy.orm import Session
+from typing import List, Dict
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 
-# Importación de modelos y esquemas del núcleo
 from app.models import Deck, DeckCard, UserCard, Collection
 from app.schemas import DeckCardDetailResponse
 
@@ -11,53 +11,72 @@ from app.schemas import DeckCardDetailResponse
 # ---------------------------------------------------------
 def calculate_deck_availability(db: Session, deck: Deck) -> List[DeckCardDetailResponse]:
     """
-    Evalúa la disponibilidad física de las cartas requeridas por un mazo:
-    - DISPONIBLE: El usuario posee copias físicas en sus carpetas o binders.
-    - EN_OTRO_MAZO: La carta se encuentra asignada en otro mazo del usuario.
-    - FALTANTE: El usuario no cuenta con la carta en ninguna colección.
-
-    Args:
-        db (Session): Sesión activa de SQLAlchemy.
-        deck (Deck): Instancia del mazo a analizar.
-
-    Returns:
-        List[DeckCardDetailResponse]: Lista detallada con el estado de cada carta del mazo.
+    Evalúa la disponibilidad física de las cartas requeridas por un mazo
+    considerando cantidades numéricas reales:
+    - DISPONIBLE: Las copias totales en posesión menos las asignadas a otros mazos
+      cubren la cantidad exigida por este mazo.
+    - EN_OTRO_MAZO: El usuario posee copias suficientes, pero están ocupadas en otros mazos.
+    - FALTANTE: El usuario no cuenta con copias suficientes en ninguna colección.
     """
     user_id: str = deck.user_id
-    cartas_mazo: List[DeckCard] = db.query(DeckCard).filter(DeckCard.deck_id == deck.id).all()
 
-    # 1. Obtener el conjunto de IDs de cartas que el usuario posee físicamente
-    cartas_en_colecciones = (
-        db.query(UserCard.scryfall_card_id)
-        .join(Collection, UserCard.collection_id == Collection.id)
-        .filter(Collection.user_id == user_id)
+    # 1. Cargar las cartas del mazo actual evitando N+1
+    cartas_mazo: List[DeckCard] = (
+        db.query(DeckCard)
+        .options(joinedload(DeckCard.card_catalog))
+        .filter(DeckCard.deck_id == deck.id)
         .all()
     )
-    ids_en_posesion: Set[str] = {c[0] for c in cartas_en_colecciones}
 
-    # 2. Mapear qué cartas están comprometidas en otros mazos del mismo usuario
-    otros_mazos_cards = (
+    if not cartas_mazo:
+        return []
+
+    # 2. Cantidad total poseída por cada carta en todas las colecciones del usuario
+    owned_query = (
+        db.query(UserCard.scryfall_card_id, func.coalesce(func.sum(UserCard.quantity), 0))
+        .join(Collection, UserCard.collection_id == Collection.id)
+        .filter(Collection.user_id == user_id)
+        .group_by(UserCard.scryfall_card_id)
+        .all()
+    )
+    total_poseidas: Dict[str, int] = {scry_id: int(qty) for scry_id, qty in owned_query}
+
+    # 3. Cantidad comprometida en otros mazos del mismo usuario
+    used_query = (
+        db.query(DeckCard.scryfall_card_id, func.coalesce(func.sum(DeckCard.quantity), 0))
+        .join(Deck, DeckCard.deck_id == Deck.id)
+        .filter(Deck.user_id == user_id, Deck.id != deck.id)
+        .group_by(DeckCard.scryfall_card_id)
+        .all()
+    )
+    usadas_otros_mazos: Dict[str, int] = {scry_id: int(qty) for scry_id, qty in used_query}
+
+    # 4. Detalle de nombres de otros mazos donde aparece cada carta
+    otros_mazos_records = (
         db.query(DeckCard.scryfall_card_id, Deck.name)
         .join(Deck, DeckCard.deck_id == Deck.id)
         .filter(Deck.user_id == user_id, Deck.id != deck.id)
         .all()
     )
-    
-    mapa_otros_mazos: Dict[str, List[str]] = {}
-    for scry_id, nombre_mazo in otros_mazos_cards:
-        mapa_otros_mazos.setdefault(scry_id, []).append(nombre_mazo)
+    mapa_nombres_mazos: Dict[str, List[str]] = {}
+    for scry_id, nombre_mazo in otros_mazos_records:
+        mapa_nombres_mazos.setdefault(scry_id, []).append(nombre_mazo)
 
-    # 3. Determinar el estado y construir la respuesta estructurada
+    # 5. Clasificar estado cuantitativo
     resultado: List[DeckCardDetailResponse] = []
     for dc in cartas_mazo:
         scry_id: str = dc.scryfall_card_id
         carta_cat = dc.card_catalog
+        cantidad_pedida = dc.quantity or 1
 
-        # Clasificación de inventario físico
-        if scry_id in mapa_otros_mazos:
-            estado = "EN_OTRO_MAZO"
-        elif scry_id in ids_en_posesion:
+        poseidas = total_poseidas.get(scry_id, 0)
+        comprometidas = usadas_otros_mazos.get(scry_id, 0)
+        libres = poseidas - comprometidas
+
+        if libres >= cantidad_pedida:
             estado = "DISPONIBLE"
+        elif poseidas >= cantidad_pedida:
+            estado = "EN_OTRO_MAZO"
         else:
             estado = "FALTANTE"
 
@@ -68,10 +87,10 @@ def calculate_deck_availability(db: Session, deck: Deck) -> List[DeckCardDetailR
                 name=carta_cat.name if carta_cat else "Desconocida",
                 set_code=carta_cat.set if carta_cat else None,
                 image_url=carta_cat.image_url if carta_cat else None,
-                quantity_needed=dc.quantity,
+                quantity_needed=cantidad_pedida,
                 category=dc.category,
                 status=estado,
-                assigned_other_decks=mapa_otros_mazos.get(scry_id, [])
+                assigned_other_decks=mapa_nombres_mazos.get(scry_id, [])
             )
         )
 

@@ -19,7 +19,8 @@ class Deck(Base):
     format = Column(String, default="Commander")
     description = Column(String, nullable=True)
 
-    owner = relationship("User", backref="decks")
+    # CORRECCIÓN: Cambiamos backref="decks" por back_populates="decks"
+    owner = relationship("User", back_populates="decks")
     cards = relationship("DeckCard", back_populates="deck", cascade="all, delete-orphan")
 
 
