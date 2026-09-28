@@ -2,8 +2,8 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
-# Importación de dependencias del núcleo
 from app.database import get_db
+from app.core.security import get_current_user
 from app.models import User, WishlistItem, CartaScryfall
 from app.schemas import (
     WishlistAddPayload,
@@ -21,23 +21,16 @@ router = APIRouter(
 # 1. GESTIÓN DE LA LISTA DE DESEOS (WISHLIST)
 # ---------------------------------------------------------
 @router.post(
-    "/users/{user_id}/wishlist",
+    "/wishlist",
     response_model=WishlistItemResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Agregar una carta a la lista de deseos"
+    summary="Agregar una carta a la lista de deseos propia"
 )
 def add_to_wishlist(
-    user_id: str,
     payload: WishlistAddPayload,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    usuario = db.query(User).filter(User.id == user_id).first()
-    if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Usuario con ID '{user_id}' no encontrado."
-        )
-
     carta = db.query(CartaScryfall).filter(CartaScryfall.id == payload.scryfall_card_id).first()
     if not carta:
         raise HTTPException(
@@ -46,7 +39,7 @@ def add_to_wishlist(
         )
 
     item = WishlistItem(
-        user_id=user_id,
+        user_id=current_user.id,
         scryfall_card_id=payload.scryfall_card_id,
         quantity=payload.quantity,
         priority=payload.priority
@@ -58,18 +51,18 @@ def add_to_wishlist(
 
 
 @router.get(
-    "/users/{user_id}/wishlist",
+    "/wishlist/me",
     response_model=List[WishlistItemResponse],
-    summary="Listar la wishlist de un usuario"
+    summary="Listar la wishlist del usuario autenticado"
 )
-def get_user_wishlist(
-    user_id: str,
+def get_my_wishlist(
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     return (
         db.query(WishlistItem)
         .options(joinedload(WishlistItem.card_catalog))
-        .filter(WishlistItem.user_id == user_id)
+        .filter(WishlistItem.user_id == current_user.id)
         .all()
     )
 
@@ -77,42 +70,39 @@ def get_user_wishlist(
 @router.delete(
     "/wishlist/{item_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar una carta de la wishlist"
+    summary="Eliminar una carta de la wishlist verificando propiedad"
 )
 def remove_from_wishlist(
     item_id: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    item = db.query(WishlistItem).filter(WishlistItem.id == item_id).first()
+    # Verificación de propiedad (Ownership) para evitar IDOR
+    item = db.query(WishlistItem).filter(
+        WishlistItem.id == item_id,
+        WishlistItem.user_id == current_user.id
+    ).first()
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Ítem de wishlist no encontrado."
+            detail="Ítem de wishlist no encontrado o no autorizado."
         )
+
     db.delete(item)
     db.commit()
     return None
 
 
 # ---------------------------------------------------------
-# 2. MOTOR DE MATCHMAKING (DELEGADO A SERVICIO)
+# 2. MOTOR DE MATCHMAKING
 # ---------------------------------------------------------
 @router.get(
-    "/matchmaking/{user_id}",
+    "/matchmaking/me",
     response_model=List[TradeMatchUserResponse],
-    summary="Encontrar coincidencias de intercambio para un usuario",
-    description="Cruza la Wishlist del usuario con cartas disponibles de otros usuarios mediante matchmaking_service."
+    summary="Encontrar coincidencias de intercambio para el usuario autenticado"
 )
 def get_trade_matches(
-    user_id: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    usuario = db.query(User).filter(User.id == user_id).first()
-    if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado."
-        )
-
-    # Delegación limpia a la capa de servicios
-    return find_trade_matches_for_user(db, user_id)
+    return find_trade_matches_for_user(db, current_user.id)

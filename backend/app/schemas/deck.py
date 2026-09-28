@@ -1,5 +1,5 @@
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Optional, List, Literal
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------
@@ -7,9 +7,9 @@ from pydantic import BaseModel
 # ---------------------------------------------------------
 class DeckCreate(BaseModel):
     """Creación de un nuevo mazo."""
-    name: str
-    format: str = "Commander"
-    description: Optional[str] = None
+    name: str = Field(min_length=1, max_length=100)
+    format: str = Field("Commander", max_length=50)
+    description: Optional[str] = Field(None, max_length=500)
 
 
 class DeckResponse(BaseModel):
@@ -20,16 +20,14 @@ class DeckResponse(BaseModel):
     format: str
     description: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class AddCardToDeckPayload(BaseModel):
     """Agregar cartas a la estructura de un mazo."""
     scryfall_card_id: str
-    quantity: int = 1
-    category: str = "mainboard"  # commander, mainboard, sideboard, maybeboard
+    quantity: int = Field(1, ge=1, le=99)
+    category: Literal["commander", "mainboard", "sideboard", "maybeboard"] = "mainboard"
 
 
 class DeckCardDetailResponse(BaseModel):
@@ -41,9 +39,7 @@ class DeckCardDetailResponse(BaseModel):
     image_url: Optional[str] = None
     quantity_needed: int
     category: str
-    status: str                         # DISPONIBLE, EN_OTRO_MAZO, FALTANTE
+    status: Literal["DISPONIBLE", "EN_OTRO_MAZO", "FALTANTE"]
     assigned_other_decks: List[str] = []
 
-    class Config:
-        from_attributes = True
-        
+    model_config = {"from_attributes": True}    

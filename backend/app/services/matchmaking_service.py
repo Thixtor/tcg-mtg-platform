@@ -1,5 +1,5 @@
 from typing import List, Dict, Set, Any
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 # Importación de modelos y esquemas del núcleo
 from app.models import User, WishlistItem, UserCard, Collection
@@ -16,13 +16,6 @@ def find_trade_matches_for_user(db: Session, user_id: str) -> List[TradeMatchUse
     2. Identifica contrapartes que posean esas cartas marcadas como is_for_trade = True.
     3. Comprueba si esas contrapartes buscan cartas que el usuario ofrece (Mutual Match).
     4. Ordena los resultados priorizando las coincidencias mutuas al inicio.
-
-    Args:
-        db (Session): Sesión activa de SQLAlchemy.
-        user_id (str): Identificador del usuario solicitante.
-
-    Returns:
-        List[TradeMatchUserResponse]: Lista de contrapartes con sus coincidencias.
     """
     # 1. Obtener IDs de cartas requeridas por el usuario
     mi_wishlist = db.query(WishlistItem.scryfall_card_id).filter(WishlistItem.user_id == user_id).all()
@@ -40,11 +33,12 @@ def find_trade_matches_for_user(db: Session, user_id: str) -> List[TradeMatchUse
     )
     mis_trade_ids: Set[str] = {c[0] for c in mis_cartas_trade}
 
-    # 3. Buscar otros usuarios que tengan en trade cartas de mi wishlist
+    # 3. Buscar otros usuarios que tengan en trade cartas de mi wishlist (con joinedload para evitar N+1)
     otros_con_mis_deseos = (
         db.query(UserCard, User)
         .join(Collection, UserCard.collection_id == Collection.id)
         .join(User, Collection.user_id == User.id)
+        .options(joinedload(UserCard.card_catalog))
         .filter(
             User.id != user_id,
             UserCard.is_for_trade == True,
@@ -78,6 +72,7 @@ def find_trade_matches_for_user(db: Session, user_id: str) -> List[TradeMatchUse
 
         they_want_records = (
             db.query(WishlistItem)
+            .options(joinedload(WishlistItem.card_catalog))
             .filter(
                 WishlistItem.user_id == otro_id,
                 WishlistItem.scryfall_card_id.in_(mis_trade_ids)
@@ -100,7 +95,7 @@ def find_trade_matches_for_user(db: Session, user_id: str) -> List[TradeMatchUse
             TradeMatchUserResponse(
                 user_id=otro_user.id,
                 username=otro_user.username,
-                phone_number=otro_user.phone_number,
+                # phone_number retirado para proteger PII
                 reputation_score=otro_user.reputation_score,
                 they_have=data["they_have"],
                 they_want=they_want_cards,

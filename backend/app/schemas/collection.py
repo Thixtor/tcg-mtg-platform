@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.schemas.card import CardResponse
 
 
@@ -8,8 +8,8 @@ from app.schemas.card import CardResponse
 # ---------------------------------------------------------
 class CollectionCreate(BaseModel):
     """Creación de carpetas o binders de inventario (hasta 10 por usuario)."""
-    name: str
-    description: Optional[str] = None
+    name: str = Field(min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
 
 
 class CollectionResponse(BaseModel):
@@ -19,9 +19,7 @@ class CollectionResponse(BaseModel):
     name: str
     description: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 # ---------------------------------------------------------
@@ -30,12 +28,12 @@ class CollectionResponse(BaseModel):
 class AddCardToCollectionPayload(BaseModel):
     """Añadir una copia física de una carta a un binder."""
     scryfall_card_id: str
-    quantity: int = 1
+    quantity: int = Field(1, ge=1, le=999)
     condition: str = "NM"      # NM, LP, MP, HP, DMG
     language: str = "en"
     is_foil: bool = False
     is_for_trade: bool = False
-    trade_notes: Optional[str] = None
+    trade_notes: Optional[str] = Field(None, max_length=300)
 
 
 class UserCardResponse(BaseModel):
@@ -51,9 +49,7 @@ class UserCardResponse(BaseModel):
     trade_notes: Optional[str] = None
     card_catalog: Optional[CardResponse] = None
 
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class TradeMarketItemResponse(BaseModel):
@@ -67,9 +63,7 @@ class TradeMarketItemResponse(BaseModel):
     is_foil: bool
     trade_notes: Optional[str] = None
     owner_username: str
-    owner_phone: str
+    # owner_phone ELIMINADO para evitar scraping de PII
     owner_reputation: int
 
-    class Config:
-        from_attributes = True
-        
+    model_config = {"from_attributes": True}

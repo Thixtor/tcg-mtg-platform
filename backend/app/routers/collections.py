@@ -1,9 +1,9 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, contains_eager
 
-# Dependencias internas del núcleo
 from app.database import get_db
+from app.core.security import get_current_user
 from app.models import User, Collection, UserCard, CartaScryfall
 from app.schemas import (
     CollectionCreate,
@@ -22,26 +22,17 @@ router = APIRouter(
 # 1. GESTIÓN DE COLECCIONES (BINDERS)
 # ---------------------------------------------------------
 @router.post(
-    "/users/{user_id}/collections",
+    "/collections",
     response_model=CollectionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear una colección o binder para un usuario",
-    description="Crea una carpeta de inventario respetando la regla de negocio de hasta 10 por usuario."
+    summary="Crear una colección o binder para el usuario autenticado"
 )
 def create_collection(
-    user_id: str,
     payload: CollectionCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    usuario = db.query(User).filter(User.id == user_id).first()
-    if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Usuario con ID '{user_id}' no encontrado."
-        )
-
-    # Validar límite de 10 colecciones
-    conteo_actual = db.query(Collection).filter(Collection.user_id == user_id).count()
+    conteo_actual = db.query(Collection).filter(Collection.user_id == current_user.id).count()
     if conteo_actual >= 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -49,7 +40,7 @@ def create_collection(
         )
 
     nueva_coleccion = Collection(
-        user_id=user_id,
+        user_id=current_user.id,
         name=payload.name,
         description=payload.description
     )
@@ -60,14 +51,29 @@ def create_collection(
 
 
 @router.get(
+    "/collections/me",
+    response_model=List[CollectionResponse],
+    summary="Listar las colecciones del usuario autenticado"
+)
+def list_my_collections(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return db.query(Collection).filter(Collection.user_id == current_user.id).all()
+
+
+@router.get(
     "/users/{user_id}/collections",
     response_model=List[CollectionResponse],
-    summary="Listar las colecciones de un usuario"
+    summary="Listar las colecciones públicas de un usuario"
 )
 def list_user_collections(
     user_id: str,
     db: Session = Depends(get_db)
 ):
+    usuario = db.query(User).filter(User.id == user_id).first()
+    if not usuario:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado.")
     return db.query(Collection).filter(Collection.user_id == user_id).all()
 
 
@@ -78,18 +84,23 @@ def list_user_collections(
     "/collections/{collection_id}/cards",
     response_model=UserCardResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Agregar una carta física a una colección"
+    summary="Agregar una carta física a una colección propia"
 )
 def add_card_to_collection(
     collection_id: str,
     payload: AddCardToCollectionPayload,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    coleccion = db.query(Collection).filter(Collection.id == collection_id).first()
+    # Verificación de propiedad (Ownership) para evitar IDOR
+    coleccion = db.query(Collection).filter(
+        Collection.id == collection_id,
+        Collection.user_id == current_user.id
+    ).first()
     if not coleccion:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Colección con ID '{collection_id}' no encontrada."
+            detail="Colección no encontrada o no tienes permisos sobre ella."
         )
 
     carta_catalogo = db.query(CartaScryfall).filter(CartaScryfall.id == payload.scryfall_card_id).first()
@@ -124,6 +135,10 @@ def list_cards_in_collection(
     collection_id: str,
     db: Session = Depends(get_db)
 ):
+    coleccion = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not coleccion:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Colección no encontrada.")
+
     return (
         db.query(UserCard)
         .options(joinedload(UserCard.card_catalog))
@@ -138,21 +153,29 @@ def list_cards_in_collection(
 @router.get(
     "/trade/market",
     response_model=List[TradeMarketItemResponse],
-    summary="Listar todas las cartas disponibles para intercambio en la plataforma"
+    summary="Listar cartas para intercambio (sin exponer teléfonos de terceros)"
 )
 def get_trade_market(
+    limit: int = 24,
+    offset: int = 0,
     db: Session = Depends(get_db)
 ):
     """
-    Retorna todas las cartas marcadas con is_for_trade = True junto
-    con la información pública y reputación del usuario que las ofrece.
+    Retorna cartas disponibles para trade usando joinedload para evitar N+1
+    y omitiendo datos de contacto privado hasta que haya acuerdo mutuo.
     """
     items_trade = (
         db.query(UserCard)
-        .join(Collection, UserCard.collection_id == Collection.id)
-        .join(User, Collection.user_id == User.id)
-        .join(CartaScryfall, UserCard.scryfall_card_id == CartaScryfall.id)
-        .filter(UserCard.is_for_trade == True)
+        .join(UserCard.collection)
+        .join(Collection.owner)
+        .options(
+            joinedload(UserCard.card_catalog),
+            contains_eager(UserCard.collection).contains_eager(Collection.owner)
+        )
+        .filter(UserCard.is_for_trade.is_(True))
+        .order_by(UserCard.id.desc())
+        .offset(offset)
+        .limit(min(limit, 100))
         .all()
     )
 
@@ -169,7 +192,6 @@ def get_trade_market(
                 is_foil=item.is_foil,
                 trade_notes=item.trade_notes,
                 owner_username=item.collection.owner.username,
-                owner_phone=item.collection.owner.phone_number,
                 owner_reputation=item.collection.owner.reputation_score
             )
         )

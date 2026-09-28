@@ -2,8 +2,8 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-# Importación de dependencias del núcleo
 from app.database import get_db
+from app.core.security import get_current_user
 from app.models import User, Deck, DeckCard, CartaScryfall
 from app.schemas import (
     DeckCreate,
@@ -23,25 +23,17 @@ router = APIRouter(
 # 1. CREACIÓN Y CONSULTA DE MAZOS
 # ---------------------------------------------------------
 @router.post(
-    "/users/{user_id}",
+    "/",
     response_model=DeckResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear un nuevo mazo",
-    description="Permite crear un mazo respetando el límite máximo de 10 por usuario."
+    summary="Crear un nuevo mazo para el usuario autenticado"
 )
 def create_deck(
-    user_id: str,
     payload: DeckCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    usuario = db.query(User).filter(User.id == user_id).first()
-    if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Usuario con ID '{user_id}' no encontrado."
-        )
-
-    conteo_mazos = db.query(Deck).filter(Deck.user_id == user_id).count()
+    conteo_mazos = db.query(Deck).filter(Deck.user_id == current_user.id).count()
     if conteo_mazos >= 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -49,7 +41,7 @@ def create_deck(
         )
 
     nuevo_mazo = Deck(
-        user_id=user_id,
+        user_id=current_user.id,
         name=payload.name,
         format=payload.format,
         description=payload.description
@@ -61,35 +53,54 @@ def create_deck(
 
 
 @router.get(
+    "/me",
+    response_model=List[DeckResponse],
+    summary="Listar todos los mazos del usuario autenticado"
+)
+def list_my_decks(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return db.query(Deck).filter(Deck.user_id == current_user.id).all()
+
+
+@router.get(
     "/users/{user_id}",
     response_model=List[DeckResponse],
-    summary="Listar todos los mazos de un usuario"
+    summary="Listar mazos de otro usuario"
 )
 def list_user_decks(
     user_id: str,
     db: Session = Depends(get_db)
 ):
+    usuario = db.query(User).filter(User.id == user_id).first()
+    if not usuario:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado.")
     return db.query(Deck).filter(Deck.user_id == user_id).all()
 
 
 # ---------------------------------------------------------
-# 2. GESTIÓN DE CARTAS EN EL MAZO
+# 2. GESTIÓN DE CARTAS EN EL MAZO (CON VERIFICACIÓN DE PROPIEDAD)
 # ---------------------------------------------------------
 @router.post(
     "/{deck_id}/cards",
     status_code=status.HTTP_201_CREATED,
-    summary="Agregar cartas a un mazo"
+    summary="Agregar cartas a un mazo propio"
 )
 def add_card_to_deck(
     deck_id: str,
     payload: AddCardToDeckPayload,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    mazo = db.query(Deck).filter(Deck.id == deck_id).first()
+    mazo = db.query(Deck).filter(
+        Deck.id == deck_id,
+        Deck.user_id == current_user.id
+    ).first()
     if not mazo:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Mazo con ID '{deck_id}' no encontrado."
+            detail="Mazo no encontrado o no tienes permisos sobre él."
         )
 
     carta = db.query(CartaScryfall).filter(CartaScryfall.id == payload.scryfall_card_id).first()
@@ -112,24 +123,26 @@ def add_card_to_deck(
 
 
 # ---------------------------------------------------------
-# 3. DISPONIBILIDAD FÍSICA DE CARTAS (DELEGADO A SERVICIO)
+# 3. DISPONIBILIDAD FÍSICA DE CARTAS
 # ---------------------------------------------------------
 @router.get(
     "/{deck_id}/cards",
     response_model=List[DeckCardDetailResponse],
-    summary="Obtener las cartas del mazo con su estado de disponibilidad física",
-    description="Analiza la posesión real comparando contra los binders del usuario mediante inventory_service."
+    summary="Obtener las cartas del mazo con su estado de disponibilidad física"
 )
 def get_deck_cards_with_inventory_status(
     deck_id: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    mazo = db.query(Deck).filter(Deck.id == deck_id).first()
+    mazo = db.query(Deck).filter(
+        Deck.id == deck_id,
+        Deck.user_id == current_user.id
+    ).first()
     if not mazo:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Mazo no encontrado."
+            detail="Mazo no encontrado o no autorizado."
         )
 
-    # Delegación limpia a la capa de servicios
     return calculate_deck_availability(db, mazo)

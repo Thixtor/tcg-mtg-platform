@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.schemas.card import CardResponse
 
 
@@ -9,8 +9,8 @@ from app.schemas.card import CardResponse
 class WishlistAddPayload(BaseModel):
     """Agregar una carta deseada a la lista de búsqueda."""
     scryfall_card_id: str
-    quantity: int = 1
-    priority: str = "media"  # alta, media, baja
+    quantity: int = Field(1, ge=1, le=999)
+    priority: str = Field("media", max_length=20)  # alta, media, baja
 
 
 class WishlistItemResponse(BaseModel):
@@ -22,9 +22,7 @@ class WishlistItemResponse(BaseModel):
     priority: str
     card_catalog: Optional[CardResponse] = None
 
-    class Config:
-        from_attributes = True
-       
+    model_config = {"from_attributes": True}
 
 
 class MatchedCard(BaseModel):
@@ -35,21 +33,17 @@ class MatchedCard(BaseModel):
     condition: Optional[str] = None
     is_foil: Optional[bool] = None
 
-    class Config:
-        from_attributes = True
-       
+    model_config = {"from_attributes": True}
 
 
 class TradeMatchUserResponse(BaseModel):
     """Resultado del motor de coincidencia entre dos usuarios."""
     user_id: str
     username: str
-    phone_number: str
+    # phone_number ELIMINADO para proteger la privacidad
     reputation_score: int
     they_have: List[MatchedCard]   # Lo que ellos ofrecen y tú buscas
     they_want: List[MatchedCard]   # Lo que tú ofreces y ellos buscan
     is_mutual_match: bool          # True si hay coincidencia bidireccional
 
-    class Config:
-        from_attributes = True
-        
+    model_config = {"from_attributes": True}
