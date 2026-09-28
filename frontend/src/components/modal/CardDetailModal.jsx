@@ -2,9 +2,11 @@
 // MODAL DE DETALLE, ANÁLISIS DE MERCADO, REGLAS Y SIMILARES
 // ---------------------------------------------------------
 import React, { useState, useEffect } from 'react';
+import { FolderPlus } from 'lucide-react';
 import { getCurrentPricesApi, getPriceHistoryApi } from '../../api/prices';
 import { getSimilarCardsApi } from '../../api/cards';
 import { PriceChart } from './PriceChart';
+import AddToCollectionOrDeckModal from '../cards/AddToCollectionOrDeckModal';
 
 const TRACKED_FORMATS = [
   { key: 'commander', label: 'Commander' },
@@ -18,6 +20,10 @@ const TRACKED_FORMATS = [
 export function CardDetailModal({ card, onClose, onSelectCard }) {
   // Pestañas disponibles: 'market' | 'rules' | 'similar'
   const [activeTab, setActiveTab] = useState('market');
+
+  // Control del modal de asignación a Binder o Mazo
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const currentUserId = localStorage.getItem('mtg_dev_user_id') || '';
 
   const [currentPrices, setCurrentPrices] = useState(null);
   const [historyPoints, setHistoryPoints] = useState([]);
@@ -134,7 +140,7 @@ export function CardDetailModal({ card, onClose, onSelectCard }) {
           <div className="text-center mt-3 space-y-0.5">
             <p className="text-[11px] text-neutral-400 font-medium">Ilus. {artist}</p>
             <p className="text-[10px] text-neutral-600">
-              © Wizards of the Coast LLC · Scryfall API[cite: 2]
+              © Wizards of the Coast LLC · Scryfall API[cite: 1, 2]
             </p>
           </div>
         </div>
@@ -396,7 +402,6 @@ export function CardDetailModal({ card, onClose, onSelectCard }) {
             {/* --------------------------------------------------------- */}
             {activeTab === 'similar' && (
               <div className="space-y-3">
-                {/* Cabecera con el rol detectado */}
                 {similarData?.matched_role && (
                   <div className="px-3 py-2 bg-amber-950/30 border border-amber-800/50 rounded-xl flex items-center justify-between text-xs">
                     <span className="text-neutral-300">
@@ -408,21 +413,18 @@ export function CardDetailModal({ card, onClose, onSelectCard }) {
                   </div>
                 )}
 
-                {/* Estado de Carga */}
                 {loadingSimilar && (
                   <div className="py-12 text-center text-xs text-amber-400 animate-pulse font-medium">
                     Analizando arquetipos y cartas sustitutas...
                   </div>
                 )}
 
-                {/* Estado Vacío */}
                 {!loadingSimilar && (!similarData || similarData.similar_cards.length === 0) && (
                   <div className="py-12 text-center text-xs text-neutral-500">
                     No se encontraron cartas alternativas con el mismo rol en tu catálogo local.
                   </div>
                 )}
 
-                {/* Grilla de cartas alternativas */}
                 {!loadingSimilar && similarData && similarData.similar_cards.length > 0 && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[300px] overflow-y-auto pr-1">
                     {similarData.similar_cards.map((simCard) => (
@@ -468,18 +470,38 @@ export function CardDetailModal({ card, onClose, onSelectCard }) {
             )}
           </div>
 
-          {/* Footer del modal */}
-          <div className="mt-5 pt-3 border-t border-neutral-800 flex justify-end gap-2">
+          {/* --------------------------------------------------------- */}
+          {/* ACCIONES DEL FOOTER (ASIGNAR CARTA Y CERRAR)             */}
+          {/* --------------------------------------------------------- */}
+          <div className="mt-5 pt-3 border-t border-neutral-800 flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-neutral-300 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors"
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 rounded-xl transition-colors shadow-xs"
             >
-              Cerrar
+              <FolderPlus className="w-4 h-4" />
+              <span>Añadir a Binder / Mazo</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 rounded-xl transition-colors shadow-xs"
+            >
+              <FolderPlus className="w-4 h-4" />
+              <span>Añadir a Colección / Mazo</span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* Modal secundario para asignar a Binder o Mazo */}
+      <AddToCollectionOrDeckModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        card={card}
+        userId={currentUserId}
+      />
     </div>
   );
 }

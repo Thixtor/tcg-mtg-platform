@@ -4,10 +4,11 @@
 import apiClient from './client';
 
 /**
- * Lista todas las colecciones/binders asociadas a un usuario.
+ * Lista todas las colecciones asociadas a un usuario.
  * @param {string} userId - UUID del usuario.
  */
 export const getUserCollectionsApi = async (userId) => {
+  // Ajuste: si el backend espera /api/users/... asegúrate que apiClient lo maneje.
   const response = await apiClient.get(`/users/${userId}/collections`);
   return response.data;
 };
@@ -32,7 +33,7 @@ export const getCollectionCardsApi = async (collectionId) => {
 };
 
 /**
- * Registra una copia física de una carta en un binder.
+ * Registra una copia física de una carta en una colección.
  * @param {string} collectionId - UUID de la colección.
  * @param {Object} payload - { scryfall_card_id, quantity, condition, language, is_foil, is_for_trade, trade_notes }
  */

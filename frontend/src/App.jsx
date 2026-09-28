@@ -1,25 +1,30 @@
 // ---------------------------------------------------------
 // COMPONENTE PRINCIPAL DE LA APLICACIÓN (APP LAYOUT)
 // ---------------------------------------------------------
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Layers, Shield, User as UserIcon } from 'lucide-react';
 import { CatalogPage } from './pages/CatalogPage';
 import BindersPage from './pages/BindersPage';
 import DecksPage from './pages/DecksPage';
+import UserModal from './components/auth/UserModal';
 
 export default function App() {
   // Pestaña activa: 'catalog' | 'binders' | 'decks'
   const [activeTab, setActiveTab] = useState('catalog');
 
-  // Identificador de usuario activo para pruebas de desarrollo (persistido localmente)
-  const [currentUserId, setCurrentUserId] = useState(() => {
-    return localStorage.getItem('mtg_dev_user_id') || '';
+  // Usuario activo cargado desde localStorage
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('mtg_dev_user');
+    return saved ? JSON.parse(saved) : null;
   });
 
-  const handleUserIdChange = (e) => {
-    const value = e.target.value.trim();
-    setCurrentUserId(value);
-    localStorage.setItem('mtg_dev_user_id', value);
+  // Control del modal de usuario
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+
+  const handleSelectUser = (user) => {
+    setCurrentUser(user);
+    localStorage.setItem('mtg_dev_user', JSON.stringify(user));
+    localStorage.setItem('mtg_dev_user_id', user.id);
   };
 
   return (
@@ -67,7 +72,7 @@ export default function App() {
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>Mis Binders</span>
+              <span>Mis Colecciones</span>
             </button>
 
             <button
@@ -83,19 +88,18 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Estado de API y Selector de Usuario (Dev Tools) */}
+          {/* Estado de API y Selector de Jugador */}
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 bg-neutral-900 border border-neutral-800 px-2.5 py-1 rounded-lg">
-              <UserIcon className="w-3.5 h-3.5 text-neutral-500" />
-              <input
-                type="text"
-                value={currentUserId}
-                onChange={handleUserIdChange}
-                placeholder="User UUID..."
-                title="UUID del usuario para pruebas de inventario"
-                className="w-28 md:w-36 bg-transparent text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none font-mono"
-              />
-            </div>
+            {/* Botón Perfil de Usuario */}
+            <button
+              onClick={() => setIsUserModalOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-neutral-800 bg-neutral-900 hover:border-amber-500/50 transition text-xs"
+            >
+              <UserIcon className="w-3.5 h-3.5 text-amber-500" />
+              <span className="font-semibold text-neutral-200">
+                {currentUser?.username || 'Crear / Activar Usuario'}
+              </span>
+            </button>
 
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/50 text-emerald-400 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -113,53 +117,69 @@ export default function App() {
         {activeTab === 'catalog' && <CatalogPage />}
         
         {activeTab === 'binders' && (
-          currentUserId ? (
-            <BindersPage userId={currentUserId} />
+          currentUser?.id ? (
+            <BindersPage userId={currentUser.id} />
           ) : (
             <div className="flex-1 flex items-center justify-center p-6">
               <div className="w-full max-w-md p-8 bg-neutral-900/60 border border-neutral-800 rounded-2xl text-center space-y-3">
                 <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto">
                   <UserIcon className="w-6 h-6" />
                 </div>
-                <h3 className="text-lg font-bold text-white">Identificador de Usuario Requerido</h3>
+                <h3 className="text-lg font-bold text-white">Activa un Jugador</h3>
                 <p className="text-sm text-neutral-400 leading-relaxed">
-                  Ingresa tu <code className="text-amber-400 bg-neutral-950 px-1.5 py-0.5 rounded text-xs font-mono">user_id</code> en el campo superior derecho para gestionar tus colecciones.
+                  Para ver y crear tus colecciones, activa o crea tu cuenta de jugador.
                 </p>
+                <button
+                  onClick={() => setIsUserModalOpen(true)}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg transition"
+                >
+                  Configurar Jugador
+                </button>
               </div>
             </div>
           )
         )}
 
         {activeTab === 'decks' && (
-          currentUserId ? (
-            <DecksPage userId={currentUserId} />
+          currentUser?.id ? (
+            <DecksPage userId={currentUser.id} />
           ) : (
             <div className="flex-1 flex items-center justify-center p-6">
               <div className="w-full max-w-md p-8 bg-neutral-900/60 border border-neutral-800 rounded-2xl text-center space-y-3">
                 <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto">
                   <Shield className="w-6 h-6" />
                 </div>
-                <h3 className="text-lg font-bold text-white">Identificador de Usuario Requerido</h3>
+                <h3 className="text-lg font-bold text-white">Activa un Jugador</h3>
                 <p className="text-sm text-neutral-400 leading-relaxed">
-                  Ingresa tu <code className="text-amber-400 bg-neutral-950 px-1.5 py-0.5 rounded text-xs font-mono">user_id</code> en el campo superior derecho para ver y auditar tus mazos.
+                  Para construir y auditar tus mazos, activa o crea tu cuenta de jugador.
                 </p>
+                <button
+                  onClick={() => setIsUserModalOpen(true)}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg transition"
+                >
+                  Configurar Jugador
+                </button>
               </div>
             </div>
           )
         )}
       </div>
 
-      {/* --------------------------------------------------------- */}
-      {/* 3. PIE DE PÁGINA Y AVISO LEGAL DE SCRYFALL / WOTC         */}
-      {/* --------------------------------------------------------- */}
+      {/* Modal de Usuario */}
+      <UserModal
+        isOpen={isUserModalOpen}
+        onClose={() => setIsUserModalOpen(false)}
+        currentUser={currentUser}
+        onSelectUser={handleSelectUser}
+      />
+
+      {/* Footer Legal Scryfall / WOTC */}
       <footer className="border-t border-neutral-900 bg-neutral-950 py-6 text-center text-xs text-neutral-500 px-4">
         <div className="max-w-7xl mx-auto space-y-2">
-          <p>
-            Plataforma de intercambio local y consulta analítica de Magic: The Gathering.
-          </p>
+          <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] text-neutral-600 max-w-2xl mx-auto">
             La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 1].
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 3].
           </p>
         </div>
       </footer>
