@@ -65,7 +65,7 @@ export default function App() {
           <nav className="flex items-center gap-1.5 bg-neutral-900/90 border border-neutral-800 p-1 rounded-xl">
             <button
               onClick={() => setActiveTab('catalog')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'catalog'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
@@ -77,7 +77,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('binders')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'binders'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
@@ -89,7 +89,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('decks')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'decks'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
@@ -101,7 +101,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('tradewall')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'tradewall'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
@@ -113,7 +113,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('profile')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'profile'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
@@ -196,29 +196,15 @@ export default function App() {
           )
         )}
 
-        {/* Mazos / Decks */}
+        {/* Mazos / Decks (Disponible para explorar con datos de muestra y soporte de usuario) */}
         {activeTab === 'decks' && (
-          currentUser?.id ? (
-            <DecksPage userId={currentUser.id} />
-          ) : (
-            <div className="flex-1 flex items-center justify-center p-6">
-              <div className="w-full max-w-md p-8 bg-neutral-900/60 border border-neutral-800 rounded-2xl text-center space-y-3">
-                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto">
-                  <Shield className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white">Activa un Jugador</h3>
-                <p className="text-sm text-neutral-400 leading-relaxed">
-                  Para construir y auditar tus mazos, activa o crea tu cuenta de jugador.
-                </p>
-                <button
-                  onClick={() => setIsUserModalOpen(true)}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg transition"
-                >
-                  Configurar Jugador
-                </button>
-              </div>
-            </div>
-          )
+          <DecksPage 
+            userId={currentUser?.id} 
+            onOpenCreateDeckModal={() => {
+              // Trigger de modal de creación de mazo
+            }}
+            onNavigateToTradeWall={() => setActiveTab('tradewall')}
+          />
         )}
 
         {/* Muro de Intercambio P2P */}
@@ -256,8 +242,8 @@ export default function App() {
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] text-neutral-600 max-w-2xl mx-auto">
-            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 5]. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 5].
+            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 6]. 
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 6].
           </p>
         </div>
       </footer>
