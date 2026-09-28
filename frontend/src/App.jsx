@@ -19,35 +19,42 @@ import UserModal from './components/auth/UserModal';
 import CreateDeckModal from './components/decks/CreateDeckModal';
 
 export default function App() {
-  // Pestaña activa: 'catalog' | 'binders' | 'decks' | 'tradewall' | 'profile'
   const [activeTab, setActiveTab] = useState('catalog');
 
-  // Usuario activo cargado desde localStorage
+  // Lectura segura con try/catch para evitar pantalla en blanco si el valor está corrupto
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('mtg_dev_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('mtg_dev_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error('Error al parsear usuario guardado en localStorage:', e);
+      return null;
+    }
   });
 
-  // Control de modales
+  const [deckCount, setDeckCount] = useState(0);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
+  const [refreshDecksTrigger, setRefreshDecksTrigger] = useState(0);
 
-  const handleSelectUser = (user) => {
-    setCurrentUser(user);
-    localStorage.setItem('mtg_dev_user', JSON.stringify(user));
-    localStorage.setItem('mtg_dev_user_id', user.id);
+  const handleSelectUser = (userData, accessToken = null) => {
+    setCurrentUser(userData);
+    try {
+      localStorage.setItem('mtg_dev_user', JSON.stringify(userData));
+      if (accessToken) {
+        localStorage.setItem('mtg_access_token', accessToken);
+      }
+    } catch (e) {
+      console.error('No se pudo guardar la sesión en localStorage:', e);
+    }
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-neutral-950 text-neutral-100 font-sans selection:bg-amber-500 selection:text-neutral-950">
       
-      {/* --------------------------------------------------------- */}
-      {/* 1. BARRA DE NAVEGACIÓN SUPERIOR (NAVBAR)                  */}
-      {/* --------------------------------------------------------- */}
+      {/* 1. NAVBAR */}
       <header className="sticky top-0 z-40 w-full border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
-          
-          {/* Logo y Nombre del Proyecto */}
           <div 
             onClick={() => setActiveTab('catalog')} 
             className="flex items-center gap-3 cursor-pointer select-none"
@@ -63,7 +70,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Menú de Navegación de Vistas */}
           <nav className="flex items-center gap-1.5 bg-neutral-900/90 border border-neutral-800 p-1 rounded-xl">
             <button
               onClick={() => setActiveTab('catalog')}
@@ -126,7 +132,6 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Estado de API y Selector de Jugador */}
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               <button
@@ -138,7 +143,6 @@ export default function App() {
                   }
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-neutral-800 bg-neutral-900 hover:border-amber-500/50 transition text-xs"
-                title={currentUser?.id ? "Ir a Mi Perfil" : "Crear / Activar Usuario"}
               >
                 <UserIcon className="w-3.5 h-3.5 text-amber-500" />
                 <span className="font-semibold text-neutral-200 truncate max-w-[100px] sm:max-w-none">
@@ -150,7 +154,6 @@ export default function App() {
                 <button
                   onClick={() => setIsUserModalOpen(true)}
                   className="px-2 py-1.5 rounded-lg border border-neutral-800 bg-neutral-900 hover:border-neutral-700 text-neutral-400 hover:text-white text-[10px] font-mono"
-                  title="Cambiar de usuario"
                 >
                   Cambiar
                 </button>
@@ -162,18 +165,13 @@ export default function App() {
               <span className="hidden md:inline">API Online</span>
             </div>
           </div>
-
         </div>
       </header>
 
-      {/* --------------------------------------------------------- */}
-      {/* 2. ÁREA DE CONTENIDO PRINCIPAL (ROUTER / VISTAS)           */}
-      {/* --------------------------------------------------------- */}
+      {/* 2. CONTENIDO PRINCIPAL */}
       <div className="flex-1 flex flex-col">
-        {/* Catálogo de cartas */}
         {activeTab === 'catalog' && <CatalogPage />}
         
-        {/* Colecciones / Binders */}
         {activeTab === 'binders' && (
           currentUser?.id ? (
             <BindersPage userId={currentUser.id} />
@@ -198,16 +196,16 @@ export default function App() {
           )
         )}
 
-        {/* Mazos / Decks */}
         {activeTab === 'decks' && (
           <DecksPage 
-            userId={currentUser?.id} 
+            currentUser={currentUser}
+            onDeckCountChange={setDeckCount}
+            refreshTrigger={refreshDecksTrigger}
             onOpenCreateDeckModal={() => setIsCreateDeckModalOpen(true)}
             onNavigateToTradeWall={() => setActiveTab('tradewall')}
           />
         )}
 
-        {/* Muro de Intercambio P2P */}
         {activeTab === 'tradewall' && (
           <TradeWallPage 
             currentUser={currentUser} 
@@ -215,7 +213,6 @@ export default function App() {
           />
         )}
 
-        {/* Perfil de Usuario */}
         {activeTab === 'profile' && (
           <ProfilePage 
             user={currentUser} 
@@ -225,10 +222,7 @@ export default function App() {
         )}
       </div>
 
-      {/* --------------------------------------------------------- */}
-      {/* 3. MODALES GLOBALES                                       */}
-      {/* --------------------------------------------------------- */}
-      {/* Modal de Usuario */}
+      {/* 3. MODALES GLOBALES */}
       <UserModal
         isOpen={isUserModalOpen}
         onClose={() => setIsUserModalOpen(false)}
@@ -236,25 +230,22 @@ export default function App() {
         onSelectUser={handleSelectUser}
       />
 
-      {/* Modal de Creación de Mazo */}
       <CreateDeckModal
         isOpen={isCreateDeckModalOpen}
         onClose={() => setIsCreateDeckModalOpen(false)}
-        currentDeckCount={3}
-        onDeckCreated={(newDeck) => {
-          console.log('Nuevo mazo registrado:', newDeck);
+        currentDeckCount={deckCount}
+        onDeckCreated={() => {
+          setRefreshDecksTrigger((prev) => prev + 1);
         }}
       />
 
-      {/* --------------------------------------------------------- */}
-      {/* 4. PIE DE PÁGINA Y AVISO LEGAL DE SCRYFALL / WOTC         */}
-      {/* --------------------------------------------------------- */}
+      {/* 4. FOOTER */}
       <footer className="border-t border-neutral-900 bg-neutral-950 py-6 text-center text-xs text-neutral-500 px-4">
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] text-neutral-600 max-w-2xl mx-auto">
-            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 4]. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 4].
+            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC. 
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast.
           </p>
         </div>
       </footer>

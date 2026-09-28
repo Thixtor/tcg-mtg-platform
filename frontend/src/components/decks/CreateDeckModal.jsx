@@ -11,6 +11,7 @@ import {
   Check, 
   Layers 
 } from 'lucide-react';
+import { createDeckApi, addCardToDeckApi } from '../../api/decks';
 
 export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0, onDeckCreated }) {
   const [deckName, setDeckName] = useState('');
@@ -18,14 +19,13 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
   const [archetype, setArchetype] = useState('');
   const [description, setDescription] = useState('');
   
-  // Selector interactivo de comandante
   const [commanderSearch, setCommanderSearch] = useState('');
   const [commanderResults, setCommanderResults] = useState([]);
   const [selectedCommander, setSelectedCommander] = useState(null);
   const [isSearchingCommander, setIsSearchingCommander] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Reset del formulario al abrir
   useEffect(() => {
     if (isOpen) {
       setDeckName('');
@@ -36,10 +36,10 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
       setCommanderResults([]);
       setSelectedCommander(null);
       setErrorMsg('');
+      setIsSubmitting(false);
     }
   }, [isOpen]);
 
-  // Búsqueda de comandantes en Scryfall con debounce nativo
   useEffect(() => {
     if (format !== 'commander' || commanderSearch.trim().length < 3) {
       setCommanderResults([]);
@@ -71,10 +71,10 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
 
   const isLimitReached = currentDeckCount >= 10;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (isLimitReached) {
-      setErrorMsg('Has alcanzado el límite máximo de 10 mazos.');
+      setErrorMsg('Has alcanzado el límite máximo permitido de 10 mazos.');
       return;
     }
     if (!deckName.trim()) {
@@ -86,34 +86,49 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
       return;
     }
 
-    const newDeck = {
-      id: `deck-${Date.now()}`,
-      name: deckName.trim(),
-      format: format === 'commander' ? 'Commander / EDH' : format.toUpperCase(),
-      archetype: archetype.trim() || 'General',
-      description: description.trim(),
-      commander: selectedCommander ? {
-        id: selectedCommander.id,
-        name: selectedCommander.name,
-        manaCost: selectedCommander.mana_cost,
-        colorIdentity: selectedCommander.color_identity,
-        img: selectedCommander.image_uris?.normal || selectedCommander.card_faces?.[0]?.image_uris?.normal
-      } : null,
-      cardCount: format === 'commander' ? 100 : 60,
-      totalPriceUsd: 0.0,
-      readinessPct: 0,
-      stats: { available: 0, inOtherDeck: 0, missing: 0, avgCmc: 0.0, missingCost: 0.0 }
-    };
+    setIsSubmitting(true);
+    setErrorMsg('');
 
-    onDeckCreated?.(newDeck);
-    onClose();
+    try {
+      const fullDescription = [
+        archetype.trim() ? `Arquetipo: ${archetype.trim()}` : null,
+        description.trim() ? description.trim() : null
+      ].filter(Boolean).join(' | ');
+
+      // 1. Guardar mazo en backend
+      const createdDeck = await createDeckApi({
+        name: deckName.trim(),
+        format: format === 'commander' ? 'Commander' : format.toUpperCase(),
+        description: fullDescription || undefined
+      });
+
+      // 2. Si es Commander, agregar el comandante seleccionado al mazo
+      if (format === 'commander' && selectedCommander?.id) {
+        try {
+          await addCardToDeckApi(createdDeck.id, {
+            scryfall_card_id: selectedCommander.id,
+            quantity: 1,
+            category: 'commander'
+          });
+        } catch (cardErr) {
+          console.warn('El mazo se creó, pero la carta de comandante no pudo registrarse automáticamente:', cardErr);
+        }
+      }
+
+      onDeckCreated?.(createdDeck);
+      onClose();
+    } catch (err) {
+      const detail = err.response?.data?.detail || 'Error al crear el mazo en el servidor.';
+      setErrorMsg(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md font-sans">
       <div className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         
-        {/* Cabecera del Modal */}
         <div className="px-6 py-4 bg-neutral-950 border-b border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center">
@@ -134,9 +149,7 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
           </button>
         </div>
 
-        {/* Cuerpo del Formulario */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-xs">
-          
           {errorMsg && (
             <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-800/60 text-rose-300 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
@@ -144,7 +157,6 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
             </div>
           )}
 
-          {/* Nombre y Formato */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2 space-y-1.5">
               <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 block font-semibold">
@@ -176,7 +188,6 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
             </div>
           </div>
 
-          {/* Arquetipo */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 block font-semibold">
               Arquetipo o Estrategia
@@ -190,7 +201,6 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
             />
           </div>
 
-          {/* Selector de Comandante (Solo EDH) */}
           {format === 'commander' && (
             <div className="space-y-3 bg-neutral-950/70 p-4 rounded-xl border border-neutral-800/80">
               <div className="flex items-center justify-between">
@@ -204,7 +214,6 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
                 )}
               </div>
 
-              {/* Input buscador */}
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-2.5" />
                 <input
@@ -216,7 +225,6 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
                 />
               </div>
 
-              {/* Grid de resultados de búsqueda */}
               {isSearchingCommander && (
                 <div className="text-center py-3 text-neutral-500 font-mono text-[11px]">
                   Consultando base de datos oficial de Scryfall...
@@ -258,7 +266,6 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
             </div>
           )}
 
-          {/* Notas o Descripción */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 block font-semibold">
               Notas Adicionales
@@ -271,14 +278,12 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
               className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-neutral-200 placeholder:text-neutral-600 outline-none focus:border-amber-500 resize-none transition"
             />
           </div>
-
         </form>
 
-        {/* Pie del Modal */}
         <div className="px-6 py-4 bg-neutral-950 border-t border-neutral-800 flex items-center justify-between">
           <div className="text-[11px] font-mono text-neutral-500 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-amber-500" />
-            <span>Auditoría física automática al crear</span>
+            <span>Registro oficial en base de datos</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -291,11 +296,11 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
             </button>
             <button
               onClick={handleSubmit}
-              disabled={isLimitReached}
+              disabled={isLimitReached || isSubmitting}
               className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-500/10 active:scale-95"
             >
               <Shield className="w-3.5 h-3.5" />
-              <span>Guardar y Crear Mazo</span>
+              <span>{isSubmitting ? 'Guardando...' : 'Guardar y Crear Mazo'}</span>
             </button>
           </div>
         </div>

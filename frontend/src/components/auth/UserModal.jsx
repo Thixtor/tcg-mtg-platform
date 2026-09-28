@@ -1,211 +1,262 @@
+// frontend/src/components/auth/UserModal.jsx
 // ---------------------------------------------------------
-// COMPONENTE: MODAL DE GESTIÓN Y REGISTRO DE USUARIO (MVP)
+// COMPONENTE: MODAL DE AUTENTICACIÓN Y PERFIL DE JUGADOR
 // ---------------------------------------------------------
-import React, { useState } from 'react';
-import { X, UserPlus, UserCheck, AlertCircle, Loader2 } from 'lucide-react';
-import { registerUserApi } from '../../api/auth';
+import React, { useState, useEffect } from 'react';
+import { X, User as UserIcon, Plus, KeyRound, ArrowRight } from 'lucide-react';
+import { getUsersApi, registerUserApi, requestOtpApi, verifyOtpApi } from '../../api/users';
 
 export default function UserModal({ isOpen, onClose, currentUser, onSelectUser }) {
-  // Pestaña interna: 'register' | 'switch'
-  const [mode, setMode] = useState('register');
-
-  // Formulario de Registro
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('+57');
-
-  // Input manual para alternar de usuario por ID
-  const [manualId, setManualId] = useState('');
-
+  const [usersList, setUsersList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [step, setStep] = useState('list'); // 'list' | 'register' | 'otp'
 
-  if (!isOpen) return null;
+  // Datos de registro y login
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [devCodeHint, setDevCodeHint] = useState('');
 
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    if (!username.trim() || !email.trim() || !phoneNumber.trim()) {
-      setError('Todos los campos son obligatorios.');
-      return;
-    }
-
-    try {
-      setLoading(true);
+  useEffect(() => {
+    if (isOpen) {
+      loadUsers();
+      setStep('list');
       setError(null);
-      const newUser = await registerUserApi({
-        username: username.trim(),
-        email: email.trim(),
-        phone_number: phoneNumber.trim(),
-      });
+      setDevCodeHint('');
+      setOtpCode('');
+    }
+  }, [isOpen]);
 
-      // Establecer como usuario activo
-      onSelectUser(newUser);
-      onClose();
+  const loadUsers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getUsersApi();
+      setUsersList(data || []);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Error al registrar el usuario.');
+      console.error('Error al cargar usuarios:', err);
+      setError('No se pudo cargar la lista de jugadores.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSwitchById = (e) => {
+  // 1. Registro inicial
+  const handleRegister = async (e) => {
     e.preventDefault();
-    if (!manualId.trim()) {
-      setError('Ingresa un ID de usuario válido.');
-      return;
+    setLoading(true);
+    setError(null);
+    try {
+      await registerUserApi({
+        username: username.trim(),
+        email: email.trim(),
+        phone_number: phoneNumber.trim(),
+        location: 'Medellín / Bello, Antioquia'
+      });
+      // Tras registrar, pedimos el código OTP automáticamente
+      await handleRequestOtp(phoneNumber.trim());
+    } catch (err) {
+      console.error('Error registrando usuario:', err);
+      const detail = err.response?.data?.detail || 'Error al crear el perfil.';
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      setLoading(false);
     }
-    onSelectUser({ id: manualId.trim(), username: 'Usuario Activo' });
-    onClose();
   };
 
+  // 2. Solicitar OTP (ya sea por registro o por login con teléfono)
+  const handleRequestOtp = async (phone) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await requestOtpApi(phone);
+      if (res.dev_otp_code) {
+        setDevCodeHint(res.dev_otp_code);
+      }
+      setPhoneNumber(phone);
+      setStep('otp');
+    } catch (err) {
+      console.error('Error solicitando OTP:', err);
+      const detail = err.response?.data?.detail || 'No se pudo enviar el código OTP.';
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 3. Validar OTP y almacenar JWT
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await verifyOtpApi(phoneNumber, otpCode.trim());
+      // data = { access_token, user }
+      onSelectUser(data.user, data.access_token);
+      onClose();
+    } catch (err) {
+      console.error('Error verificando OTP:', err);
+      const detail = err.response?.data?.detail || 'Código incorrecto o expirado.';
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm font-sans">
+      <div className="relative w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden">
         
         {/* Cabecera */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950/60">
-          <div className="flex items-center gap-2 text-neutral-100 font-semibold text-base">
-            <UserCheck className="w-5 h-5 text-amber-500" />
-            <span>Perfil de Jugador (MVP)</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-neutral-400 hover:text-white p-1 rounded-md hover:bg-neutral-800 transition"
-          >
-            <X className="w-5 h-5" />
+        <div className="flex items-center justify-between p-4 border-b border-neutral-800 bg-neutral-950/50">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <UserIcon className="w-4 h-4 text-amber-500" />
+            {step === 'list' && 'Seleccionar o Activar Jugador'}
+            {step === 'register' && 'Crear Perfil de Trader'}
+            {step === 'otp' && 'Verificación Celular OTP'}
+          </h2>
+          <button onClick={onClose} className="p-1 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Pestañas modo */}
-        <div className="grid grid-cols-2 p-2 bg-neutral-950/50 border-b border-neutral-800 text-xs">
-          <button
-            type="button"
-            onClick={() => { setMode('register'); setError(null); }}
-            className={`py-2 rounded-lg font-semibold transition ${
-              mode === 'register'
-                ? 'bg-amber-600 text-white shadow-xs'
-                : 'text-neutral-400 hover:text-white'
-            }`}
-          >
-            Crear Jugador
-          </button>
-          <button
-            type="button"
-            onClick={() => { setMode('switch'); setError(null); }}
-            className={`py-2 rounded-lg font-semibold transition ${
-              mode === 'switch'
-                ? 'bg-amber-600 text-white shadow-xs'
-                : 'text-neutral-400 hover:text-white'
-            }`}
-          >
-            Cargar por ID
-          </button>
+        {/* Contenido */}
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-xs">
+          {error && (
+            <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-800 text-rose-300">
+              {error}
+            </div>
+          )}
+
+          {/* VISTA 1: LISTADO / SELECCIÓN RÁPIDA */}
+          {step === 'list' && (
+            <div className="space-y-3">
+              {loading ? (
+                <div className="text-center py-6 text-neutral-500 font-mono">Cargando jugadores...</div>
+              ) : usersList.length === 0 ? (
+                <div className="text-center py-6 text-neutral-500">No hay jugadores registrados en la plataforma.</div>
+              ) : (
+                <div className="space-y-2">
+                  {usersList.map((u) => (
+                    <div 
+                      key={u.id}
+                      onClick={() => {
+                        // En desarrollo, seleccionamos directamente
+                        onSelectUser(u);
+                        onClose();
+                      }}
+                      className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition ${
+                        currentUser?.id === u.id 
+                          ? 'border-amber-500 bg-amber-500/10' 
+                          : 'border-neutral-800 bg-neutral-950 hover:border-neutral-600'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-sm text-white flex items-center gap-2">
+                          {u.username}
+                        </div>
+                        <div className="text-[10px] text-neutral-500 font-mono mt-0.5">
+                          Reputación: {u.reputation_score} pts • {u.completed_trades} trades
+                        </div>
+                      </div>
+                      <span className="text-xs text-amber-500 font-semibold bg-amber-500/10 px-2.5 py-1 rounded-lg">
+                        Activar
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button 
+                onClick={() => setStep('register')}
+                className="w-full mt-4 py-3 border border-dashed border-neutral-700 hover:border-amber-500 hover:bg-neutral-900 rounded-xl flex items-center justify-center gap-2 text-neutral-300 hover:text-white transition font-semibold"
+              >
+                <Plus className="w-4 h-4" /> Registrar nuevo jugador
+              </button>
+            </div>
+          )}
+
+          {/* VISTA 2: FORMULARIO DE REGISTRO */}
+          {step === 'register' && (
+            <form onSubmit={handleRegister} className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-neutral-400 font-mono uppercase text-[10px]">Nombre de Usuario</label>
+                <input 
+                  type="text" required value={username} onChange={e => setUsername(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-white focus:border-amber-500 outline-none"
+                  placeholder="ej: urza_collector"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-neutral-400 font-mono uppercase text-[10px]">Correo Electrónico</label>
+                <input 
+                  type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-white focus:border-amber-500 outline-none"
+                  placeholder="tu@correo.com"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-neutral-400 font-mono uppercase text-[10px]">Número Celular (Formato E.164)</label>
+                <input 
+                  type="text" required value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-white focus:border-amber-500 outline-none"
+                  placeholder="+573001234567"
+                />
+                <span className="text-[10px] text-neutral-500 block">Debe iniciar con el código de país (ej. +57 para Colombia).</span>
+              </div>
+              
+              <div className="pt-3 flex gap-2">
+                <button type="button" onClick={() => setStep('list')} className="flex-1 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold transition">
+                  Volver
+                </button>
+                <button type="submit" disabled={loading} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 font-bold text-neutral-950 transition disabled:opacity-50">
+                  {loading ? 'Registrando...' : 'Continuar con OTP'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* VISTA 3: INGRESO DE OTP */}
+          {step === 'otp' && (
+            <form onSubmit={handleVerifyOtp} className="space-y-4">
+              <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-center space-y-1">
+                <span className="text-neutral-400 text-xs block">Código enviado al número:</span>
+                <span className="font-mono font-bold text-amber-400 text-sm">{phoneNumber}</span>
+                {devCodeHint && (
+                  <div className="mt-2 pt-2 border-t border-neutral-800/80 text-[11px] text-emerald-400 font-mono">
+                    🔑 [MODO DEV] Código detectado: <strong>{devCodeHint}</strong>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-neutral-400 font-mono uppercase text-[10px]">Código de 6 dígitos</label>
+                <input 
+                  type="text" 
+                  maxLength={6} 
+                  required 
+                  value={otpCode} 
+                  onChange={e => setOtpCode(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2.5 text-center text-lg font-mono tracking-widest text-white focus:border-amber-500 outline-none"
+                  placeholder="123456"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button type="button" onClick={() => setStep('register')} className="flex-1 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold transition">
+                  Atrás
+                </button>
+                <button type="submit" disabled={loading || otpCode.length < 6} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 font-bold text-neutral-950 transition disabled:opacity-50">
+                  {loading ? 'Verificando...' : 'Acceder y Validar'}
+                </button>
+              </div>
+            </form>
+          )}
+
         </div>
-
-        {error && (
-          <div className="mx-6 mt-4 flex items-center gap-2 p-3 text-xs text-red-400 bg-red-950/40 border border-red-900/50 rounded-xl">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Formulario Registro */}
-        {mode === 'register' ? (
-          <form onSubmit={handleRegister} className="p-6 space-y-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1">
-                Nombre de Usuario (Gamertag) *
-              </label>
-              <input
-                type="text"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Ej: sebastian_mtg"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-amber-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1">
-                Correo Electrónico *
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="tu_email@ejemplo.com"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-amber-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1">
-                Celular (Para intercambios) *
-              </label>
-              <input
-                type="text"
-                required
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+573001234567"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-amber-500"
-              />
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg shadow-sm transition"
-              >
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
-                <span>Registrar y Activar</span>
-              </button>
-            </div>
-          </form>
-        ) : (
-          /* Formulario Cambio Rápido por UUID */
-          <form onSubmit={handleSwitchById} className="p-6 space-y-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1">
-                UUID de Usuario Existente
-              </label>
-              <input
-                type="text"
-                value={manualId}
-                onChange={(e) => setManualId(e.target.value)}
-                placeholder="Pega el UUID aquí..."
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-neutral-100 font-mono placeholder-neutral-500 focus:outline-none focus:border-amber-500"
-              />
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded-lg shadow-sm transition"
-              >
-                Activar Jugador
-              </button>
-            </div>
-          </form>
-        )}
-
       </div>
     </div>
   );

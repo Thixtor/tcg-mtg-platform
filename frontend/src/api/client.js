@@ -3,7 +3,6 @@
 // ---------------------------------------------------------
 import axios from 'axios';
 
-// Toma la URL del backend desde variables de entorno de Vite o usa el fallback local
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 const apiClient = axios.create({
@@ -11,13 +10,34 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
+  timeout: 15000,
 });
 
-// Interceptor global para capturar errores de forma estructurada
+// Interceptor de solicitud: Inyecta el JWT Bearer Token automáticamente
+apiClient.interceptors.request.use(
+  (config) => {
+    try {
+      const token = localStorage.getItem('mtg_access_token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (e) {
+      console.warn('No se pudo acceder a localStorage para recuperar el token:', e);
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Interceptor de respuesta: Manejo centralizado de 401 y errores de red
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.status === 401) {
+      // Token expirado o inválido: limpiar sesión local
+      localStorage.removeItem('mtg_access_token');
+      localStorage.removeItem('mtg_dev_user');
+    }
     const message = error.response?.data?.detail || error.message || 'Error en la comunicación con el servidor';
     console.error('[API Error]:', message);
     return Promise.reject(error);
