@@ -17,7 +17,12 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     try {
-      const token = localStorage.getItem('mtg_access_token');
+      // Buscar token en las claves estándar de la aplicación
+      const token = 
+        localStorage.getItem('mtg_access_token') || 
+        localStorage.getItem('token') || 
+        localStorage.getItem('access_token');
+
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -34,9 +39,12 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token expirado o inválido: limpiar sesión local
+      // Token expirado o inválido: limpiar sesión local unificada
       localStorage.removeItem('mtg_access_token');
+      localStorage.removeItem('token');
+      localStorage.removeItem('access_token');
       localStorage.removeItem('mtg_dev_user');
+      localStorage.removeItem('user');
     }
     const message = error.response?.data?.detail || error.message || 'Error en la comunicación con el servidor';
     console.error('[API Error]:', message);

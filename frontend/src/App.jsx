@@ -21,10 +21,10 @@ import CreateDeckModal from './components/decks/CreateDeckModal';
 export default function App() {
   const [activeTab, setActiveTab] = useState('catalog');
 
-  // Lectura segura con try/catch para evitar pantalla en blanco si el valor está corrupto
+  // Lectura segura para evitar pantalla en blanco si el valor está corrupto
   const [currentUser, setCurrentUser] = useState(() => {
     try {
-      const saved = localStorage.getItem('mtg_dev_user');
+      const saved = localStorage.getItem('mtg_dev_user') || localStorage.getItem('user');
       return saved ? JSON.parse(saved) : null;
     } catch (e) {
       console.error('Error al parsear usuario guardado en localStorage:', e);
@@ -40,8 +40,18 @@ export default function App() {
   const handleSelectUser = (userData, accessToken = null) => {
     setCurrentUser(userData);
     try {
-      localStorage.setItem('mtg_dev_user', JSON.stringify(userData));
+      if (userData) {
+        localStorage.setItem('mtg_dev_user', JSON.stringify(userData));
+        localStorage.setItem('user', JSON.stringify(userData));
+        if (userData.id) {
+          localStorage.setItem('mtg_dev_user_id', userData.id);
+        }
+      }
+
       if (accessToken) {
+        // Estandarizar almacenamiento para ProfilePage y Axios client
+        localStorage.setItem('token', accessToken);
+        localStorage.setItem('access_token', accessToken);
         localStorage.setItem('mtg_access_token', accessToken);
       }
     } catch (e) {
@@ -174,7 +184,7 @@ export default function App() {
         
         {activeTab === 'binders' && (
           currentUser?.id ? (
-            <BindersPage userId={currentUser.id} />
+            <BindersPage userId={currentUser.id} onOpenAuthModal={() => setIsUserModalOpen(true)} />
           ) : (
             <div className="flex-1 flex items-center justify-center p-6">
               <div className="w-full max-w-md p-8 bg-neutral-900/60 border border-neutral-800 rounded-2xl text-center space-y-3">
@@ -218,6 +228,7 @@ export default function App() {
             user={currentUser} 
             onOpenBinderModal={() => setActiveTab('binders')}
             onOpenTradeModal={() => setActiveTab('tradewall')}
+            onOpenAuthModal={() => setIsUserModalOpen(true)}
           />
         )}
       </div>
@@ -244,8 +255,8 @@ export default function App() {
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] text-neutral-600 max-w-2xl mx-auto">
-            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast.
+            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 9]. 
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 9].
           </p>
         </div>
       </footer>
