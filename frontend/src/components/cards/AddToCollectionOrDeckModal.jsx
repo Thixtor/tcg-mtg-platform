@@ -1,10 +1,20 @@
 // ---------------------------------------------------------
 // COMPONENTE: MODAL DE ASIGNACIÓN A COLECCIONES O MAZOS
 // ---------------------------------------------------------
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, Layers, Shield, Check, AlertCircle, Loader2, Plus, FolderPlus, User } from 'lucide-react';
-import { getUserCollectionsApi, addCardToCollectionApi, createCollectionApi } from '../../api/collections';
-import { getUserDecksApi, addCardToDeckApi } from '../../api/decks';
+import { 
+  getUserCollectionsApi, 
+  getMyCollectionsApi,
+  addCardToCollectionApi, 
+  createCollectionApi,
+  createMyCollectionApi 
+} from '../../api/collections';
+import { 
+  getUserDecksApi, 
+  getMyDecksApi, 
+  addCardToDeckApi 
+} from '../../api/decks';
 
 const CARD_CONDITIONS = [
   { value: 'NM', label: 'Near Mint (NM)' },
@@ -22,13 +32,14 @@ const DECK_CATEGORIES = [
 ];
 
 export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, userId: propUserId }) {
-  // Destino: 'collection' | 'deck'
   const [targetType, setTargetType] = useState('collection');
 
-  // Identificador efectivo del usuario (resuelve prop o fallback a localStorage)
+  // Identificador opcional para pruebas/perfiles ajenos
   const [effectiveUserId, setEffectiveUserId] = useState(() => {
     return propUserId || localStorage.getItem('mtg_dev_user_id') || '';
   });
+
+  const token = localStorage.getItem('token');
 
   // Listados disponibles
   const [collections, setCollections] = useState([]);
@@ -59,44 +70,56 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, user
   const [successMsg, setSuccessMsg] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Sincronizar user_id si cambia la prop
   useEffect(() => {
     const id = propUserId || localStorage.getItem('mtg_dev_user_id') || '';
     setEffectiveUserId(id);
   }, [propUserId, isOpen]);
 
-  // Cargar colecciones y mazos del usuario
-  const loadUserData = (uid) => {
-    if (!uid) return;
+  // Cargar colecciones y mazos (prioriza JWT sesión activa, o UID explícito)
+  const loadUserData = useCallback(async () => {
+    if (!token && !effectiveUserId) return;
     setLoadingTargets(true);
     setErrorMsg(null);
 
-    Promise.all([
-      getUserCollectionsApi(uid).catch(() => []),
-      getUserDecksApi(uid).catch(() => [])
-    ])
-      .then(([userCollections, userDecks]) => {
-        setCollections(userCollections);
-        setDecks(userDecks);
-        if (userCollections.length > 0) setSelectedCollectionId(userCollections[0].id);
-        if (userDecks.length > 0) setSelectedDeckId(userDecks[0].id);
-      })
-      .finally(() => setLoadingTargets(false));
-  };
+    try {
+      const fetchCols = effectiveUserId
+        ? getUserCollectionsApi(effectiveUserId).catch(() => [])
+        : getMyCollectionsApi().catch(() => []);
+
+      const fetchDecks = effectiveUserId
+        ? getUserDecksApi(effectiveUserId).catch(() => [])
+        : (getMyDecksApi ? getMyDecksApi().catch(() => []) : Promise.resolve([]));
+
+      const [userCollections, userDecks] = await Promise.all([fetchCols, fetchDecks]);
+
+      const colsArray = Array.isArray(userCollections) ? userCollections : [];
+      const decksArray = Array.isArray(userDecks) ? userDecks : [];
+
+      setCollections(colsArray);
+      setDecks(decksArray);
+
+      if (colsArray.length > 0) setSelectedCollectionId(colsArray[0].id);
+      if (decksArray.length > 0) setSelectedDeckId(decksArray[0].id);
+    } catch (err) {
+      console.error('Error cargando destinos:', err);
+    } finally {
+      setLoadingTargets(false);
+    }
+  }, [effectiveUserId, token]);
 
   useEffect(() => {
-    if (isOpen && effectiveUserId) {
-      loadUserData(effectiveUserId);
+    if (isOpen) {
+      loadUserData();
     }
-  }, [isOpen, effectiveUserId]);
+  }, [isOpen, loadUserData]);
 
   if (!isOpen || !card) return null;
 
   // Manejar creación rápida de Colección
   const handleCreateCollectionInline = async (e) => {
     e.preventDefault();
-    if (!effectiveUserId) {
-      setErrorMsg('No se detectó un User UUID. Ingresa tu ID de usuario de pruebas.');
+    if (!token && !effectiveUserId) {
+      setErrorMsg('Debes iniciar sesión para crear una colección.');
       return;
     }
 
@@ -113,10 +136,15 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, user
     try {
       setCreatingInline(true);
       setErrorMsg(null);
-      const nueva = await createCollectionApi(effectiveUserId, {
+
+      const payload = {
         name: newCollectionName.trim(),
         description: newCollectionDesc.trim() || null
-      });
+      };
+
+      const nueva = effectiveUserId 
+        ? await createCollectionApi(effectiveUserId, payload)
+        : await createMyCollectionApi(payload);
 
       setCollections((prev) => [...prev, nueva]);
       setSelectedCollectionId(nueva.id);
@@ -135,8 +163,8 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, user
   // Manejar asignación física
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!effectiveUserId) {
-      setErrorMsg('Se requiere un User ID válido para asociar la carta.');
+    if (!token && !effectiveUserId) {
+      setErrorMsg('Se requiere iniciar sesión para asociar la carta.');
       return;
     }
 
@@ -203,27 +231,25 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, user
           </button>
         </div>
 
-        {/* Verificación de Usuario Activo */}
-        {!effectiveUserId && (
+        {/* Verificación de Usuario Activo solo si no hay JWT ni UID */}
+        {!token && !effectiveUserId && (
           <div className="p-4 bg-amber-950/30 border-b border-amber-900/50 flex flex-col gap-2">
             <div className="flex items-center gap-2 text-xs text-amber-300 font-medium">
               <User className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Ingresa tu User UUID para poder asociar colecciones:</span>
+              <span>Inicia sesión o ingresa un User UUID de pruebas:</span>
             </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Pega tu User UUID aquí..."
-                className="flex-1 bg-neutral-950 border border-neutral-800 text-xs px-2.5 py-1.5 rounded-lg text-white font-mono focus:border-amber-500 focus:outline-none"
-                onBlur={(e) => {
-                  const val = e.target.value.trim();
-                  if (val) {
-                    localStorage.setItem('mtg_dev_user_id', val);
-                    setEffectiveUserId(val);
-                  }
-                }}
-              />
-            </div>
+            <input
+              type="text"
+              placeholder="Pega tu User UUID aquí..."
+              className="w-full bg-neutral-950 border border-neutral-800 text-xs px-2.5 py-1.5 rounded-lg text-white font-mono focus:border-amber-500 focus:outline-none"
+              onBlur={(e) => {
+                const val = e.target.value.trim();
+                if (val) {
+                  localStorage.setItem('mtg_dev_user_id', val);
+                  setEffectiveUserId(val);
+                }
+              }}
+            />
           </div>
         )}
 
@@ -284,7 +310,6 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, user
               {/* CASO A: ASIGNAR A MIS COLECCIONES */}
               {targetType === 'collection' && (
                 <div className="space-y-4">
-                  {/* Selector o Creación de Colección */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
@@ -303,7 +328,6 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, user
                     </div>
 
                     {showCreateInline ? (
-                      /* Formulario de creación rápida inline */
                       <div className="p-3.5 bg-neutral-950/80 border border-amber-600/40 rounded-xl space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
@@ -452,7 +476,6 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, user
                       )}
                     </div>
 
-                    {/* Botones de acción */}
                     <div className="flex items-center justify-end gap-3 pt-4 border-t border-neutral-800">
                       <button
                         type="button"
@@ -482,7 +505,7 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card, user
                     </label>
                     {decks.length === 0 ? (
                       <p className="text-xs text-amber-400/90 bg-amber-950/30 p-2.5 rounded-lg border border-amber-900/40">
-                        No tienes mazos creados aún. Ve a la pestaña "Mis Mazos" para crear tu primera baraja.
+                        No tienes mazos creados aún. Ve a la pestaña &quot;Mis Mazos&quot; para crear tu primera baraja.
                       </p>
                     ) : (
                       <select
