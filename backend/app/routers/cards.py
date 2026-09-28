@@ -1,7 +1,7 @@
 # ---------------------------------------------------------
-# ROUTER DE CATÁLOGO, BUSCADOR Y RECOMENDACIÓN DE CARTAS
+# ROUTER DE CATÁLOGO, BUSCADOR AVANZADO Y RECOMENDACIONES
 # ---------------------------------------------------------
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -15,23 +15,43 @@ router = APIRouter(
 )
 
 # ---------------------------------------------------------
-# 1. BÚSQUEDA REACTIVA DE CARTAS
+# 1. BÚSQUEDA REACTIVA Y MULTI-FILTRO DE CARTAS
 # ---------------------------------------------------------
 @router.get(
     "/search",
     response_model=List[CardResponse],
-    summary="Buscar cartas en el catálogo local"
+    summary="Buscar cartas con filtros combinados (nombre, color, tipo, CMC, rareza)"
 )
 def search_cards(
-    q: str = Query(..., min_length=2, description="Texto de búsqueda para el nombre de la carta"),
-    limit: int = Query(20, ge=1, le=100, description="Límite de resultados a retornar"),
+    q: Optional[str] = Query(None, description="Texto de búsqueda para el nombre de la carta"),
+    type: Optional[str] = Query(None, description="Tipo de carta (ej. Creature, Instant, Sorcery, Artifact)"),
+    colors: Optional[str] = Query(None, description="Identidad de color separada por coma (ej. W,U o C para incoloro)"),
+    rarity: Optional[str] = Query(None, description="Rareza (common, uncommon, rare, mythic)"),
+    cmc: Optional[int] = Query(None, ge=0, le=16, description="Coste de maná convertido exacto"),
+    limit: int = Query(24, ge=1, le=100, description="Límite de resultados a retornar"),
     db: Session = Depends(get_db)
 ):
-    return crud_cards.search_cards_by_name(db, query_text=q, limit=limit)
+    """
+    Retorna cartas que coincidan con la combinación de filtros solicitada.
+    Si no se envía texto 'q', filtra directamente por los atributos especificados.
+    """
+    # Si no hay ningún criterio de búsqueda, retornamos lista vacía para no saturar
+    if not any([q, type, colors, rarity, cmc is not None]):
+        return []
+
+    return crud_cards.search_cards_advanced(
+        db=db,
+        query_text=q,
+        card_type=type,
+        colors=colors,
+        rarity=rarity,
+        cmc=cmc,
+        limit=limit
+    )
 
 
 # ---------------------------------------------------------
-# 2. CARTAS FUNCIONALMENTE SIMILARES / ALTERNATIVAS DE MAZO
+# 2. CARTAS FUNCIONALMENTE SIMILARES / SUSTITUTOS DE MAZO
 # ---------------------------------------------------------
 @router.get(
     "/{card_id}/similar",
@@ -43,10 +63,6 @@ def get_similar_cards(
     limit: int = Query(6, ge=1, le=20, description="Cantidad máxima de cartas similares a retornar"),
     db: Session = Depends(get_db)
 ):
-    """
-    Retorna cartas alternativas que cumplen un rol funcional análogo en el juego
-    (mismo arquetipo/efecto e identidad de color compatible).
-    """
     resultado = crud_cards.get_similar_cards(db, card_id=card_id, limit=limit)
     if not resultado:
         raise HTTPException(
