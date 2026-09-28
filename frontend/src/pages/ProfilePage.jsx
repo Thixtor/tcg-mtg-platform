@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 import ProfileHeader from '../components/profile/ProfileHeader';
 import SecuritySidebar from '../components/profile/SecuritySidebar';
 import BinderPreviewGrid from '../components/profile/BinderPreviewGrid';
+import EditProfileModal from '../components/profile/EditProfileModal';
 import { getMyProfileApi } from '../api/users';
 import { getCollectionCardsApi } from '../api/collections';
 import { 
@@ -29,15 +30,26 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
   const [loadingCards, setLoadingCards] = useState(false);
   const [error, setError] = useState(null);
 
+  // Control del modal de edición de perfil
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  // Token tolerante de sesión
+  const token = typeof window !== 'undefined'
+    ? (localStorage.getItem('token') || localStorage.getItem('access_token') || localStorage.getItem('mtg_access_token'))
+    : null;
+
   // 1. Cargar el perfil del usuario autenticado vía JWT
   useEffect(() => {
-    const fetchProfile = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setLoadingProfile(false);
-        return;
-      }
+    const currentToken = localStorage.getItem('token') || 
+                         localStorage.getItem('access_token') || 
+                         localStorage.getItem('mtg_access_token');
 
+    if (!currentToken && !user) {
+      setLoadingProfile(false);
+      return;
+    }
+
+    const fetchProfile = async () => {
       setLoadingProfile(true);
       setError(null);
       try {
@@ -57,7 +69,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
     fetchProfile();
   }, [user]);
 
-  // 2. Cargar reactivamente las cartas del binder activo cuando cambia `selectedBinderId`
+  // 2. Cargar cartas del binder activo cuando cambia selectedBinderId
   useEffect(() => {
     const fetchCards = async () => {
       if (!selectedBinderId) {
@@ -80,9 +92,16 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
     fetchCards();
   }, [selectedBinderId]);
 
-  // Si no hay token de autenticación
-  const token = localStorage.getItem('token');
-  if (!token && !loadingProfile) {
+  // Manejo de actualización reactiva desde EditProfileModal
+  const handleProfileUpdated = (updatedUser) => {
+    setProfileData((prev) => ({
+      ...prev,
+      ...updatedUser
+    }));
+  };
+
+  // Si no hay sesión iniciada
+  if (!token && !user && !loadingProfile) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center space-y-4">
         <Lock className="w-10 h-10 text-amber-500" />
@@ -117,7 +136,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
     );
   }
 
-  // Filtrado en vivo de las cartas del binder
+  // Filtrado de cartas en el binder actual
   const filteredCards = binderCards.filter((card) => {
     const cardName = card.card_catalog?.name || card.name || '';
     return cardName.toLowerCase().includes(binderSearchTerm.toLowerCase());
@@ -129,8 +148,8 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
       {/* 1. CABECERA MODULAR */}
       <ProfileHeader 
         user={profileData} 
-        onEditProfile={() => {}} 
-        onTradeSettings={() => {}} 
+        onEditProfile={() => setIsEditModalOpen(true)} 
+        onTradeSettings={onOpenTradeModal} 
       />
 
       {/* 2. BARRA DE PESTAÑAS */}
@@ -186,7 +205,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
         {/* LADO IZQUIERDO: BINDERS Y CARTAS (8 COLS) */}
         <div className="lg:col-span-8 space-y-6">
           
-          {/* Fila de Binders (Ajustado a la Fan Content Policy de Scryfall) */}
+          {/* Fila de Binders */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {profileData.binders?.map((binder) => (
               <div 
@@ -213,7 +232,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
                   <div>
                     <h3 className="text-xs font-bold text-white truncate">{binder.name}</h3>
                     <div className="text-[9px] text-neutral-500 truncate mt-0.5 italic">
-                      Magic: The Gathering - Art crop
+                      Magic: The Gathering - Art crop[cite: 13]
                     </div>
                   </div>
 
@@ -231,7 +250,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
             ))}
             {(!profileData.binders || profileData.binders.length === 0) && (
               <div className="col-span-1 md:col-span-3 text-center text-sm text-neutral-500 py-8 border border-dashed border-neutral-800 rounded-xl bg-neutral-900/20">
-                No tienes carpetas creadas. Usa el botón &quot;+ New Binder&quot; para empezar.
+                No tienes carpetas creadas. Usa el botón inferior para empezar.
               </div>
             )}
           </div>
@@ -270,7 +289,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
             </div>
           </div>
 
-          {/* Grid de Cartas con estado de carga */}
+          {/* Grid de Cartas Físicas */}
           {loadingCards ? (
             <div className="flex items-center justify-center py-16 text-neutral-500 text-xs font-mono gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
@@ -282,7 +301,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
 
         </div>
 
-        {/* LADO DERECHO: WIDGETS DE SEGURIDAD (4 COLS) */}
+        {/* LADO DERECHO: SIDEBAR DE SEGURIDAD (4 COLS) */}
         <div className="lg:col-span-4">
           <SecuritySidebar 
             phone={profileData.phone_number}
@@ -293,6 +312,14 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
         </div>
 
       </div>
+
+      {/* MODAL DE EDICIÓN EN VIVO */}
+      <EditProfileModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        user={profileData}
+        onProfileUpdated={handleProfileUpdated}
+      />
 
     </div>
   );
