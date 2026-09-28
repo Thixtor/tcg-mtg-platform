@@ -5,11 +5,9 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-import random
 
-# IMPORTANTE: Agregar esta línea para que get_db exista
 from app.database import get_db
-
+from app.core.security import get_current_user
 from app.models import User, Collection, UserCard
 
 try:
@@ -22,118 +20,44 @@ from app.schemas.user import (
     UserProfileUpdate,
     UserProfileKPIs,
     ProfileBinderSummary,
-    PhoneVerificationRequest,
-    PhoneVerificationConfirm,
-    UserCreate
+    UserPublicSummary,
 )
 
-# Prefijo relativo para evitar la duplicación /api/api/...
 router = APIRouter(
     prefix="/users",
     tags=["Usuarios y Perfil"]
 )
 
 
-# ---------------------------------------------------------
-# 1. LISTAR USUARIOS (Para el selector de la Navbar en React)
-# ---------------------------------------------------------
-@router.get("/", response_model=List[UserProfileResponse])
-def list_users(db: Session = Depends(get_db)):
-    """
-    Lista todos los usuarios registrados para el selector de cambio
-    de perfil en la barra de navegación del frontend.
-    """
-    users = db.query(User).all()
-    return [get_user_profile(user_id=u.id, db=db) for u in users]
-
-
-# ---------------------------------------------------------
-# 2. CREAR O REGISTRAR USUARIO
-# ---------------------------------------------------------
-@router.post("/", response_model=UserProfileResponse, status_code=status.HTTP_201_CREATED)
-def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
-    """
-    Crea un nuevo perfil de jugador en la plataforma.
-    """
-    existing_user = db.query(User).filter(
-        (User.username == user_in.username) | (User.email == user_in.email)
-    ).first()
-
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El nombre de usuario o correo ya se encuentra registrado."
-        )
-
-    new_user = User(
-        username=user_in.username,
-        email=user_in.email,
-        phone_number=user_in.phone_number,
-        location=user_in.location or "Medellín / Bello, Antioquia",
-        preferred_currency="COP",
-        allows_local_meetup=True,
-        allows_nationwide_shipping=True,
-        is_phone_verified=False,
-        reputation_score=100,
-        rating=5.0,
-        completed_trades=0,
-        disputes_count=0
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    return get_user_profile(user_id=new_user.id, db=db)
-
-
-# ---------------------------------------------------------
-# 3. OBTENER PERFIL COMPLETO CON KPIS
-# ---------------------------------------------------------
-@router.get("/{user_id}/profile", response_model=UserProfileResponse)
-def get_user_profile(user_id: str, db: Session = Depends(get_db)):
-    """
-    Retorna los datos consolidados de identidad, reputación P2P,
-    métricas de inventario (KPIs) y binders del usuario para ProfilePage.jsx.
-    """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Usuario con id {user_id} no encontrado."
-        )
-
-    # 1. Binders del usuario
-    user_collections = db.query(Collection).filter(Collection.user_id == user_id).all()
-    active_binders_count = len(user_collections)
+def _build_profile_response(user: User, db: Session) -> UserProfileResponse:
+    """Helper interno para construir los KPIs y binders de un usuario."""
+    user_collections = db.query(Collection).filter(Collection.user_id == user.id).all()
     collection_ids = [c.id for c in user_collections]
 
-    # 2. Métricas de inventario físico
     total_cards = 0
     cards_for_trade = 0
 
     if collection_ids:
-        total_cards_result = db.query(func.coalesce(func.sum(UserCard.quantity), 0)).filter(
-            UserCard.collection_id.in_(collection_ids)
-        ).scalar()
-        total_cards = int(total_cards_result)
+        total_cards = int(
+            db.query(func.coalesce(func.sum(UserCard.quantity), 0))
+            .filter(UserCard.collection_id.in_(collection_ids))
+            .scalar() or 0
+        )
+        cards_for_trade = int(
+            db.query(func.coalesce(func.sum(UserCard.quantity), 0))
+            .filter(UserCard.collection_id.in_(collection_ids), UserCard.is_for_trade == True)
+            .scalar() or 0
+        )
 
-        trade_cards_result = db.query(func.coalesce(func.sum(UserCard.quantity), 0)).filter(
-            UserCard.collection_id.in_(collection_ids),
-            UserCard.is_for_trade == True
-        ).scalar()
-        cards_for_trade = int(trade_cards_result)
-
-    # 3. Cartas en Wishlist
     wishlist_wants = 0
     if WishlistItem:
-        wishlist_wants = db.query(WishlistItem).filter(WishlistItem.user_id == user_id).count()
+        wishlist_wants = db.query(WishlistItem).filter(WishlistItem.user_id == user.id).count()
 
-    # 4. Formatear lista de binders
     binders_summary = []
     for c in user_collections:
         cards_in_binder = db.query(func.coalesce(func.sum(UserCard.quantity), 0)).filter(
             UserCard.collection_id == c.id
-        ).scalar()
+        ).scalar() or 0
         binders_summary.append(
             ProfileBinderSummary(
                 id=c.id,
@@ -146,7 +70,7 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
         )
 
     kpis = UserProfileKPIs(
-        active_binders=active_binders_count,
+        active_binders=len(user_collections),
         max_binders=10,
         total_cards_in_collection=total_cards,
         cards_for_trade=cards_for_trade,
@@ -176,82 +100,52 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------
-# 4. ACTUALIZAR INFORMACIÓN DEL PERFIL Y PREFERENCIAS
+# 1. LISTAR USUARIOS PÚBLICOS (Sin filtrar PII)
 # ---------------------------------------------------------
-@router.put("/{user_id}/profile", response_model=UserProfileResponse)
-def update_user_profile(user_id: str, profile_in: UserProfileUpdate, db: Session = Depends(get_db)):
-    """
-    Actualiza la biografía, ubicación y flags de preferencias comerciales.
-    """
+@router.get("/", response_model=List[UserPublicSummary])
+def list_users(db: Session = Depends(get_db)):
+    """Lista jugadores con datos públicos (evita fugas de teléfono y correo)."""
+    return db.query(User).all()
+
+
+# ---------------------------------------------------------
+# 2. OBTENER MI PROPIO PERFIL (Autenticado vía JWT)
+# ---------------------------------------------------------
+@router.get("/me/profile", response_model=UserProfileResponse)
+def get_my_profile(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Retorna los datos completos del usuario autenticado."""
+    return _build_profile_response(current_user, db)
+
+
+# ---------------------------------------------------------
+# 3. OBTENER PERFIL POR ID (Lectura para ver a otro trader)
+# ---------------------------------------------------------
+@router.get("/{user_id}/profile", response_model=UserProfileResponse)
+def get_user_profile(user_id: str, db: Session = Depends(get_db)):
+    """Consulta el perfil de un trader por su ID."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Usuario con id {user_id} no encontrado."
         )
+    return _build_profile_response(user, db)
 
+
+# ---------------------------------------------------------
+# 4. ACTUALIZAR MI PROPIO PERFIL (Blindado contra IDOR)
+# ---------------------------------------------------------
+@router.put("/me/profile", response_model=UserProfileResponse)
+def update_my_profile(
+    profile_in: UserProfileUpdate, 
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """Actualiza datos del perfil del usuario actualmente autenticado."""
     update_data = profile_in.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        setattr(user, field, value)
+        setattr(current_user, field, value)
 
     db.commit()
-    db.refresh(user)
-
-    return get_user_profile(user_id=user.id, db=db)
-
-
-# ---------------------------------------------------------
-# 5. SEGURIDAD: SOLICITUD Y CONFIRMACIÓN DE OTP CELULAR
-# ---------------------------------------------------------
-@router.post("/{user_id}/verify-phone/request")
-def request_phone_verification(user_id: str, req: PhoneVerificationRequest, db: Session = Depends(get_db)):
-    """
-    Genera un código OTP simulado de 6 dígitos para validar el número de teléfono.
-    """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
-
-    generated_code = f"{random.randint(100000, 999999)}"
-    user.phone_number = req.phone_number
-    user.verification_code = generated_code
-    user.is_phone_verified = False
-
-    db.commit()
-
-    print("\n" + "=" * 50)
-    print(f"📱 [DEV WHATSAPP OTP] Mensaje enviado a {req.phone_number}")
-    print(f"🔑 Tu código de verificación es: {generated_code}")
-    print("=" * 50 + "\n")
-
-    return {
-        "status": "success",
-        "message": f"Código de verificación enviado al {req.phone_number}.",
-        "dev_code": generated_code
-    }
-
-
-@router.post("/{user_id}/verify-phone/confirm")
-def confirm_phone_verification(user_id: str, confirm_in: PhoneVerificationConfirm, db: Session = Depends(get_db)):
-    """
-    Valida el código OTP introducido por el usuario y activa su verificación.
-    """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
-
-    if not user.verification_code or user.verification_code != confirm_in.code.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Código de verificación incorrecto o expirado."
-        )
-
-    user.is_phone_verified = True
-    user.verification_code = None
-    db.commit()
-
-    return {
-        "status": "success",
-        "message": "Teléfono verificado exitosamente. Tu perfil ahora cuenta con el sello de Trader Verificado.",
-        "is_phone_verified": True
-    }
+    db.refresh(current_user)
+    return _build_profile_response(current_user, db)

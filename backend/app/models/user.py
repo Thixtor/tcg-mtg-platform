@@ -9,10 +9,6 @@ from app.database import Base
 
 
 class User(Base):
-    """
-    Entidad de usuario y perfil de trader P2P con validación de identidad
-    y métricas de reputación de mercado.
-    """
     __tablename__ = 'users'
 
     # Identificación básica
@@ -25,14 +21,18 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Preferencias comerciales y P2P
-    preferred_currency = Column(String, default="COP")  # "USD" o "COP"
+    preferred_currency = Column(String, default="COP")
     allows_local_meetup = Column(Boolean, default=True)
     allows_nationwide_shipping = Column(Boolean, default=True)
 
-    # Verificación de identidad y seguridad
+    # Verificación de identidad y seguridad OTP
     phone_number = Column(String, unique=True, index=True, nullable=False)
     is_phone_verified = Column(Boolean, default=False, nullable=False)
-    verification_code = Column(String, nullable=True)  # Código OTP temporal
+    
+    # NUEVOS CAMPOS DE SEGURIDAD OTP
+    otp_hash = Column(String, nullable=True)
+    otp_expires_at = Column(DateTime, nullable=True)
+    otp_attempts = Column(Integer, default=0, nullable=False)
 
     # Reputación y métricas P2P
     reputation_score = Column(Integer, default=100)
