@@ -1,7 +1,7 @@
 // ---------------------------------------------------------
 // VISTA: GESTIÓN DE BINDERS Y COLECCIONES
 // ---------------------------------------------------------
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   FolderPlus, 
   Folder, 
@@ -10,12 +10,19 @@ import {
   Loader2, 
   Sparkles, 
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Lock
 } from 'lucide-react';
-import { getUserCollectionsApi, createCollectionApi, getCollectionCardsApi } from '../api/collections';
+import { 
+  getMyCollectionsApi, 
+  getUserCollectionsApi, 
+  createMyCollectionApi, 
+  createCollectionApi, 
+  getCollectionCardsApi 
+} from '../api/collections';
 import CreateCollectionModal from '../components/collections/CreateCollectionModal';
 
-export default function BindersPage({ userId }) {
+export default function BindersPage({ userId, onOpenAuthModal }) {
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,28 +32,37 @@ export default function BindersPage({ userId }) {
   const [collectionCards, setCollectionCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(false);
 
-  // Control del modal
+  // Control del modal de creación
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // 1. Cargar colecciones del usuario
-  const fetchCollections = async () => {
+  const token = localStorage.getItem('token');
+
+  // 1. Cargar colecciones (vía JWT o por userId si se visita a otro trader)
+  const fetchCollections = useCallback(async () => {
+    // Si no es un perfil ajeno y no hay sesión activa
+    if (!userId && !token) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      const data = await getUserCollectionsApi(userId);
-      setCollections(data);
+      const data = userId 
+        ? await getUserCollectionsApi(userId) 
+        : await getMyCollectionsApi();
+      setCollections(Array.isArray(data) ? data : []);
     } catch (err) {
+      console.error("Error al cargar colecciones:", err);
       setError(err.response?.data?.detail || 'Error al cargar las colecciones del usuario.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId, token]);
 
   useEffect(() => {
-    if (userId) {
-      fetchCollections();
-    }
-  }, [userId]);
+    fetchCollections();
+  }, [fetchCollections]);
 
   // 2. Cargar cartas de una colección seleccionada
   const handleSelectCollection = async (collection) => {
@@ -54,9 +70,10 @@ export default function BindersPage({ userId }) {
     try {
       setLoadingCards(true);
       const cards = await getCollectionCardsApi(collection.id);
-      setCollectionCards(cards);
+      setCollectionCards(Array.isArray(cards) ? cards : []);
     } catch (err) {
       console.error('Error al cargar cartas de la colección:', err);
+      setCollectionCards([]);
     } finally {
       setLoadingCards(false);
     }
@@ -64,9 +81,38 @@ export default function BindersPage({ userId }) {
 
   // 3. Crear una nueva colección
   const handleCreateCollection = async (payload) => {
-    const newCollection = await createCollectionApi(userId, payload);
-    setCollections((prev) => [...prev, newCollection]);
+    try {
+      const newCollection = userId 
+        ? await createCollectionApi(userId, payload) 
+        : await createMyCollectionApi(payload);
+      setCollections((prev) => [...prev, newCollection]);
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error('Error creando colección:', err);
+      alert(err.response?.data?.detail || 'No se pudo crear el binder.');
+    }
   };
+
+  // Vista no autenticada
+  if (!userId && !token && !loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-28 text-center space-y-4">
+        <Lock className="w-10 h-10 text-amber-500" />
+        <h2 className="text-xl font-bold text-white">Inicia sesión para gestionar tus carpetas</h2>
+        <p className="text-sm text-neutral-400 max-w-md">
+          Para ver tus binders, registrar cartas físicas y publicar intercambios necesitas autenticarte con tu cuenta.
+        </p>
+        {onOpenAuthModal && (
+          <button
+            onClick={onOpenAuthModal}
+            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-lg transition shadow-md"
+          >
+            Iniciar Sesión / Registrarse
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-8">

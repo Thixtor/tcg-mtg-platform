@@ -4,17 +4,33 @@
 import apiClient from './client';
 
 /**
- * Lista todas las colecciones asociadas a un usuario.
+ * Obtiene todas las colecciones/binders del usuario autenticado vía JWT.
+ */
+export const getMyCollectionsApi = async () => {
+  const response = await apiClient.get('/collections/me');
+  return response.data;
+};
+
+/**
+ * Crea una nueva colección para el usuario autenticado (máximo 10 por usuario).
+ * @param {Object} payload - { name: string, description?: string, is_public_trade?: boolean }
+ */
+export const createMyCollectionApi = async (payload) => {
+  const response = await apiClient.post('/collections/me', payload);
+  return response.data;
+};
+
+/**
+ * Lista colecciones asociadas a un usuario específico (para perfiles públicos).
  * @param {string} userId - UUID del usuario.
  */
 export const getUserCollectionsApi = async (userId) => {
-  // Ajuste: si el backend espera /api/users/... asegúrate que apiClient lo maneje.
   const response = await apiClient.get(`/users/${userId}/collections`);
   return response.data;
 };
 
 /**
- * Crea una nueva colección respetando la regla de negocio de hasta 10 por usuario.
+ * Crea una colección indicando el ID de usuario explícito.
  * @param {string} userId - UUID del usuario.
  * @param {Object} payload - { name: string, description?: string }
  */
@@ -39,5 +55,15 @@ export const getCollectionCardsApi = async (collectionId) => {
  */
 export const addCardToCollectionApi = async (collectionId, payload) => {
   const response = await apiClient.post(`/collections/${collectionId}/cards`, payload);
+  return response.data;
+};
+
+/**
+ * Elimina una carta física de una colección.
+ * @param {string} collectionId - UUID de la colección.
+ * @param {string} cardId - UUID del registro físico (UserCard).
+ */
+export const removeCardFromCollectionApi = async (collectionId, cardId) => {
+  const response = await apiClient.delete(`/collections/${collectionId}/cards/${cardId}`);
   return response.data;
 };
