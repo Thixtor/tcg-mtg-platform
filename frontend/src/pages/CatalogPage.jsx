@@ -63,6 +63,7 @@ export function CatalogPage() {
         <CardDetailModal
           card={selectedCard}
           onClose={() => setSelectedCard(null)}
+          onSelectCard={(newCard) => setSelectedCard(newCard)}
         />
       )}
     </main>
