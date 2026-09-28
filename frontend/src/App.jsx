@@ -2,12 +2,13 @@
 // COMPONENTE PRINCIPAL DE LA APLICACIÓN (APP LAYOUT)
 // ---------------------------------------------------------
 import React, { useState } from 'react';
-import { Search, Layers, User as UserIcon } from 'lucide-react';
+import { Search, Layers, Shield, User as UserIcon } from 'lucide-react';
 import { CatalogPage } from './pages/CatalogPage';
 import BindersPage from './pages/BindersPage';
+import DecksPage from './pages/DecksPage';
 
 export default function App() {
-  // Estado para la pestaña activa: 'catalog' | 'binders'
+  // Pestaña activa: 'catalog' | 'binders' | 'decks'
   const [activeTab, setActiveTab] = useState('catalog');
 
   // Identificador de usuario activo para pruebas de desarrollo (persistido localmente)
@@ -68,11 +69,22 @@ export default function App() {
               <Layers className="w-3.5 h-3.5" />
               <span>Mis Binders</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('decks')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                activeTab === 'decks'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>Mis Mazos</span>
+            </button>
           </nav>
 
           {/* Estado de API y Selector de Usuario (Dev Tools) */}
           <div className="flex items-center gap-3">
-            {/* Input para user_id de desarrollo */}
             <div className="hidden sm:flex items-center gap-2 bg-neutral-900 border border-neutral-800 px-2.5 py-1 rounded-lg">
               <UserIcon className="w-3.5 h-3.5 text-neutral-500" />
               <input
@@ -85,7 +97,6 @@ export default function App() {
               />
             </div>
 
-            {/* Badge de estado del backend */}
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/50 text-emerald-400 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="hidden md:inline">API Online</span>
@@ -112,7 +123,25 @@ export default function App() {
                 </div>
                 <h3 className="text-lg font-bold text-white">Identificador de Usuario Requerido</h3>
                 <p className="text-sm text-neutral-400 leading-relaxed">
-                  Ingresa tu <code className="text-amber-400 bg-neutral-950 px-1.5 py-0.5 rounded text-xs font-mono">user_id</code> en el campo superior derecho para gestionar tus colecciones y carpetas de intercambio.
+                  Ingresa tu <code className="text-amber-400 bg-neutral-950 px-1.5 py-0.5 rounded text-xs font-mono">user_id</code> en el campo superior derecho para gestionar tus colecciones.
+                </p>
+              </div>
+            </div>
+          )
+        )}
+
+        {activeTab === 'decks' && (
+          currentUserId ? (
+            <DecksPage userId={currentUserId} />
+          ) : (
+            <div className="flex-1 flex items-center justify-center p-6">
+              <div className="w-full max-w-md p-8 bg-neutral-900/60 border border-neutral-800 rounded-2xl text-center space-y-3">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto">
+                  <Shield className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-white">Identificador de Usuario Requerido</h3>
+                <p className="text-sm text-neutral-400 leading-relaxed">
+                  Ingresa tu <code className="text-amber-400 bg-neutral-950 px-1.5 py-0.5 rounded text-xs font-mono">user_id</code> en el campo superior derecho para ver y auditar tus mazos.
                 </p>
               </div>
             </div>
@@ -130,7 +159,7 @@ export default function App() {
           </p>
           <p className="text-[11px] text-neutral-600 max-w-2xl mx-auto">
             La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast.
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 1].
           </p>
         </div>
       </footer>
