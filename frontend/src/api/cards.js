@@ -3,10 +3,11 @@
 // ---------------------------------------------------------
 import apiClient from './client';
 
-export const searchCardsApi = async (query, limit = 20) => {
-  const response = await apiClient.get('/cards/search', {
-    params: { q: query, limit },
-  });
+export const searchCardsApi = async (filters = {}) => {
+  // Soporta tanto string directo (legado) como objeto de filtros
+  const params = typeof filters === 'string' ? { q: filters } : { ...filters };
+  
+  const response = await apiClient.get('/cards/search', { params });
   return response.data;
 };
 

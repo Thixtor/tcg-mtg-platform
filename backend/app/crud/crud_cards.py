@@ -4,7 +4,7 @@
 import re
 from typing import List, Optional, Dict, Any, Set
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, cast, Integer, Float
+from sqlalchemy import or_, and_, cast, Float, String
 from app.models.card import CartaScryfall
 
 # ---------------------------------------------------------
@@ -93,25 +93,32 @@ def search_cards_advanced(
     if query_text and query_text.strip():
         query = query.filter(CartaScryfall.name.ilike(f"%{query_text.strip()}%"))
 
-    # 1.2 Filtro por tipo de carta (Creature, Instant, Sorcery, etc.)
-    if card_type and card_type.strip() and card_type.lower() != 'all':
-        query = query.filter(CartaScryfall.type_line.ilike(f"%{card_type.strip()}%"))
+    # 1.2 Filtro por tipo de carta (ignorar si es 'all' o cadena vacía)
+        if card_type and card_type.strip() and card_type.lower() != 'all':
+            query = query.filter(CartaScryfall.type_line.ilike(f"%{card_type.strip()}%"))
 
-    # 1.3 Filtro por colores / identidad
+    # 1.3 Filtro por colores / identidad (ROBUSTO para PostgreSQL JSON)
     if colors and colors.strip():
         color_list = [c.strip().upper() for c in colors.split(",") if c.strip()]
+        
         if "C" in color_list:
-            # Incoloro: el arreglo color_identity debe estar vacío o nulo
+            # Incoloro: el array en JSON es '[]' o NULL
             query = query.filter(
                 or_(
-                    CartaScryfall.scryfall_raw_data['color_identity'].astext == '[]',
+                    cast(CartaScryfall.scryfall_raw_data['color_identity'], String) == '[]',
+                    cast(CartaScryfall.scryfall_raw_data['colors'], String) == '[]',
                     CartaScryfall.scryfall_raw_data['color_identity'] == None
                 )
             )
         else:
-            # Debe contener los colores solicitados
+            # Buscar cada color (W, U, B, R, G) dentro del array JSON
             for col in color_list:
-                query = query.filter(CartaScryfall.scryfall_raw_data['color_identity'].astext.ilike(f"%{col}%"))
+                query = query.filter(
+                    or_(
+                        cast(CartaScryfall.scryfall_raw_data['color_identity'], String).ilike(f'%"{col}"%'),
+                        cast(CartaScryfall.scryfall_raw_data['colors'], String).ilike(f'%"{col}"%')
+                    )
+                )
 
     # 1.4 Filtro por rareza
     if rarity and rarity.strip():

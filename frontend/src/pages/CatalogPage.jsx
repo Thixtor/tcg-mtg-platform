@@ -1,15 +1,32 @@
 // ---------------------------------------------------------
-// PÁGINA PRINCIPAL DE CATÁLOGO Y BÚSQUEDA
+// PÁGINA PRINCIPAL DE CATÁLOGO Y BÚSQUEDA MULTIFILTRO
 // ---------------------------------------------------------
 import React, { useState } from 'react';
 import { useCardSearch } from '../hooks/useCardSearch';
 import { SearchBar } from '../components/cards/SearchBar';
+import { FilterBar } from '../components/search/FilterBar';
 import { CardGrid } from '../components/cards/CardGrid';
 import { CardDetailModal } from '../components/modal/CardDetailModal';
 
 export function CatalogPage() {
-  const { searchTerm, setSearchTerm, results, loading, error } = useCardSearch();
+  const {
+    searchTerm,
+    setSearchTerm,
+    filters,
+    handleFilterChange,
+    handleResetFilters,
+    results,
+    loading,
+    error,
+  } = useCardSearch();
+
   const [selectedCard, setSelectedCard] = useState(null);
+
+  const hasQuery = searchTerm.trim().length >= 2;
+  const hasActiveFilters = Boolean(
+    filters.type || filters.colors || filters.cmc !== null
+  );
+  const isSearchActive = hasQuery || hasActiveFilters;
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100 px-4 py-8 max-w-7xl mx-auto w-full">
@@ -23,11 +40,18 @@ export function CatalogPage() {
         </p>
       </header>
 
-      {/* Buscador reactivo */}
+      {/* Buscador reactivo por texto */}
       <SearchBar
         value={searchTerm}
         onChange={setSearchTerm}
         onClear={() => setSearchTerm('')}
+      />
+
+      {/* Barra de Filtros Rápidos (Colores, Tipos, CMC) */}
+      <FilterBar
+        filters={filters}
+        onFilterChange={handleFilterChange}
+        onReset={handleResetFilters}
       />
 
       {/* Estado: Error en la API */}
@@ -37,17 +61,17 @@ export function CatalogPage() {
         </div>
       )}
 
-      {/* Estado: Sin resultados */}
-      {!loading && !error && searchTerm.trim().length >= 2 && results.length === 0 && (
+      {/* Estado: Sin resultados tras una búsqueda */}
+      {!loading && !error && isSearchActive && results.length === 0 && (
         <div className="text-center py-16 text-sm text-neutral-500">
-          No se encontraron cartas que coincidan con "<span className="text-neutral-300">{searchTerm}</span>".
+          No se encontraron cartas que coincidan con los criterios seleccionados.
         </div>
       )}
 
-      {/* Estado Inicial: Sin escribir */}
-      {!loading && searchTerm.trim().length < 2 && (
+      {/* Estado Inicial: Sin escribir ni activar filtros */}
+      {!loading && !isSearchActive && (
         <div className="text-center py-16 text-neutral-600 text-xs">
-          Escribe al menos 2 letras para iniciar la búsqueda en el catálogo.
+          Escribe al menos 2 letras o selecciona filtros rápidos para explorar el catálogo.
         </div>
       )}
 
