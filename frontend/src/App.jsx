@@ -1,15 +1,16 @@
 // ---------------------------------------------------------
 // COMPONENTE PRINCIPAL DE LA APLICACIÓN (APP LAYOUT)
 // ---------------------------------------------------------
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Search, Layers, Shield, User as UserIcon } from 'lucide-react';
 import { CatalogPage } from './pages/CatalogPage';
 import BindersPage from './pages/BindersPage';
 import DecksPage from './pages/DecksPage';
+import ProfilePage from './pages/ProfilePage';
 import UserModal from './components/auth/UserModal';
 
 export default function App() {
-  // Pestaña activa: 'catalog' | 'binders' | 'decks'
+  // Pestaña activa: 'catalog' | 'binders' | 'decks' | 'profile'
   const [activeTab, setActiveTab] = useState('catalog');
 
   // Usuario activo cargado desde localStorage
@@ -37,8 +38,11 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           
           {/* Logo y Nombre del Proyecto */}
-          <div className="flex items-center gap-3">
-            <span className="text-2xl select-none">🧙‍♂️</span>
+          <div 
+            onClick={() => setActiveTab('catalog')} 
+            className="flex items-center gap-3 cursor-pointer select-none"
+          >
+            <span className="text-2xl">🧙‍♂️</span>
             <div>
               <span className="text-base font-bold tracking-tight text-neutral-100 block leading-tight">
                 MTG Trade & Market
@@ -86,20 +90,50 @@ export default function App() {
               <Shield className="w-3.5 h-3.5" />
               <span>Mis Mazos</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                activeTab === 'profile'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
+              }`}
+            >
+              <UserIcon className="w-3.5 h-3.5" />
+              <span>Mi Perfil</span>
+            </button>
           </nav>
 
           {/* Estado de API y Selector de Jugador */}
           <div className="flex items-center gap-3">
-            {/* Botón Perfil de Usuario */}
-            <button
-              onClick={() => setIsUserModalOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-neutral-800 bg-neutral-900 hover:border-amber-500/50 transition text-xs"
-            >
-              <UserIcon className="w-3.5 h-3.5 text-amber-500" />
-              <span className="font-semibold text-neutral-200">
-                {currentUser?.username || 'Crear / Activar Usuario'}
-              </span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => {
+                  if (currentUser?.id) {
+                    setActiveTab('profile');
+                  } else {
+                    setIsUserModalOpen(true);
+                  }
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-neutral-800 bg-neutral-900 hover:border-amber-500/50 transition text-xs"
+                title={currentUser?.id ? "Ir a Mi Perfil" : "Crear / Activar Usuario"}
+              >
+                <UserIcon className="w-3.5 h-3.5 text-amber-500" />
+                <span className="font-semibold text-neutral-200">
+                  {currentUser?.username || 'Crear / Activar Usuario'}
+                </span>
+              </button>
+
+              {currentUser?.id && (
+                <button
+                  onClick={() => setIsUserModalOpen(true)}
+                  className="px-2 py-1.5 rounded-lg border border-neutral-800 bg-neutral-900 hover:border-neutral-700 text-neutral-400 hover:text-white text-[10px] font-mono"
+                  title="Cambiar de usuario"
+                >
+                  Cambiar
+                </button>
+              )}
+            </div>
 
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/50 text-emerald-400 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -163,6 +197,14 @@ export default function App() {
             </div>
           )
         )}
+
+        {activeTab === 'profile' && (
+          <ProfilePage 
+            user={currentUser} 
+            onOpenBinderModal={() => setActiveTab('binders')}
+            onOpenTradeModal={() => {}}
+          />
+        )}
       </div>
 
       {/* Modal de Usuario */}
@@ -178,8 +220,8 @@ export default function App() {
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] text-neutral-600 max-w-2xl mx-auto">
-            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 3].
+            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 5]. 
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 5].
           </p>
         </div>
       </footer>
