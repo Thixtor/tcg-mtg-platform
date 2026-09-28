@@ -1,9 +1,12 @@
+# ---------------------------------------------------------
+# PUNTO DE ENTRADA PRINCIPAL: FASTAPI APP
+# ---------------------------------------------------------
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Importación de configuración y routers
 from app.core.config import settings
-from app.routers import cards, auth, collections, decks, wishlist, prices
+from app.routers import cards, auth, users, collections, decks, wishlist, prices
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -23,6 +26,7 @@ app.add_middleware(
 # Registro de routers
 app.include_router(cards.router, prefix=settings.API_V1_STR)
 app.include_router(auth.router, prefix=settings.API_V1_STR)
+app.include_router(users.router, prefix=settings.API_V1_STR)
 app.include_router(collections.router, prefix=settings.API_V1_STR)
 app.include_router(decks.router, prefix=settings.API_V1_STR)
 app.include_router(wishlist.router, prefix=settings.API_V1_STR)
