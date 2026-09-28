@@ -2,7 +2,8 @@
 # SCHEMAS DE PYDANTIC PARA CARTAS Y CATÁLOGO
 # ---------------------------------------------------------
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
 
 # ---------------------------------------------------------
 # 1. SCHEMA PRINCIPAL DE RESPUESTA DE CARTA
@@ -16,8 +17,7 @@ class CardResponse(BaseModel):
     image_url: Optional[str] = None
     scryfall_raw_data: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------
@@ -34,8 +34,7 @@ class SimilarCardItem(BaseModel):
     similarity_reason: str
     current_price_usd: Optional[float] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SimilarCardsResponse(BaseModel):

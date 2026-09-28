@@ -4,13 +4,13 @@ services:
     container_name: mtg_db
     restart: always
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: secretpassword
-      POSTGRES_DB: mtg_market
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secretpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-mtg_market}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # El puerto 5432 queda cerrado para el host en producción;
+    # si requieres conectarte con DBeaver/PgAdmin en local, puedes mapear "127.0.0.1:5432:5432"
 
   backend:
     build:
@@ -20,8 +20,10 @@ services:
     restart: always
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=postgresql://admin:secretpassword@db:5432/mtg_market
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secretpassword}@db:5432/${POSTGRES_DB:-mtg_market}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - db

@@ -2,7 +2,7 @@
 # ENTIDAD: USUARIO Y TRADER PROFILE (SQLAlchemy)
 # ---------------------------------------------------------
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Integer, Boolean, Float, DateTime
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -18,7 +18,7 @@ class User(Base):
     avatar_url = Column(String, nullable=True)
     bio = Column(String, nullable=True, default="Coleccionista y jugador de MTG.")
     location = Column(String, nullable=True, default="Medellín / Bello, Antioquia")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Preferencias comerciales y P2P
     preferred_currency = Column(String, default="COP")
@@ -43,4 +43,17 @@ class User(Base):
     # Relaciones del usuario
     collections = relationship("Collection", back_populates="owner", cascade="all, delete-orphan")
     decks = relationship("Deck", back_populates="owner", cascade="all, delete-orphan")
-    wishlist_items = relationship("WishlistItem", back_populates="user", cascade="all, delete-orphan")
+
+    # Relación canónica principal
+    wishlist_items = relationship(
+        "WishlistItem", 
+        back_populates="user", 
+        cascade="all, delete-orphan"
+    )
+
+    # Alias compatible con servicios que consulten `user.wishlist`, silenciando el warning de solapamiento
+    wishlist = relationship(
+        "WishlistItem", 
+        overlaps="wishlist_items", 
+        viewonly=True
+    )

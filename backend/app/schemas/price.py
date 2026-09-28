@@ -1,6 +1,6 @@
 from datetime import date
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ---------------------------------------------------------
@@ -11,9 +11,7 @@ class PuntoPrecio(BaseModel):
     fecha: date = Field(..., description="Fecha de corte del precio")
     precio_usd: float = Field(..., description="Precio registrado en dólares USD")
 
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ResumenPreciosActuales(BaseModel):
@@ -24,9 +22,7 @@ class ResumenPreciosActuales(BaseModel):
     tcgplayer_usd: Optional[float] = None
     tcgplayer_foil_usd: Optional[float] = None
 
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class HistorialPreciosResponse(BaseModel):
@@ -37,6 +33,4 @@ class HistorialPreciosResponse(BaseModel):
     rango_dias: int
     puntos: List[PuntoPrecio] = Field(default_factory=list, description="Lista de puntos cronológicos")
 
-    class Config:
-        from_attributes = True
-        
+    model_config = ConfigDict(from_attributes=True)

@@ -63,3 +63,12 @@ yarn-error.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# ==========================================
+# TEMPORALES, CACHÉ DE SUBIDA Y PRUEBAS
+# ==========================================
+.tmp.*
+*.tmp
+.pytest_cache/
+.coverage
+htmlcov/
