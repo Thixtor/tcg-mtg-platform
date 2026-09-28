@@ -2,15 +2,23 @@
 // COMPONENTE PRINCIPAL DE LA APLICACIÓN (APP LAYOUT)
 // ---------------------------------------------------------
 import React, { useState } from 'react';
-import { Search, Layers, Shield, User as UserIcon } from 'lucide-react';
+import { 
+  Search, 
+  Layers, 
+  Shield, 
+  ArrowLeftRight, 
+  User as UserIcon 
+} from 'lucide-react';
+
 import { CatalogPage } from './pages/CatalogPage';
 import BindersPage from './pages/BindersPage';
 import DecksPage from './pages/DecksPage';
 import ProfilePage from './pages/ProfilePage';
+import TradeWallPage from './pages/TradeWallPage';
 import UserModal from './components/auth/UserModal';
 
 export default function App() {
-  // Pestaña activa: 'catalog' | 'binders' | 'decks' | 'profile'
+  // Pestaña activa: 'catalog' | 'binders' | 'decks' | 'tradewall' | 'profile'
   const [activeTab, setActiveTab] = useState('catalog');
 
   // Usuario activo cargado desde localStorage
@@ -57,50 +65,62 @@ export default function App() {
           <nav className="flex items-center gap-1.5 bg-neutral-900/90 border border-neutral-800 p-1 rounded-xl">
             <button
               onClick={() => setActiveTab('catalog')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'catalog'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
               }`}
             >
               <Search className="w-3.5 h-3.5" />
-              <span>Catálogo</span>
+              <span className="hidden sm:inline">Catálogo</span>
             </button>
 
             <button
               onClick={() => setActiveTab('binders')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'binders'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>Mis Colecciones</span>
+              <span className="hidden sm:inline">Colecciones</span>
             </button>
 
             <button
               onClick={() => setActiveTab('decks')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'decks'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
               }`}
             >
               <Shield className="w-3.5 h-3.5" />
-              <span>Mis Mazos</span>
+              <span className="hidden sm:inline">Mazos</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('tradewall')}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                activeTab === 'tradewall'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
+              }`}
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Muro Trade</span>
             </button>
 
             <button
               onClick={() => setActiveTab('profile')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'profile'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
               }`}
             >
               <UserIcon className="w-3.5 h-3.5" />
-              <span>Mi Perfil</span>
+              <span className="hidden sm:inline">Mi Perfil</span>
             </button>
           </nav>
 
@@ -119,8 +139,8 @@ export default function App() {
                 title={currentUser?.id ? "Ir a Mi Perfil" : "Crear / Activar Usuario"}
               >
                 <UserIcon className="w-3.5 h-3.5 text-amber-500" />
-                <span className="font-semibold text-neutral-200">
-                  {currentUser?.username || 'Crear / Activar Usuario'}
+                <span className="font-semibold text-neutral-200 truncate max-w-[100px] sm:max-w-none">
+                  {currentUser?.username || 'Crear / Activar'}
                 </span>
               </button>
 
@@ -148,8 +168,10 @@ export default function App() {
       {/* 2. ÁREA DE CONTENIDO PRINCIPAL (ROUTER / VISTAS)           */}
       {/* --------------------------------------------------------- */}
       <div className="flex-1 flex flex-col">
+        {/* Catálogo de cartas */}
         {activeTab === 'catalog' && <CatalogPage />}
         
+        {/* Colecciones / Binders */}
         {activeTab === 'binders' && (
           currentUser?.id ? (
             <BindersPage userId={currentUser.id} />
@@ -174,6 +196,7 @@ export default function App() {
           )
         )}
 
+        {/* Mazos / Decks */}
         {activeTab === 'decks' && (
           currentUser?.id ? (
             <DecksPage userId={currentUser.id} />
@@ -198,16 +221,27 @@ export default function App() {
           )
         )}
 
+        {/* Muro de Intercambio P2P */}
+        {activeTab === 'tradewall' && (
+          <TradeWallPage 
+            currentUser={currentUser} 
+            onNavigateToCatalog={() => setActiveTab('catalog')} 
+          />
+        )}
+
+        {/* Perfil de Usuario */}
         {activeTab === 'profile' && (
           <ProfilePage 
             user={currentUser} 
             onOpenBinderModal={() => setActiveTab('binders')}
-            onOpenTradeModal={() => {}}
+            onOpenTradeModal={() => setActiveTab('tradewall')}
           />
         )}
       </div>
 
-      {/* Modal de Usuario */}
+      {/* --------------------------------------------------------- */}
+      {/* 3. MODAL DE USUARIO (ONBOARDING / SWITCHER)               */}
+      {/* --------------------------------------------------------- */}
       <UserModal
         isOpen={isUserModalOpen}
         onClose={() => setIsUserModalOpen(false)}
@@ -215,7 +249,9 @@ export default function App() {
         onSelectUser={handleSelectUser}
       />
 
-      {/* Footer Legal Scryfall / WOTC */}
+      {/* --------------------------------------------------------- */}
+      {/* 4. PIE DE PÁGINA Y AVISO LEGAL DE SCRYFALL / WOTC         */}
+      {/* --------------------------------------------------------- */}
       <footer className="border-t border-neutral-900 bg-neutral-950 py-6 text-center text-xs text-neutral-500 px-4">
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
