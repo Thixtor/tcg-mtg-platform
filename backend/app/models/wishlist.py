@@ -14,11 +14,11 @@ class WishlistItem(Base):
     __tablename__ = 'wishlist_items'
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey('users.id'), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     scryfall_card_id = Column(String, ForeignKey('cartas.id'), nullable=False, index=True)
 
     quantity = Column(Integer, default=1, nullable=False)
     priority = Column(String, default="media")  # alta, media, baja
 
-    user = relationship("User", backref="wishlist")
+    user = relationship("User", back_populates="wishlist_items")
     card_catalog = relationship("CartaScryfall")
