@@ -5,7 +5,7 @@ from sqlalchemy import func, case
 
 from app.models.user import User
 from app.models.collection import Collection
-from app.models.user_card import UserCard
+from app.models import UserCard
 from app.models.wishlist import WishlistItem
 from app.schemas.user import UserCreate, UserProfileKPIs, ProfileBinderSummary
 from app.core.security import hash_otp
