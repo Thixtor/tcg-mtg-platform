@@ -8,12 +8,12 @@ import {
   getMyCollectionsApi,
   addCardToCollectionApi, 
   createMyCollectionApi 
-} from '../api/collections';
+} from '../../api/collections';
 import { 
   getMyDecksApi, 
   addCardToDeckApi 
-} from '../api/decks';
-import { getAccessToken } from '../api/session';
+} from '../../api/decks';
+import { getAccessToken } from '../../api/session';
 
 const CARD_CONDITIONS = [
   { value: 'NM', label: 'Near Mint (NM)' },

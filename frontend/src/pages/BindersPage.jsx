@@ -8,7 +8,6 @@ import {
   Layers, 
   ArrowLeft, 
   Loader2, 
-  Sparkles, 
   RefreshCw,
   AlertCircle,
   Lock
@@ -17,9 +16,9 @@ import {
   getMyCollectionsApi, 
   getUserCollectionsApi, 
   createMyCollectionApi, 
-  createCollectionApi, 
   getCollectionCardsApi 
 } from '../api/collections';
+import { getAccessToken } from '../api/session';
 import CreateCollectionModal from '../components/collections/CreateCollectionModal';
 
 export default function BindersPage({ userId, onOpenAuthModal }) {
@@ -35,11 +34,10 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
   // Control del modal de creación
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
 
   // 1. Cargar colecciones (vía JWT o por userId si se visita a otro trader)
   const fetchCollections = useCallback(async () => {
-    // Si no es un perfil ajeno y no hay sesión activa
     if (!userId && !token) {
       setLoading(false);
       return;
@@ -79,12 +77,10 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
     }
   };
 
-  // 3. Crear una nueva colección
+  // 3. Crear una nueva colección propia vía endpoint seguro
   const handleCreateCollection = async (payload) => {
     try {
-      const newCollection = userId 
-        ? await createCollectionApi(userId, payload) 
-        : await createMyCollectionApi(payload);
+      const newCollection = await createMyCollectionApi(payload);
       setCollections((prev) => [...prev, newCollection]);
       setIsModalOpen(false);
     } catch (err) {
@@ -116,10 +112,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-8">
-      
-      {/* ========================================================= */}
-      {/* VISTA DETALLADA DE UNA COLECCIÓN ESPECÍFICA               */}
-      {/* ========================================================= */}
+      {/* VISTA DETALLADA DE UNA COLECCIÓN */}
       {selectedCollection ? (
         <div className="space-y-6">
           <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
@@ -145,7 +138,6 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
             )}
           </div>
 
-          {/* Listado de Cartas Físicas del Binder */}
           {loadingCards ? (
             <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
               <Loader2 className="w-8 h-8 animate-spin mb-2 text-amber-500" />
@@ -206,9 +198,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
           )}
         </div>
       ) : (
-        /* ========================================================= */
-        /* VISTA DE CARPETAS / BINDERS DEL USUARIO                  */
-        /* ========================================================= */
+        /* VISTA DE CARPETAS / BINDERS DEL USUARIO */
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
             <div>

@@ -121,12 +121,25 @@ def get_user_profile_aggregates(
     return kpis, binders
 
 
+from datetime import datetime, timezone
+
 def can_issue_otp(user: User) -> bool:
-    """Verifica si no está en cooldown o bloqueado por superar intentos."""
+    """
+    Verifica si se puede emitir un nuevo código OTP respetando el tiempo de expiración y cooldown.
+    Maneja diferencias entre datetimes naive (DB) y aware (UTC).
+    """
     now = datetime.now(timezone.utc)
-    if user.otp_expires_at and user.otp_expires_at > now:
-        if getattr(user, 'otp_attempts', 0) >= 5:
-            return False  # Bloqueado hasta que expire el código
+    
+    if user.otp_expires_at:
+        expires_at = user.otp_expires_at
+        # Si la fecha de la DB es naive (sin timezone), asignarle UTC
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+            
+        # Si aún no ha expirado el código previo, se bloquea el reenvío inmediato
+        if expires_at > now:
+            return False
+
     return True
 
 
@@ -136,7 +149,15 @@ def set_user_otp_code(db: Session, user: User, code: str) -> None:
     Solo reinicia intentos si el código anterior ya expiró.
     """
     now = datetime.now(timezone.utc)
-    if not user.otp_expires_at or user.otp_expires_at <= now:
+    
+    # Normalizar comparación con fecha previa si existe
+    if user.otp_expires_at:
+        prev_expires = user.otp_expires_at
+        if prev_expires.tzinfo is None:
+            prev_expires = prev_expires.replace(tzinfo=timezone.utc)
+        if prev_expires <= now:
+            user.otp_attempts = 0
+    else:
         user.otp_attempts = 0
 
     user.otp_hash = hash_otp(code, str(user.id))
