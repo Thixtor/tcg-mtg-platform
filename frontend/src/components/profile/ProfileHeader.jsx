@@ -18,7 +18,7 @@ import {
   Store,
   DollarSign
 } from 'lucide-react';
-import { updateMyProfileApi } from '../../api/users';
+import { updateMyProfileApi } from '../../api/users.api';
 
 const STORES = ['Card Kingdom', 'TCGPlayer', 'Cardmarket'];
 

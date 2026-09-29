@@ -3,17 +3,17 @@
 // ---------------------------------------------------------
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { X, Layers, Shield, Check, AlertCircle, Loader2, Plus, FolderPlus } from 'lucide-react';
+import { X, Layers, Shield, Check, AlertCircle, Loader2, Plus, FolderPlus, Sparkles } from 'lucide-react';
 import { 
   getMyCollectionsApi,
   addCardToCollectionApi, 
   createMyCollectionApi 
-} from '../../api/collections';
+} from '@/api/collections';
 import { 
   getMyDecksApi, 
   addCardToDeckApi 
-} from '../../api/decks';
-import { getAccessToken } from '../../api/session';
+} from '@/api/decks';
+import { getAccessToken } from '@/services/session.service';
 
 const CARD_CONDITIONS = [
   { value: 'NM', label: 'Near Mint (NM)' },
@@ -30,6 +30,13 @@ const DECK_CATEGORIES = [
   { value: 'maybeboard', label: 'Maybeboard' },
 ];
 
+/**
+ * Modal para asignar copias físicas a carpetas de inventario o listas de mazos.
+ * @param {Object} props
+ * @param {boolean} props.isOpen - Control de visibilidad del modal.
+ * @param {Function} props.onClose - Callback para cerrar el modal.
+ * @param {Object} props.card - Objeto con los datos canónicos de la carta de Scryfall.
+ */
 export default function AddToCollectionOrDeckModal({ isOpen, onClose, card }) {
   const [targetType, setTargetType] = useState('collection');
   const token = getAccessToken();
@@ -90,7 +97,7 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card }) {
       if (decksArray.length > 0) setSelectedDeckId(decksArray[0].id);
     } catch (err) {
       if (axios.isCancel(err) || err.name === 'CanceledError') return;
-      console.error('Error cargando destinos:', err);
+      console.warn('[Modal Cartas] Error cargando destinos:', err);
       setErrorMsg(err.response?.data?.detail || 'No se pudieron cargar tus colecciones y mazos.');
     } finally {
       setLoadingTargets(false);
@@ -147,6 +154,7 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card }) {
       setShowCreateInline(false);
       setSuccessMsg(`Colección "${nueva.name}" creada y seleccionada.`);
     } catch (err) {
+      console.warn('[Modal Cartas] Error en creación rápida de colección:', err);
       const serverDetail = err.response?.data?.detail;
       setErrorMsg(serverDetail || err.message || 'Error al crear la colección.');
     } finally {
@@ -197,25 +205,36 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card }) {
         onClose();
       }, 1200);
     } catch (err) {
+      console.warn('[Modal Cartas] Error al persistir carta:', err);
       setErrorMsg(err.response?.data?.detail || err.message || 'Error al guardar la carta.');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const cardArtist = card.artist || card.scryfall_raw_data?.artist;
+
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col">
         
-        {/* Cabecera */}
+        {/* Cabecera con atribución Scryfall/WotC */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950/60">
           <div>
             <h3 className="text-base font-bold text-neutral-100 flex items-center gap-2">
               Asignar Carta: <span className="text-amber-400 font-semibold">{card.name}</span>
             </h3>
-            <p className="text-xs text-neutral-500 font-mono mt-0.5">
-              Set: {(card.set || '---').toUpperCase()} · #{card.scryfall_raw_data?.collector_number || 'N/A'}
-            </p>
+            <div className="flex items-center gap-2 text-xs text-neutral-500 font-mono mt-0.5">
+              <span>Set: {(card.set || '---').toUpperCase()}</span>
+              <span>·</span>
+              <span>#{card.scryfall_raw_data?.collector_number || 'N/A'}</span>
+              {cardArtist && (
+                <>
+                  <span>·</span>
+                  <span className="text-neutral-400 font-sans">Ilus: {cardArtist}</span>
+                </>
+              )}
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -427,7 +446,10 @@ export default function AddToCollectionOrDeckModal({ isOpen, onClose, card }) {
                           onChange={(e) => setIsFoil(e.target.checked)}
                           className="rounded border-neutral-800 text-amber-600 focus:ring-0 bg-neutral-950 w-4 h-4"
                         />
-                        <span>Copia brillante (✨ Acabado Foil)</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          Copia brillante (Acabado Foil)
+                        </span>
                       </label>
 
                       <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">

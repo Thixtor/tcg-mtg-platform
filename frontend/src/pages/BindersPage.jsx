@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// VISTA: GESTIÓN DE BINDERS Y COLECCIONES
+// VISTA: GESTIÓN DE BINDERS Y COLECCIONES P2P
 // ---------------------------------------------------------
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
@@ -10,17 +10,24 @@ import {
   Loader2, 
   RefreshCw,
   AlertCircle,
-  Lock
+  Lock,
+  Sparkles
 } from 'lucide-react';
 import { 
   getMyCollectionsApi, 
   getUserCollectionsApi, 
   createMyCollectionApi, 
   getCollectionCardsApi 
-} from '../api/collections';
-import { getAccessToken } from '../api/session';
-import CreateCollectionModal from '../components/collections/CreateCollectionModal';
+} from '@/api/collections';
+import { getAccessToken } from '@/services/session.service';
+import CreateCollectionModal from '@/components/collections/CreateCollectionModal';
 
+/**
+ * Vista principal para la gestión de binders, inventario personal e intercambio.
+ * @param {Object} props
+ * @param {string|number} [props.userId] - Identificador de usuario si se navega en modo visitante.
+ * @param {Function} [props.onOpenAuthModal] - Callback para invocar el modal unificado de autenticación.
+ */
 export default function BindersPage({ userId, onOpenAuthModal }) {
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +43,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
 
   const token = getAccessToken();
 
-  // 1. Cargar colecciones (vía JWT o por userId si se visita a otro trader)
+  // 1. Cargar colecciones (vía JWT o por userId si se visita a otro coleccionista)
   const fetchCollections = useCallback(async () => {
     if (!userId && !token) {
       setLoading(false);
@@ -51,7 +58,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
         : await getMyCollectionsApi();
       setCollections(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("Error al cargar colecciones:", err);
+      console.warn('[Binders] Error al cargar colecciones:', err);
       setError(err.response?.data?.detail || 'Error al cargar las colecciones del usuario.');
     } finally {
       setLoading(false);
@@ -70,7 +77,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
       const cards = await getCollectionCardsApi(collection.id);
       setCollectionCards(Array.isArray(cards) ? cards : []);
     } catch (err) {
-      console.error('Error al cargar cartas de la colección:', err);
+      console.warn('[Binders] Error al cargar cartas de la colección:', err);
       setCollectionCards([]);
     } finally {
       setLoadingCards(false);
@@ -84,7 +91,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
       setCollections((prev) => [...prev, newCollection]);
       setIsModalOpen(false);
     } catch (err) {
-      console.error('Error creando colección:', err);
+      console.warn('[Binders] Error creando colección:', err);
       alert(err.response?.data?.detail || 'No se pudo crear el binder.');
     }
   };
@@ -93,15 +100,17 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
   if (!userId && !token && !loading) {
     return (
       <div className="flex flex-col items-center justify-center py-28 text-center space-y-4">
-        <Lock className="w-10 h-10 text-amber-500" />
-        <h2 className="text-xl font-bold text-white">Inicia sesión para gestionar tus carpetas</h2>
-        <p className="text-sm text-neutral-400 max-w-md">
+        <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-inner">
+          <Lock className="w-6 h-6" />
+        </div>
+        <h2 className="text-xl font-bold text-white tracking-tight">Inicia sesión para gestionar tus carpetas</h2>
+        <p className="text-sm text-neutral-400 max-w-md leading-relaxed">
           Para ver tus binders, registrar cartas físicas y publicar intercambios necesitas autenticarte con tu cuenta.
         </p>
         {onOpenAuthModal && (
           <button
             onClick={onOpenAuthModal}
-            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-lg transition shadow-md"
+            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl transition shadow-md"
           >
             Iniciar Sesión / Registrarse
           </button>
@@ -141,7 +150,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
           {loadingCards ? (
             <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
               <Loader2 className="w-8 h-8 animate-spin mb-2 text-amber-500" />
-              <p>Cargando cartas del binder...</p>
+              <p className="text-sm">Cargando cartas del binder...</p>
             </div>
           ) : collectionCards.length === 0 ? (
             <div className="text-center py-16 bg-neutral-900/50 border border-dashed border-neutral-800 rounded-xl">
@@ -164,6 +173,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
                         src={item.card_catalog.image_url} 
                         alt={item.card_catalog.name}
                         className="w-full h-full object-cover" 
+                        loading="lazy"
                       />
                     ) : (
                       <div className="flex items-center justify-center h-full text-xs text-neutral-600">
@@ -171,17 +181,25 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
                       </div>
                     )}
                     {item.is_foil && (
-                      <span className="absolute top-2 right-2 bg-gradient-to-r from-amber-400 via-pink-500 to-purple-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded shadow">
-                        FOIL
+                      <span className="absolute top-2 right-2 inline-flex items-center gap-1 bg-gradient-to-r from-amber-400 via-pink-500 to-purple-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded shadow">
+                        <Sparkles className="w-2.5 h-2.5" /> FOIL
                       </span>
                     )}
                   </div>
 
                   <div>
-                    <h4 className="text-sm font-semibold text-neutral-100 truncate">
+                    <h4 className="text-sm font-semibold text-neutral-100 truncate" title={item.card_catalog?.name}>
                       {item.card_catalog?.name || 'Carta Desconocida'}
                     </h4>
-                    <div className="flex items-center justify-between text-xs text-neutral-400 mt-1">
+                    
+                    {/* Atribución de artista cumpliendo Scryfall / WotC Fan Content */}
+                    {item.card_catalog?.artist && (
+                      <p className="text-[10px] text-neutral-500 truncate">
+                        Ilustración: {item.card_catalog.artist}
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between text-xs text-neutral-400 mt-2">
                       <span>Condición: <strong className="text-neutral-200">{item.condition}</strong></span>
                       <span>Cant: <strong className="text-neutral-200">x{item.quantity}</strong></span>
                     </div>
@@ -240,7 +258,7 @@ export default function BindersPage({ userId, onOpenAuthModal }) {
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
               <Loader2 className="w-8 h-8 animate-spin mb-2 text-amber-500" />
-              <p>Cargando binders...</p>
+              <p className="text-sm">Cargando binders...</p>
             </div>
           ) : collections.length === 0 ? (
             <div className="text-center py-16 bg-neutral-900/30 border border-dashed border-neutral-800 rounded-xl">

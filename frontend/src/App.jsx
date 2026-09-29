@@ -19,18 +19,18 @@ import BindersPage from './pages/BindersPage';
 import DecksPage from './pages/DecksPage';
 import ProfilePage from './pages/ProfilePage';
 import TradeWallPage from './pages/TradeWallPage';
-import UserModal from './components/auth/UserModal';
+import AuthModal from './components/auth/AuthModal';
 import EditProfileModal from './components/profile/EditProfileModal';
 import CreateDeckModal from './components/decks/CreateDeckModal';
 
-import { getCurrentUser, saveSession, clearSession } from './api/session';
+import { getCurrentUser, saveSession, clearSession, getAccessToken } from '@/services/session.service';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('catalog');
   const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
 
   const [deckCount, setDeckCount] = useState(0);
-  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
   const [refreshDecksTrigger, setRefreshDecksTrigger] = useState(0);
@@ -243,7 +243,7 @@ export default function App() {
               </div>
             ) : (
               <button
-                onClick={() => setIsUserModalOpen(true)}
+                onClick={() => setIsAuthModalOpen(true)}
                 className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs shadow-md transition"
               >
                 <UserIcon className="w-3.5 h-3.5" />
@@ -266,7 +266,7 @@ export default function App() {
         
         {activeTab === 'binders' && (
           currentUser?.id ? (
-            <BindersPage userId={currentUser.id} onOpenAuthModal={() => setIsUserModalOpen(true)} />
+            <BindersPage userId={currentUser?.id} onOpenAuthModal={() => setIsAuthModalOpen(true)} />
           ) : (
             <div className="flex-1 flex items-center justify-center p-6">
               <div className="w-full max-w-md p-8 bg-neutral-900/60 border border-neutral-800 rounded-2xl text-center space-y-3">
@@ -278,7 +278,7 @@ export default function App() {
                   Para ver y organizar tus binders comerciales, inicia sesión con tu número de teléfono.
                 </p>
                 <button
-                  onClick={() => setIsUserModalOpen(true)}
+                  onClick={() => setIsAuthModalOpen(true)}
                   className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl transition"
                 >
                   Iniciar Sesión
@@ -310,18 +310,21 @@ export default function App() {
             user={currentUser} 
             onOpenBinderModal={() => setActiveTab('binders')}
             onOpenTradeModal={() => setActiveTab('tradewall')}
-            onOpenAuthModal={() => setIsUserModalOpen(true)}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onEditProfileModal={() => setIsEditProfileModalOpen(true)}
           />
         )}
       </div>
 
       {/* 3. MODALES */}
-      <UserModal
-        isOpen={isUserModalOpen}
-        onClose={() => setIsUserModalOpen(false)}
-        currentUser={currentUser}
-        onSelectUser={handleSelectUser}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onLoginSuccess={(user) => {
+          // Si manejas un estado currentUser en App.jsx, se actualiza aquí
+          setCurrentUser(user);
+          setIsAuthModalOpen(false);
+        }}
       />
 
       <EditProfileModal

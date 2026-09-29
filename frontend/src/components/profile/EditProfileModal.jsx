@@ -10,7 +10,7 @@ import {
   Loader2, 
   AlertCircle 
 } from 'lucide-react';
-import { updateMyProfileApi } from '../../api/users';
+import { updateMyProfileApi } from '../../api/users.api';
 import { 
   getColombiaDepartments, 
   getColombiaMunicipalities 

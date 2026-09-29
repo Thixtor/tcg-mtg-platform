@@ -6,7 +6,7 @@ import ProfileHeader from '../components/profile/ProfileHeader';
 import SecuritySidebar from '../components/profile/SecuritySidebar';
 import BinderPreviewGrid from '../components/profile/BinderPreviewGrid';
 import EditProfileModal from '../components/profile/EditProfileModal';
-import { getMyProfileApi } from '../api/users';
+import { getMyProfileApi } from '../api/users.api';
 import { getCollectionCardsApi } from '../api/collections';
 import { 
   Layers, 

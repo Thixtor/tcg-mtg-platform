@@ -2,7 +2,7 @@
 // CLIENTE AXIOS CON INTERCEPTORES DE SESIÓN
 // ---------------------------------------------------------
 import axios from 'axios';
-import { getAccessToken, clearSession } from './session';
+import { getAccessToken } from '@/services/session.service';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -14,7 +14,7 @@ const apiClient = axios.create({
   timeout: 15000,
 });
 
-// Inyección automática del Bearer Token
+// Inyección del token Bearer en cada petición saliente
 apiClient.interceptors.request.use(
   (config) => {
     const token = getAccessToken();
@@ -26,12 +26,12 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Manejo centralizado de 401
+// Interceptor de respuesta resiliente
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      clearSession();
+      console.warn(`[Transporte HTTP] 401 Unauthorized en ${error.config?.url}. Sesión preservada localmente.`);
     }
     return Promise.reject(error);
   }
