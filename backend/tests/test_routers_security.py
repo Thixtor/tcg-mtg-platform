@@ -93,3 +93,69 @@ def test_idor_protection_delete_card_from_collection(client, db_session, test_us
     )
     # Debe rechazar con 404 para no filtrar existencia del recurso
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_anonymous_cannot_view_private_collection_cards(client, db_session, test_user_a):
+    """
+    Verifica que un usuario anónimo no pueda listar cartas de un binder privado.
+    """
+    private_col = Collection(
+        id="col-priv-anon-1",
+        name="Binder Privado Test",
+        user_id=test_user_a.id,
+        is_public_trade=False
+    )
+    db_session.add(private_col)
+    db_session.commit()
+
+    # Petición anónima (debe dar 403 Forbidden)
+    response = client.get(f"/api/collections/{private_col.id}/cards")
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert "No tienes permisos" in response.json()["detail"]
+
+
+def test_owner_can_view_private_collection_cards(client, db_session, test_user_a, auth_headers_user_a):
+    """
+    Verifica que el propietario autenticado sí pueda ver las cartas de su binder privado.
+    """
+    private_col = Collection(
+        id="col-priv-owner-2",
+        name="Binder Privado Dueño",
+        user_id=test_user_a.id,
+        is_public_trade=False
+    )
+    db_session.add(private_col)
+    db_session.commit()
+
+    # El dueño autenticado consulta cartas (debe dar 200 OK)
+    response = client.get(
+        f"/api/collections/{private_col.id}/cards", 
+        headers=auth_headers_user_a
+    )
+    assert response.status_code == status.HTTP_200_OK
+
+
+from app.core.security import create_access_token
+
+def test_owner_can_view_private_collection_cards(client, db_session, test_user_a):
+    """
+    Verifica que el propietario autenticado sí pueda ver las cartas de su binder privado.
+    """
+    private_col = Collection(
+        id="col-priv-owner-2",
+        name="Binder Privado Dueño",
+        user_id=test_user_a.id,
+        is_public_trade=False
+    )
+    db_session.add(private_col)
+    db_session.commit()
+
+    # Generar token JWT legítimo para el propietario
+    token = create_access_token(user_id=str(test_user_a.id))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # El dueño autenticado consulta cartas (debe responder 200 OK)
+    response = client.get(
+        f"/api/collections/{private_col.id}/cards", 
+        headers=headers
+    )
+    assert response.status_code == status.HTTP_200_OK

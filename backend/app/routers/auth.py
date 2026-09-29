@@ -68,6 +68,11 @@ def request_otp(payload: RequestCodePayload, db: Session = Depends(get_db)):
             dev_code = codigo_otp
             logger.warning(f"🔑 [DEV OTP] para {usuario.phone_number}: {codigo_otp}")
 
+        # Imprimir en consola de desarrollo usando la variable correcta
+        print(f"\n==========================================", flush=True)
+        print(f" >>> [DEV OTP CODE]: {codigo_otp} <<< ", flush=True)
+        print(f"==========================================\n", flush=True)
+
     response = {
         "status": "success",
         "message": "Si el número telefónico se encuentra registrado, recibirás un código de acceso."

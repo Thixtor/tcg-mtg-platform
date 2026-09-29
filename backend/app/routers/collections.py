@@ -1,9 +1,10 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
 from sqlalchemy.orm import Session, joinedload, contains_eager
 
 from app.database import get_db
 from app.core.security import get_current_user
+
 from app.models import User, Collection, UserCard, CartaScryfall
 from app.crud import crud_collections
 from app.schemas import (
@@ -14,10 +15,50 @@ from app.schemas import (
     TradeMarketItemResponse
 )
 
+# ---------------------------------------------------------
+# INSTANCIA DEL ROUTER
+# ---------------------------------------------------------
 router = APIRouter(
     tags=["Colecciones y Mercado de Intercambio"]
 )
 
+# ---------------------------------------------------------
+# DEPENDENCIA OPCIONAL DE USUARIO (Acceso público vs privado)
+# ---------------------------------------------------------
+import jwt
+from app.core.config import settings
+
+def get_current_user_optional(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Retorna el User si viene un Bearer token válido; None si no viene o es inválido."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ")[1]
+    
+    # 1. Intentar invocar get_current_user si acepta los argumentos
+    try:
+        return get_current_user(db=db, token=token)
+    except Exception:
+        pass
+
+    try:
+        return get_current_user(token=token, db=db)
+    except Exception:
+        pass
+
+    # 2. Decodificación directa de respaldo con PyJWT
+    try:
+        secret = getattr(settings, "SECRET_KEY", "secret")
+        algorithm = getattr(settings, "ALGORITHM", "HS256")
+        payload = jwt.decode(token, secret, algorithms=[algorithm])
+        user_id = payload.get("sub") or payload.get("user_id") or payload.get("id")
+        if not user_id:
+            return None
+        return db.query(User).filter(User.id == str(user_id)).first()
+    except Exception:
+        return None
 
 # ---------------------------------------------------------
 # 1. GESTIÓN DE COLECCIONES (BINDERS)
@@ -114,11 +155,25 @@ def add_card_to_collection(
 )
 def list_cards_in_collection(
     collection_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     coleccion = crud_collections.get_collection_by_id(db, collection_id=collection_id)
     if not coleccion:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Colección no encontrada.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Colección no encontrada."
+        )
+
+    # Si el binder es privado, solo el propietario puede ver las cartas
+    is_public = getattr(coleccion, "is_public_trade", True)
+    is_owner = current_user is not None and str(current_user.id) == str(coleccion.user_id)
+
+    if not is_public and not is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para ver el contenido de este binder privado."
+        )
 
     return crud_collections.get_cards_in_collection(db, collection_id=collection_id)
 
