@@ -1,10 +1,9 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, case
+from sqlalchemy import func
 
-from app.models.deck import Deck, DeckCard
-from app.models.collection import Collection, UserCard
-from app.schemas.deck import DeckCardDetailResponse
+from app.models import Deck, DeckCard, UserCard, Collection
+from app.schemas import DeckCardDetailResponse
 
 
 # ---------------------------------------------------------
@@ -12,16 +11,16 @@ from app.schemas.deck import DeckCardDetailResponse
 # ---------------------------------------------------------
 def calculate_deck_availability(db: Session, deck: Deck) -> List[DeckCardDetailResponse]:
     """
-    Evalúa la disponibilidad física de las cartas requeridas por un mazo:
-    - DISPONIBLE: Las copias totales menos las comprometidas en mazos activos cubren la cantidad requerida.
-    - EN_OTRO_MAZO: El usuario posee copias suficientes, pero están ocupadas en mainboard/sideboard de otros mazos.
-    - FALTANTE: El usuario no cuenta con copias suficientes en sus binders.
-    
-    * Nota: 'maybeboard' de otros mazos NO compromete copias físicas.
+    Evalúa la disponibilidad física de las cartas requeridas por un mazo
+    considerando cantidades numéricas reales:
+    - DISPONIBLE: Las copias totales en posesión menos las asignadas a otros mazos
+      cubren la cantidad exigida por este mazo.
+    - EN_OTRO_MAZO: El usuario posee copias suficientes, pero están ocupadas en otros mazos.
+    - FALTANTE: El usuario no cuenta con copias suficientes en ninguna colección.
     """
     user_id: str = str(deck.user_id)
 
-    # 1. Cargar las cartas del mazo actual con catálogo Scryfall
+    # 1. Cargar las cartas del mazo actual evitando N+1
     cartas_mazo: List[DeckCard] = (
         db.query(DeckCard)
         .options(joinedload(DeckCard.card_catalog))
@@ -32,26 +31,28 @@ def calculate_deck_availability(db: Session, deck: Deck) -> List[DeckCardDetailR
     if not cartas_mazo:
         return []
 
-    # 2. Cantidad total poseída (total y disponibles sin marcar para trade)
+    # 2. Cantidad total poseída por cada carta en todas las colecciones del usuario
     owned_query = (
         db.query(
-            UserCard.scryfall_card_id,
-            func.coalesce(func.sum(UserCard.quantity), 0).label("total_qty"),
-            func.coalesce(
-                func.sum(case((UserCard.is_for_trade.is_(False), UserCard.quantity), else_=0)), 
-                0
-            ).label("keep_qty")
+            UserCard.scryfall_card_id, 
+            func.coalesce(func.sum(UserCard.quantity), 0)
         )
         .join(Collection, UserCard.collection_id == Collection.id)
         .filter(Collection.user_id == user_id)
         .group_by(UserCard.scryfall_card_id)
         .all()
     )
-    total_poseidas: Dict[str, int] = {scry_id: int(t_qty) for scry_id, t_qty, _ in owned_query}
+    # Extraemos por índice para evitar errores si la tupla tiene 2 o más elementos
+    total_poseidas: Dict[str, int] = {
+        row[0]: int(row[1]) for row in owned_query
+    }
 
-    # 3. Cantidad comprometida en otros mazos (SOLO mainboard, commander y sideboard; se excluye maybeboard)
+    # 3. Cantidad comprometida en otros mazos del mismo usuario
     used_query = (
-        db.query(DeckCard.scryfall_card_id, func.coalesce(func.sum(DeckCard.quantity), 0))
+        db.query(
+            DeckCard.scryfall_card_id, 
+            func.coalesce(func.sum(DeckCard.quantity), 0)
+        )
         .join(Deck, DeckCard.deck_id == Deck.id)
         .filter(
             Deck.user_id == user_id, 
@@ -61,9 +62,11 @@ def calculate_deck_availability(db: Session, deck: Deck) -> List[DeckCardDetailR
         .group_by(DeckCard.scryfall_card_id)
         .all()
     )
-    usadas_otros_mazos: Dict[str, int] = {scry_id: int(qty) for scry_id, qty in used_query}
+    usadas_otros_mazos: Dict[str, int] = {
+        row[0]: int(row[1]) for row in used_query
+    }
 
-    # 4. Detalle de nombres de otros mazos activos donde se usa la carta
+    # 4. Detalle de nombres de otros mazos donde aparece cada carta
     otros_mazos_records = (
         db.query(DeckCard.scryfall_card_id, Deck.name)
         .join(Deck, DeckCard.deck_id == Deck.id)
@@ -72,14 +75,13 @@ def calculate_deck_availability(db: Session, deck: Deck) -> List[DeckCardDetailR
             Deck.id != deck.id,
             DeckCard.category.in_(["mainboard", "commander", "sideboard"])
         )
-        .distinct()
         .all()
     )
     mapa_nombres_mazos: Dict[str, List[str]] = {}
-    for scry_id, nombre_mazo in otros_mazos_records:
-        mapa_nombres_mazos.setdefault(scry_id, []).append(nombre_mazo)
+    for row in otros_mazos_records:
+        mapa_nombres_mazos.setdefault(row[0], []).append(row[1])
 
-    # 5. Clasificar estado cuantitativo por carta
+    # 5. Clasificar estado cuantitativo
     resultado: List[DeckCardDetailResponse] = []
     for dc in cartas_mazo:
         scry_id: str = str(dc.scryfall_card_id)
