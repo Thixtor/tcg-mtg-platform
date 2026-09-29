@@ -1,6 +1,10 @@
+# ---------------------------------------------------------
+# CAPA CRUD: GESTIÓN DE MAZOS Y CARTAS ASIGNADAS (DECKBUILDER)
+# ---------------------------------------------------------
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from app.models.deck import Deck, DeckCard
+
+from app.models import Deck, DeckCard, CartaScryfall
 from app.schemas.deck import DeckCreate, AddCardToDeckPayload
 
 
@@ -38,9 +42,6 @@ def add_or_update_card_in_deck(
     deck_id: str, 
     payload: AddCardToDeckPayload
 ) -> DeckCard:
-    """
-    Inserta una carta en el mazo o acumula cantidad si ya existe en la misma categoría.
-    """
     existing_card = (
         db.query(DeckCard)
         .filter(
@@ -67,6 +68,59 @@ def add_or_update_card_in_deck(
     db.commit()
     db.refresh(new_card)
     return new_card
+
+
+def bulk_add_cards_to_deck(
+    db: Session,
+    deck_id: str,
+    cards_payload: List[AddCardToDeckPayload]
+) -> dict:
+    added_count = 0
+    failed_card_ids = []
+
+    for item in cards_payload:
+        savepoint = db.begin_nested()
+        try:
+            # 1. Verificar si la carta existe en el catálogo local
+            carta = db.query(CartaScryfall).filter(CartaScryfall.id == item.scryfall_card_id).first()
+            if not carta:
+                savepoint.rollback()
+                failed_card_ids.append(item.scryfall_card_id)
+                continue
+
+            # 2. Verificar existencia en el mazo
+            existing_card = (
+                db.query(DeckCard)
+                .filter(
+                    DeckCard.deck_id == deck_id,
+                    DeckCard.scryfall_card_id == item.scryfall_card_id,
+                    DeckCard.category == item.category
+                )
+                .first()
+            )
+
+            if existing_card:
+                existing_card.quantity += item.quantity
+            else:
+                new_card = DeckCard(
+                    deck_id=deck_id,
+                    scryfall_card_id=item.scryfall_card_id,
+                    quantity=item.quantity,
+                    category=item.category
+                )
+                db.add(new_card)
+
+            savepoint.commit()
+            added_count += 1
+        except Exception:
+            savepoint.rollback()
+            failed_card_ids.append(item.scryfall_card_id)
+
+    db.commit()
+    return {
+        "added_count": added_count,
+        "failed_card_ids": failed_card_ids
+    }
 
 
 def get_deck_card(db: Session, deck_id: str, card_id: str) -> Optional[DeckCard]:

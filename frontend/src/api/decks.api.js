@@ -82,3 +82,15 @@ export const removeCardFromDeckApi = async (deckId, cardId, options = {}) => {
   const response = await apiClient.delete(`/decks/${deckId}/cards/${cardId}`, options);
   return response.data;
 };
+
+/**
+ * Agrega un lote masivo de cartas a un mazo.
+ * @param {string|number} deckId
+ * @param {Array<{ scryfall_card_id: string, quantity: number, category: string }>} cards
+ * @param {import('axios').AxiosRequestConfig} [options]
+ * @returns {Promise<{ message: string, added_count: number, failed_card_ids: string[] }>}
+ */
+export const bulkAddCardsToDeckApi = async (deckId, cards, options = {}) => {
+  const response = await apiClient.post(`/decks/${deckId}/cards/bulk`, { cards }, options);
+  return response.data;
+};

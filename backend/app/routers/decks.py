@@ -1,11 +1,14 @@
+# ---------------------------------------------------------
+# ROUTER: MAZOS Y CONSTRUCCIÓN DE DECKS (MTG)
+# ---------------------------------------------------------
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_current_user
-from app.models import User, Deck, CartaScryfall
+from app.models import User, CartaScryfall
 from app.crud import crud_decks
 from app.schemas import (
     DeckCreate,
@@ -13,6 +16,8 @@ from app.schemas import (
     AddCardToDeckPayload,
     DeckCardDetailResponse
 )
+# Esquemas para la importación en lote
+from app.schemas.deck import BulkAddCardsPayload, BulkAddCardsResponse
 from app.services.inventory_service import calculate_deck_availability
 
 router = APIRouter(
@@ -76,17 +81,20 @@ def list_user_decks(
 ):
     usuario = db.query(User).filter(User.id == user_id).first()
     if not usuario:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Usuario no encontrado."
+        )
     return crud_decks.get_user_decks(db, user_id=user_id)
 
 
 # ---------------------------------------------------------
-# 2. GESTIÓN DE CARTAS EN EL MAZO (IDOR-Safe)
+# 2. GESTIÓN DE CARTAS EN EL MAZO (INDIVIDUAL Y BULK)
 # ---------------------------------------------------------
 @router.post(
     "/decks/{deck_id}/cards",
     status_code=status.HTTP_201_CREATED,
-    summary="Agregar cartas a un mazo propio"
+    summary="Agregar una carta individual a un mazo propio"
 )
 def add_card_to_deck(
     deck_id: str,
@@ -112,6 +120,37 @@ def add_card_to_deck(
     return {"message": "Carta agregada exitosamente al mazo", "deck_card_id": deck_card.id}
 
 
+@router.post(
+    "/decks/{deck_id}/cards/bulk",
+    response_model=BulkAddCardsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Agregar múltiples cartas a un mazo en lote (Bulk Import)"
+)
+def bulk_add_cards_to_deck(
+    deck_id: str,
+    payload: BulkAddCardsPayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Verificación IDOR-Safe de pertenencia del mazo
+    mazo = crud_decks.get_user_deck_by_id(db, deck_id=deck_id, user_id=str(current_user.id))
+    if not mazo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mazo no encontrado o no tienes permisos sobre él."
+        )
+
+    result = crud_decks.bulk_add_cards_to_deck(
+        db, deck_id=deck_id, cards_payload=payload.cards
+    )
+
+    return {
+        "message": f"Se procesaron {result['added_count']} cartas correctamente.",
+        "added_count": result["added_count"],
+        "failed_card_ids": result["failed_card_ids"]
+    }
+
+
 @router.patch(
     "/decks/{deck_id}/cards/{card_id}",
     summary="Actualizar cantidad o categoría de una carta en un mazo propio"
@@ -125,11 +164,17 @@ def update_card_in_deck(
 ):
     mazo = crud_decks.get_user_deck_by_id(db, deck_id=deck_id, user_id=str(current_user.id))
     if not mazo:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mazo no encontrado o no autorizado.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Mazo no encontrado o no autorizado."
+        )
 
     deck_card = crud_decks.get_deck_card(db, deck_id=deck_id, card_id=card_id)
     if not deck_card:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carta no encontrada en el mazo.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Carta no encontrada en el mazo."
+        )
 
     updated_card = crud_decks.update_deck_card(
         db, 
@@ -152,11 +197,17 @@ def remove_card_from_deck(
 ):
     mazo = crud_decks.get_user_deck_by_id(db, deck_id=deck_id, user_id=str(current_user.id))
     if not mazo:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mazo no encontrado o no autorizado.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Mazo no encontrado o no autorizado."
+        )
 
     deck_card = crud_decks.get_deck_card(db, deck_id=deck_id, card_id=card_id)
     if not deck_card:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carta no encontrada en el mazo.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Carta no encontrada en el mazo."
+        )
 
     crud_decks.remove_card_from_deck(db, deck_card)
     return {"status": "success", "message": "Carta removida del mazo exitosamente."}
