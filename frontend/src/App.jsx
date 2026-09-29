@@ -11,8 +11,7 @@ import {
   ChevronDown,
   Edit3,
   Settings,
-  LogOut,
-  ShieldCheck
+  LogOut
 } from 'lucide-react';
 
 import { CatalogPage } from './pages/CatalogPage';
@@ -24,19 +23,11 @@ import UserModal from './components/auth/UserModal';
 import EditProfileModal from './components/profile/EditProfileModal';
 import CreateDeckModal from './components/decks/CreateDeckModal';
 
+import { getCurrentUser, saveSession, clearSession } from './api/session';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('catalog');
-
-  // Estado del usuario activo
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('mtg_dev_user') || localStorage.getItem('user');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      console.error('Error al parsear usuario guardado en localStorage:', e);
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
 
   const [deckCount, setDeckCount] = useState(0);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -44,11 +35,22 @@ export default function App() {
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
   const [refreshDecksTrigger, setRefreshDecksTrigger] = useState(0);
 
-  // Menú desplegable del Navbar
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Cerrar menú al hacer clic fuera
+  // Escuchar cierre de sesión emitido por interceptor 401 en client.js
+  useEffect(() => {
+    const handleGlobalLogout = () => {
+      setCurrentUser(null);
+      setIsUserDropdownOpen(false);
+      setActiveTab('catalog');
+    };
+
+    window.addEventListener('mtg:logout', handleGlobalLogout);
+    return () => window.removeEventListener('mtg:logout', handleGlobalLogout);
+  }, []);
+
+  // Cerrar menú desplegable al hacer clic fuera
   useEffect(() => {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -60,49 +62,28 @@ export default function App() {
   }, []);
 
   const handleSelectUser = (userData, accessToken = null) => {
+    if (!userData) return;
+    const sessionData = {
+      user: userData,
+      access_token: accessToken || localStorage.getItem('token') || ''
+    };
+    saveSession(sessionData);
     setCurrentUser(userData);
-    try {
-      if (userData) {
-        localStorage.setItem('mtg_dev_user', JSON.stringify(userData));
-        localStorage.setItem('user', JSON.stringify(userData));
-        if (userData.id) {
-          localStorage.setItem('mtg_dev_user_id', userData.id);
-        }
-      }
-
-      if (accessToken) {
-        localStorage.setItem('token', accessToken);
-        localStorage.setItem('access_token', accessToken);
-        localStorage.setItem('mtg_access_token', accessToken);
-      }
-    } catch (e) {
-      console.error('No se pudo guardar la sesión en localStorage:', e);
-    }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('mtg_access_token');
-    localStorage.removeItem('mtg_dev_user');
-    localStorage.removeItem('user');
-    localStorage.removeItem('mtg_dev_user_id');
+    clearSession();
     setCurrentUser(null);
     setIsUserDropdownOpen(false);
     setActiveTab('catalog');
   };
 
-  const handleProfileUpdated = (updatedUser) => {
-    setCurrentUser((prev) => ({
-      ...prev,
-      ...updatedUser
-    }));
-    try {
-      localStorage.setItem('mtg_dev_user', JSON.stringify({ ...currentUser, ...updatedUser }));
-      localStorage.setItem('user', JSON.stringify({ ...currentUser, ...updatedUser }));
-    } catch (e) {
-      console.error('Error sincronizando perfil en storage:', e);
-    }
+  const handleProfileUpdated = (updatedFields) => {
+    setCurrentUser((prev) => {
+      const updated = { ...prev, ...updatedFields };
+      saveSession({ user: updated, access_token: localStorage.getItem('token') || '' });
+      return updated;
+    });
   };
 
   return (
@@ -128,7 +109,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Menú de Navegación Principal */}
+          {/* Menú de Navegación */}
           <nav className="flex items-center gap-1.5 bg-neutral-900/90 border border-neutral-800 p-1 rounded-xl">
             <button
               onClick={() => setActiveTab('catalog')}
@@ -191,7 +172,7 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Menú de Usuario / Sesión en la esquina superior derecha */}
+          {/* Menú de Usuario / Sesión */}
           <div className="flex items-center gap-3">
             {currentUser?.id ? (
               <div className="relative" ref={dropdownRef}>
@@ -208,7 +189,6 @@ export default function App() {
                   <ChevronDown className="w-3.5 h-3.5 text-neutral-400 group-hover:text-amber-400 transition" />
                 </button>
 
-                {/* Desplegable de Usuario */}
                 {isUserDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-52 bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl py-1.5 z-50 text-xs animate-fadeIn">
                     <div className="px-3 py-2 border-b border-neutral-800/80 mb-1">
@@ -271,7 +251,6 @@ export default function App() {
               </button>
             )}
 
-            {/* Estado API */}
             <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/50 text-emerald-400 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>API Online</span>
@@ -337,7 +316,7 @@ export default function App() {
         )}
       </div>
 
-      {/* 3. MODALES GLOBALES */}
+      {/* 3. MODALES */}
       <UserModal
         isOpen={isUserModalOpen}
         onClose={() => setIsUserModalOpen(false)}
@@ -366,8 +345,8 @@ export default function App() {
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] text-neutral-600 max-w-2xl mx-auto">
-            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 10]. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 10].
+            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 24]. 
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 24].
           </p>
         </div>
       </footer>

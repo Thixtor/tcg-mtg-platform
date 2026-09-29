@@ -1,5 +1,7 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.core.config import settings
@@ -12,6 +14,9 @@ from app.schemas.user import (
     TokenResponse
 )
 from app.crud import crud_users
+from app.models.user import User
+
+logger = logging.getLogger("auth")
 
 router = APIRouter(
     prefix="/auth",
@@ -26,56 +31,68 @@ router = APIRouter(
     summary="Registrar un nuevo usuario"
 )
 def register_user(payload: UserCreate, db: Session = Depends(get_db)):
-    existente = crud_users.get_user_by_unique_fields(
-        db, 
-        username=payload.username, 
-        email=payload.email, 
-        phone_number=payload.phone_number
-    )
-    if existente:
+    """Crea un usuario controlando colisiones bajo concurrencia."""
+    try:
+        return crud_users.create_user(db, payload=payload)
+    except IntegrityError:
+        db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un usuario registrado con ese username, email o número telefónico."
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe un usuario registrado con ese username, email o teléfono."
         )
-    return crud_users.create_user(db, payload=payload)
 
 
-@router.post("/request-otp", summary="Solicitar código OTP de inicio de sesión o verificación")
+@router.post("/request-otp", summary="Solicitar código OTP de inicio de sesión")
 def request_otp(payload: RequestCodePayload, db: Session = Depends(get_db)):
-    usuario = crud_users.get_user_by_phone(db, phone_number=payload.phone_number)
-    if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontró ningún usuario asociado a este número telefónico."
-        )
+    """
+    Emite un código OTP si el número existe.
+    Responde con el mismo mensaje genérico para evitar enumeración de usuarios.
+    """
+    # Bloqueo de fila para evitar condiciones de carrera en solicitudes simultáneas
+    usuario = (
+        db.query(User)
+        .filter(User.phone_number == payload.phone_number)
+        .with_for_update()
+        .first()
+    )
 
-    codigo_otp = generate_secure_otp()
-    crud_users.set_user_otp_code(db, user=usuario, code=codigo_otp)
+    dev_code = None
+    if usuario and crud_users.can_issue_otp(usuario):
+        codigo_otp = generate_secure_otp()
+        crud_users.set_user_otp_code(db, user=usuario, code=codigo_otp)
+        
+        # Simulación de pasarela de SMS / Gateway
+        logger.info(f"Enviando OTP a {payload.phone_number}")
 
-    response_data = {
+        if settings.EXPOSE_DEV_OTP:
+            dev_code = codigo_otp
+            logger.warning(f"🔑 [DEV OTP] para {usuario.phone_number}: {codigo_otp}")
+
+    response = {
         "status": "success",
-        "message": f"Código de verificación enviado al {payload.phone_number}."
+        "message": "Si el número telefónico se encuentra registrado, recibirás un código de acceso."
     }
 
-    # Solo en desarrollo exponemos el código o lo mostramos en consola
-    if settings.ENVIRONMENT == "development":
-        print(f"\n🔑 [DEV ONLY] OTP para {usuario.phone_number}: {codigo_otp}\n")
-        response_data["dev_otp_code"] = codigo_otp
+    if dev_code:
+        response["dev_otp_code"] = dev_code
 
-    return response_data
+    return response
 
 
-@router.post("/verify-otp", response_model=TokenResponse, summary="Verificar OTP y obtener Access Token")
+@router.post("/verify-otp", response_model=TokenResponse, summary="Verificar OTP y generar JWT")
 def verify_otp(payload: VerifyCodePayload, db: Session = Depends(get_db)):
-    usuario = crud_users.get_user_by_phone(db, phone_number=payload.phone_number)
-    if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado."
-        )
+    """
+    Valida el OTP con serialización de intentos en base de datos.
+    """
+    usuario = (
+        db.query(User)
+        .filter(User.phone_number == payload.phone_number)
+        .with_for_update()
+        .first()
+    )
 
-    if not verify_otp_digest(usuario, payload.code):
-        db.commit()  # Para guardar el incremento de otp_attempts
+    if not usuario or not verify_otp_digest(usuario, payload.code):
+        db.commit()  # Persistir el incremento de otp_attempts ejecutado en verify_otp_digest
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Código de verificación incorrecto, expirado o intentos máximos superados."

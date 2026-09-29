@@ -4,12 +4,9 @@
 import re
 from typing import List, Optional, Dict, Any, Set
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, cast, Float, String
+from sqlalchemy import or_, func
 from app.models.card import CartaScryfall
 
-# ---------------------------------------------------------
-# DICCIONARIO SEMÁNTICO DE MECÁNICAS PRECISAS MTG
-# ---------------------------------------------------------
 MECHANIC_RULES = [
     {
         "id": "counterspell",
@@ -58,8 +55,13 @@ MECHANIC_RULES = [
     }
 ]
 
+
+def escape_like(s: str) -> str:
+    """Escapa comodines % y _ para prevenir comportamientos inesperados en LIKE."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def extract_oracle_text(raw_data: dict) -> str:
-    """Extrae el texto de reglas considerando cartas estándar y de doble cara."""
     if not raw_data:
         return ""
     if raw_data.get("oracle_text"):
@@ -68,9 +70,11 @@ def extract_oracle_text(raw_data: dict) -> str:
         return " // ".join(face.get("oracle_text", "") for face in raw_data["card_faces"] if face.get("oracle_text"))
     return ""
 
+
 def get_mechanic_ids(oracle_text: str) -> Set[str]:
     text = oracle_text or ""
     return {rule["id"] for rule in MECHANIC_RULES if rule["test"](text)}
+
 
 def get_primary_role_label(oracle_text: str, type_line: str) -> str:
     text = oracle_text or ""
@@ -82,7 +86,7 @@ def get_primary_role_label(oracle_text: str, type_line: str) -> str:
 
 
 # ---------------------------------------------------------
-# 1. BÚSQUEDA AVANZADA CON FILTROS COMBINADOS (SQL DINÁMICO)
+# 1. BÚSQUEDA AVANZADA CON COLUMNAS NATIVAS INDEXADAS
 # ---------------------------------------------------------
 def search_cards_advanced(
     db: Session,
@@ -93,71 +97,47 @@ def search_cards_advanced(
     cmc: Optional[int] = None,
     limit: int = 24
 ) -> List[CartaScryfall]:
-    """
-    Realiza una búsqueda dinámica combinando filtros por nombre, tipo,
-    color, rareza y CMC sobre el catálogo local.
-    """
     query = db.query(CartaScryfall)
 
-    # 1.1 Filtro por nombre
+    # 1.1 Nombre con escape
     if query_text and query_text.strip():
-        query = query.filter(CartaScryfall.name.ilike(f"%{query_text.strip()}%"))
+        safe_q = escape_like(query_text.strip())
+        query = query.filter(CartaScryfall.name.ilike(f"%{safe_q}%", escape="\\"))
 
-    # 1.2 Filtro por tipo de carta (CORREGIDO: Desindentado del bloque query_text)
+    # 1.2 Tipo de carta
     if card_type and card_type.strip() and card_type.lower() != 'all':
-        query = query.filter(CartaScryfall.type_line.ilike(f"%{card_type.strip()}%"))
+        safe_type = escape_like(card_type.strip())
+        query = query.filter(CartaScryfall.type_line.ilike(f"%{safe_type}%", escape="\\"))
 
-    # 1.3 Filtro por colores / identidad
+    # 1.3 Colores / Identidad
     if colors and colors.strip():
         color_list = [c.strip().upper() for c in colors.split(",") if c.strip()]
-        
         if "C" in color_list:
-            query = query.filter(
-                or_(
-                    cast(CartaScryfall.scryfall_raw_data['color_identity'], String) == '[]',
-                    cast(CartaScryfall.scryfall_raw_data['colors'], String) == '[]',
-                    CartaScryfall.scryfall_raw_data['color_identity'] == None
-                )
-            )
+            query = query.filter(or_(CartaScryfall.colors == "C", CartaScryfall.colors == ""))
         else:
-            for col in color_list:
-                query = query.filter(
-                    or_(
-                        cast(CartaScryfall.scryfall_raw_data['color_identity'], String).ilike(f'%"{col}"%'),
-                        cast(CartaScryfall.scryfall_raw_data['colors'], String).ilike(f'%"{col}"%')
-                    )
-                )
+            clauses = [CartaScryfall.colors.ilike(f"%{c}%", escape="\\") for c in color_list]
+            query = query.filter(or_(*clauses))
 
-    # 1.4 Filtro por rareza (CORREGIDO: cast a String compatible y agnóstico)
+    # 1.4 Rareza
     if rarity and rarity.strip():
-        query = query.filter(
-            cast(CartaScryfall.scryfall_raw_data['rarity'].as_string(), String).ilike(rarity.strip().lower())
-        )
+        query = query.filter(CartaScryfall.rarity == rarity.strip().lower())
 
-    # 1.5 Filtro por CMC (CORREGIDO: cast a Float vía as_string)
+    # 1.5 Coste de Maná Convertido (CMC)
     if cmc is not None:
-        cmc_expr = cast(CartaScryfall.scryfall_raw_data['cmc'].as_string(), Float)
         if cmc >= 6:
-            query = query.filter(cmc_expr >= 6.0)
+            query = query.filter(CartaScryfall.cmc >= 6.0)
         else:
-            query = query.filter(cmc_expr == float(cmc))
+            query = query.filter(CartaScryfall.cmc == float(cmc))
 
     return query.order_by(CartaScryfall.name.asc()).limit(limit).all()
 
 
-def search_cards_by_name(db: Session, query_text: str, limit: int = 20) -> List[CartaScryfall]:
-    return search_cards_advanced(db, query_text=query_text, limit=limit)
-
-
-# ---------------------------------------------------------
-# 2. OBTENER CARTA POR ID
-# ---------------------------------------------------------
 def get_card_by_id(db: Session, card_id: str) -> Optional[CartaScryfall]:
     return db.query(CartaScryfall).filter(CartaScryfall.id == card_id).first()
 
 
 # ---------------------------------------------------------
-# 3. MOTOR DE SIMILITUD DE CARTAS
+# 2. MOTOR DE SIMILITUD SIN SESGO ALFABÉTICO
 # ---------------------------------------------------------
 def score_candidate(base_data: dict, cand_data: dict, base_mechanics: Set[str]) -> int:
     score = 10
@@ -190,21 +170,6 @@ def score_candidate(base_data: dict, cand_data: dict, base_mechanics: Set[str]) 
     cand_primary = cand_data.get("type_line", "").split("—")[0].strip()
     if base_primary and base_primary == cand_primary:
         score += 15
-    elif any(t in cand_primary for t in base_primary.split() if t not in ["Legendary", "Basic", "Snow"]):
-        score += 8
-
-    if "—" in base_data.get("type_line", "") and "—" in cand_data.get("type_line", ""):
-        base_subs = set(base_data.get("type_line", "").split("—")[1].strip().split())
-        cand_subs = set(cand_data.get("type_line", "").split("—")[1].strip().split())
-        if base_subs.intersection(cand_subs):
-            score += 5
-
-    base_ci = set(base_data.get("color_identity", []))
-    cand_ci = set(cand_data.get("color_identity", []))
-    if base_ci == cand_ci:
-        score += 10
-    elif cand_ci.issubset(base_ci) or not cand_ci:
-        score += 6
 
     return max(5, min(score, 100))
 
@@ -215,67 +180,44 @@ def get_similar_cards(db: Session, card_id: str, limit: int = 6) -> Optional[Dic
         return None
 
     raw_base = base_card.scryfall_raw_data or {}
-    base_oracle = extract_oracle_text(raw_base)
+    base_oracle = base_card.oracle_text or extract_oracle_text(raw_base)
+    base_mechanics = get_mechanic_ids(base_oracle)
+    role_label = get_primary_role_label(base_oracle, base_card.type_line or "")
 
-    base_data = {
-        "oracle_text": base_oracle,
-        "type_line": base_card.type_line or raw_base.get("type_line", ""),
-        "cmc": raw_base.get("cmc", 0.0),
-        "color_identity": raw_base.get("color_identity", [])
-    }
-    color_identity = set(base_data["color_identity"])
+    base_primary_type = (base_card.type_line or "").split("—")[0].replace("Legendary", "").replace("Snow", "").strip()
+    base_cmc = base_card.cmc or 0.0
 
-    base_mechanics = get_mechanic_ids(base_data["oracle_text"])
-    role_label = get_primary_role_label(base_data["oracle_text"], base_data["type_line"])
-    base_primary_type = base_data["type_line"].split("—")[0].replace("Legendary", "").replace("Snow", "").strip()
-
-    # Búsqueda determinista con ORDER BY
+    # Eliminamos el ORDER BY name.asc(). Filtramos por tipo similar y rango de CMC (+/- 2)
+    # y ordenamos por proximidad de CMC para no sesgar por alfabeto
     candidates = (
         db.query(CartaScryfall)
         .filter(
             CartaScryfall.id != base_card.id,
             CartaScryfall.name != base_card.name,
-            CartaScryfall.type_line.ilike(f"%{base_primary_type}%")
+            CartaScryfall.type_line.ilike(f"%{base_primary_type}%"),
+            CartaScryfall.cmc.between(max(0.0, base_cmc - 2.0), base_cmc + 2.0)
         )
-        .order_by(CartaScryfall.name.asc())
+        .order_by(func.abs(CartaScryfall.cmc - base_cmc).asc())
         .limit(100)
         .all()
     )
 
-    if len(candidates) < limit:
-        extra_query = (
-            db.query(CartaScryfall)
-            .filter(
-                CartaScryfall.id != base_card.id,
-                CartaScryfall.name != base_card.name
-            )
-            .order_by(CartaScryfall.name.asc())
-            .limit(100)
-            .all()
-        )
-        candidates = list({c.id: c for c in (candidates + extra_query)}.values())
-
     scored_candidates = []
+    base_data = {
+        "oracle_text": base_oracle,
+        "type_line": base_card.type_line,
+        "cmc": base_cmc
+    }
+
     for cand in candidates:
         cand_raw = cand.scryfall_raw_data or {}
-        cand_ci = set(cand_raw.get("color_identity", []))
-
-        if color_identity:
-            if not cand_ci.issubset(color_identity) and cand_ci != color_identity:
-                continue
-        else:
-            if cand_ci:
-                continue
-
         cand_data = {
-            "oracle_text": extract_oracle_text(cand_raw),
-            "type_line": cand.type_line or cand_raw.get("type_line", ""),
-            "cmc": cand_raw.get("cmc", 0.0),
-            "color_identity": cand_raw.get("color_identity", [])
+            "oracle_text": cand.oracle_text or extract_oracle_text(cand_raw),
+            "type_line": cand.type_line,
+            "cmc": cand.cmc
         }
 
         score = score_candidate(base_data, cand_data, base_mechanics)
-
         prices = cand_raw.get("prices", {})
         price_val = float(prices.get("usd") or prices.get("usd_foil") or 0.0) if (prices.get("usd") or prices.get("usd_foil")) else None
 
@@ -283,11 +225,11 @@ def get_similar_cards(db: Session, card_id: str, limit: int = 6) -> Optional[Dic
             "card": {
                 "id": cand.id,
                 "name": cand.name,
-                "mana_cost": cand.mana_cost or cand_raw.get("mana_cost"),
-                "type_line": cand.type_line or cand_raw.get("type_line"),
-                "image_url": cand.image_url or cand_raw.get("image_uris", {}).get("normal"),
-                "rarity": cand_raw.get("rarity", "common"),
-                "set": cand.set or cand_raw.get("set", "").upper(),
+                "mana_cost": cand.mana_cost,
+                "type_line": cand.type_line,
+                "image_url": cand.image_url,
+                "rarity": cand.rarity or "common",
+                "set": (cand.set or "").upper(),
                 "similarity_reason": f"{role_label} ({score}% afín)",
                 "current_price_usd": price_val
             },

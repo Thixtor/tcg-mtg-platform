@@ -5,7 +5,7 @@ from app.database import Base
 
 
 # ---------------------------------------------------------
-# 3. COLECCIONES / BINDERS DEL USUARIO
+# COLECCIONES / BINDERS DEL USUARIO
 # ---------------------------------------------------------
 class Collection(Base):
     """
@@ -18,12 +18,16 @@ class Collection(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
 
+    # Columnas ahora persistidas formalmente en base de datos
+    is_public_trade = Column(Boolean, default=True, nullable=False, index=True)
+    art_url = Column(String, nullable=True)
+
     owner = relationship("User", back_populates="collections")
     cards = relationship("UserCard", back_populates="collection", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------
-# 4. CARTAS FÍSICAS EN COLECCIÓN (TRADE / INVENTARIO)
+# CARTAS FÍSICAS EN COLECCIÓN (TRADE / INVENTARIO)
 # ---------------------------------------------------------
 class UserCard(Base):
     """

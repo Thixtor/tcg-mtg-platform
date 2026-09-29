@@ -3,14 +3,17 @@
 # ---------------------------------------------------------
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 
 # 1. Esquema base para registro y lectura simple
 class UserBase(BaseModel):
     username: str = Field(min_length=3, max_length=30, pattern=r"^[\w.-]+$")
     email: EmailStr
-    phone_number: str = Field(pattern=r"^\+[1-9]\d{7,14}$", description="Formato internacional E.164 (ej: +573001234567)")
+    phone_number: str = Field(
+        pattern=r"^\+[1-9]\d{7,14}$",
+        description="Formato internacional E.164 (ej: +573001234567)"
+    )
     location: Optional[str] = Field("Medellín / Bello, Antioquia", max_length=100)
 
 
@@ -18,7 +21,7 @@ class UserCreate(UserBase):
     pass
 
 
-# 2. Esquema de respuesta pública (NO expone teléfono ni email a desconocidos)
+# 2. Esquema de resumen público para listados (sin PII)
 class UserPublicSummary(BaseModel):
     id: str
     username: str
@@ -31,34 +34,7 @@ class UserPublicSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# 3. Esquema de respuesta privada completa (Solo para el propio usuario autenticado)
-class UserResponse(BaseModel):
-    id: str
-    username: str
-    email: EmailStr
-    phone_number: str
-    is_phone_verified: bool
-    reputation_score: int
-    rating: float
-    avatar_url: Optional[str] = None
-    bio: Optional[str] = None
-    location: Optional[str] = None
-    created_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
-# 4. Esquema para actualizar perfil y preferencias de trade
-class UserProfileUpdate(BaseModel):
-    bio: Optional[str] = Field(None, max_length=500)
-    location: Optional[str] = Field(None, max_length=100)
-    avatar_url: Optional[str] = Field(None, max_length=500)
-    preferred_currency: Optional[str] = Field(None, pattern=r"^(COP|USD)$")
-    allows_local_meetup: Optional[bool] = None
-    allows_nationwide_shipping: Optional[bool] = None
-
-
-# 5. Métricas y KPIs de Inventario
+# 3. Métricas y KPIs de Inventario
 class UserProfileKPIs(BaseModel):
     active_binders: int
     max_binders: int = 10
@@ -67,7 +43,7 @@ class UserProfileKPIs(BaseModel):
     wishlist_wants: int
 
 
-# 6. Resumen de Binder
+# 4. Resumen de Binder
 class ProfileBinderSummary(BaseModel):
     id: str
     name: str
@@ -79,13 +55,20 @@ class ProfileBinderSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# 7. Respuesta consolidada de perfil propio
-class UserProfileResponse(BaseModel):
+# 5. Esquema para actualizar perfil propio
+class UserProfileUpdate(BaseModel):
+    bio: Optional[str] = Field(None, max_length=500)
+    location: Optional[str] = Field(None, max_length=100)
+    avatar_url: Optional[HttpUrl] = None
+    preferred_currency: Optional[str] = Field(None, pattern=r"^(COP|USD)$")
+    allows_local_meetup: Optional[bool] = None
+    allows_nationwide_shipping: Optional[bool] = None
+
+
+# 6. Perfil público visible por terceros (ESTRICTAMENTE SIN EMAIL NI TELÉFONO)
+class UserPublicProfileResponse(BaseModel):
     id: str
     username: str
-    email: EmailStr
-    phone_number: str
-    is_phone_verified: bool
     avatar_url: Optional[str] = None
     bio: Optional[str] = None
     location: Optional[str] = None
@@ -106,6 +89,13 @@ class UserProfileResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# 7. Perfil privado (Solo devuelto en /users/me/profile)
+class UserPrivateProfileResponse(UserPublicProfileResponse):
+    email: EmailStr
+    phone_number: str
+    is_phone_verified: bool
+
+
 # 8. Esquemas OTP y Token
 class RequestCodePayload(BaseModel):
     phone_number: str = Field(pattern=r"^\+[1-9]\d{7,14}$")
@@ -114,6 +104,22 @@ class RequestCodePayload(BaseModel):
 class VerifyCodePayload(BaseModel):
     phone_number: str = Field(pattern=r"^\+[1-9]\d{7,14}$")
     code: str = Field(min_length=6, max_length=6)
+
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    email: EmailStr
+    phone_number: str
+    is_phone_verified: bool
+    reputation_score: int
+    rating: float
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+    location: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
 
 
 class TokenResponse(BaseModel):

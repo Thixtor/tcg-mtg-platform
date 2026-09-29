@@ -6,56 +6,55 @@ import apiClient from './client';
 /**
  * Obtiene los mazos de un usuario específico por su ID.
  */
-export const getUserDecksApi = async (userId) => {
-  const response = await apiClient.get(`/users/${userId}/decks`);
+export const getUserDecksApi = async (userId, options = {}) => {
+  const response = await apiClient.get(`/decks/users/${userId}`, options);
   return response.data;
 };
 
 /**
  * Obtiene los mazos del usuario actualmente autenticado vía JWT.
  */
-export const getMyDecksApi = async () => {
-  const response = await apiClient.get('/decks/me');
+export const getMyDecksApi = async (options = {}) => {
+  const response = await apiClient.get('/decks/me', options);
   return response.data;
 };
 
 /**
  * Crea un nuevo mazo.
  */
-export const createDeckApi = async (deckData) => {
-  const response = await apiClient.post('/decks/', deckData);
+export const createDeckApi = async (deckData, options = {}) => {
+  const response = await apiClient.post('/decks', deckData, options);
   return response.data;
 };
 
 /**
  * Agrega una carta a un mazo específico.
  */
-export const addCardToDeckApi = async (deckId, payload) => {
-  const response = await apiClient.post(`/decks/${deckId}/cards`, payload);
+export const addCardToDeckApi = async (deckId, payload, options = {}) => {
+  const response = await apiClient.post(`/decks/${deckId}/cards`, payload, options);
   return response.data;
 };
 
 /**
  * Obtiene las cartas de un mazo junto con su estado de posesión/inventario.
- * Resuelve la importación requerida en DecksPage.jsx
  */
-export const getDeckCardsWithStatusApi = async (deckId) => {
-  const response = await apiClient.get(`/decks/${deckId}/cards`);
+export const getDeckCardsWithStatusApi = async (deckId, options = {}) => {
+  const response = await apiClient.get(`/decks/${deckId}/cards`, options);
   return response.data;
 };
 
 /**
- * Actualiza la información de una carta en un mazo (cantidad, categoría, etc.).
+ * Actualiza la información de una carta en un mazo (cantidad, categoría).
  */
-export const updateDeckCardApi = async (deckId, cardId, payload) => {
-  const response = await apiClient.patch(`/decks/${deckId}/cards/${cardId}`, payload);
+export const updateDeckCardApi = async (deckId, cardId, payload, options = {}) => {
+  const response = await apiClient.patch(`/decks/${deckId}/cards/${cardId}`, payload, options);
   return response.data;
 };
 
 /**
  * Elimina una carta de un mazo.
  */
-export const removeCardFromDeckApi = async (deckId, cardId) => {
-  const response = await apiClient.delete(`/decks/${deckId}/cards/${cardId}`);
+export const removeCardFromDeckApi = async (deckId, cardId, options = {}) => {
+  const response = await apiClient.delete(`/decks/${deckId}/cards/${cardId}`, options);
   return response.data;
 };

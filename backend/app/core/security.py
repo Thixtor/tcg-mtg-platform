@@ -1,6 +1,7 @@
 import secrets
 import hmac
 import hashlib
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -13,52 +14,59 @@ from app.core.config import settings
 from app.database import get_db
 from app.models.user import User
 
+logger = logging.getLogger("security")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
 # --- 1. LÓGICA DE OTP SEGURO ---
 
 def generate_secure_otp() -> str:
-    """Genera un OTP criptográficamente seguro de 6 dígitos."""
+    """Genera un OTP numérico seguro de 6 dígitos."""
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
 def hash_otp(code: str, user_id: str) -> str:
-    """Genera un HMAC-SHA256 único ligado al user_id para evitar colisiones."""
-    message = f"{user_id}:{code}".encode("utf-8")
+    """Genera un HMAC-SHA256 único ligado al user_id para prevenir colisiones o rainbow tables."""
+    message = f"{user_id}:{code.strip()}".encode("utf-8")
     return hmac.new(settings.SECRET_KEY.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 def verify_otp_digest(user: User, code: str) -> bool:
-    """Valida el código verificando hash, expiración y límite de intentos."""
+    """
+    Verifica el código contra el hash almacenado, validando expiración e intentos.
+    Incrementa de forma atómica user.otp_attempts (debe llamarse con la fila bloqueada).
+    """
     now = datetime.now(timezone.utc)
-    
-    # Manejar timestamps naive de SQLAlchemy si es necesario
     user_expires = user.otp_expires_at
+
+    # Normalizar timestamps naive provenientes de SQLAlchemy
     if user_expires and user_expires.tzinfo is None:
         user_expires = user_expires.replace(tzinfo=timezone.utc)
 
-    if not user.otp_hash or not user_expires or user_expires < now or user.otp_attempts >= 5:
+    # Si ya superó el umbral de intentos o expiró, rechazar
+    if not user.otp_hash or not user_expires or user_expires < now or (user.otp_attempts or 0) >= 5:
         return False
 
-    user.otp_attempts += 1
-    expected_hash = hash_otp(code.strip(), user.id)
+    user.otp_attempts = (user.otp_attempts or 0) + 1
+
+    expected_hash = hash_otp(code, str(user.id))
     return hmac.compare_digest(user.otp_hash, expected_hash)
 
 
 # --- 2. LÓGICA DE JWT Y AUTENTICACIÓN ---
 
 def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
-    """Genera un token JWT para la sesión del usuario."""
+    """Genera un token JWT firmado con expiración UTC."""
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         
     payload = {
         "sub": str(user_id),
         "exp": expire,
-        "iat": datetime.now(timezone.utc)
+        "iat": now
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
@@ -68,8 +76,7 @@ def get_current_user(
     db: Session = Depends(get_db)
 ) -> User:
     """
-    Dependencia de FastAPI para obtener el usuario autenticado a partir del Bearer Token.
-    Previene IDOR al no confiar en IDs pasados por URL.
+    Dependencia de FastAPI para autenticación Bearer JWT.
     """
     if not credentials:
         raise HTTPException(
@@ -85,13 +92,13 @@ def get_current_user(
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido.",
+                detail="Token de sesión inválido.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
     except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expirado o no válido.",
+            detail="Token expirado o inválido.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

@@ -2,6 +2,7 @@
 // HOOK PERSONALIZADO: BÚSQUEDA REACTIVA CON MULTIFILTROS
 // ---------------------------------------------------------
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { searchCardsApi } from '../api/cards';
 
 const INITIAL_FILTERS = {
@@ -31,7 +32,6 @@ export function useCardSearch(initialQuery = '', debounceDelay = 300) {
       filters.type || filters.colors || filters.cmc !== null
     );
 
-    // Si no hay texto ni filtros activos, limpiamos
     if (!hasQuery && !hasActiveFilters) {
       setResults([]);
       setLoading(false);
@@ -42,29 +42,38 @@ export function useCardSearch(initialQuery = '', debounceDelay = 300) {
     setLoading(true);
     setError(null);
 
+    const controller = new AbortController();
+
     const timer = setTimeout(async () => {
       try {
         const payload = {
-        ...(hasQuery ? { q: searchTerm.trim() } : {}),
-        // Solo enviar type si NO es 'all' ni está vacío:
-        ...(filters.type && filters.type !== 'all' ? { type: filters.type } : {}),
-        ...(filters.colors ? { colors: filters.colors } : {}),
-        ...(filters.cmc !== null ? { cmc: filters.cmc } : {}),
-        limit: 24,
+          ...(hasQuery ? { q: searchTerm.trim() } : {}),
+          ...(filters.type && filters.type !== 'all' ? { type: filters.type } : {}),
+          ...(filters.colors ? { colors: filters.colors } : {}),
+          ...(filters.cmc !== null ? { cmc: filters.cmc } : {}),
+          limit: 24,
         };
 
-        const data = await searchCardsApi(payload);
+        const data = await searchCardsApi(payload, { signal: controller.signal });
         setResults(data || []);
       } catch (err) {
+        if (axios.isCancel(err) || err.name === 'CanceledError') {
+          return;
+        }
         console.error('Error buscando cartas:', err);
         setError('Error al consultar el catálogo. Intenta de nuevo.');
         setResults([]);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     }, debounceDelay);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [searchTerm, filters, debounceDelay]);
 
   return {

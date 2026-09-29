@@ -1,10 +1,11 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, contains_eager
 
 from app.database import get_db
 from app.core.security import get_current_user
 from app.models import User, Collection, UserCard, CartaScryfall
+from app.crud import crud_collections
 from app.schemas import (
     CollectionCreate,
     CollectionResponse,
@@ -27,27 +28,24 @@ router = APIRouter(
     status_code=status.HTTP_201_CREATED,
     summary="Crear una colección o binder para el usuario autenticado"
 )
+@router.post(
+    "/collections/me",
+    response_model=CollectionResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False  # Alias para compatibilidad hacia atrás
+)
 def create_collection(
     payload: CollectionCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    conteo_actual = db.query(Collection).filter(Collection.user_id == current_user.id).count()
-    if conteo_actual >= 10:
+    if crud_collections.count_user_collections(db, str(current_user.id)) >= 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Has alcanzado el límite máximo permitido de 10 colecciones/binders."
         )
 
-    nueva_coleccion = Collection(
-        user_id=current_user.id,
-        name=payload.name,
-        description=payload.description
-    )
-    db.add(nueva_coleccion)
-    db.commit()
-    db.refresh(nueva_coleccion)
-    return nueva_coleccion
+    return crud_collections.create_collection(db, user_id=str(current_user.id), payload=payload)
 
 
 @router.get(
@@ -59,7 +57,7 @@ def list_my_collections(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return db.query(Collection).filter(Collection.user_id == current_user.id).all()
+    return crud_collections.get_collections_by_user(db, user_id=str(current_user.id), only_public=False)
 
 
 @router.get(
@@ -74,7 +72,7 @@ def list_user_collections(
     usuario = db.query(User).filter(User.id == user_id).first()
     if not usuario:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado.")
-    return db.query(Collection).filter(Collection.user_id == user_id).all()
+    return crud_collections.get_collections_by_user(db, user_id=user_id, only_public=True)
 
 
 # ---------------------------------------------------------
@@ -92,11 +90,7 @@ def add_card_to_collection(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Verificación de propiedad (Ownership) para evitar IDOR
-    coleccion = db.query(Collection).filter(
-        Collection.id == collection_id,
-        Collection.user_id == current_user.id
-    ).first()
+    coleccion = crud_collections.get_user_collection(db, collection_id=collection_id, user_id=str(current_user.id))
     if not coleccion:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -110,20 +104,7 @@ def add_card_to_collection(
             detail=f"La carta '{payload.scryfall_card_id}' no existe en el catálogo Scryfall."
         )
 
-    nueva_carta = UserCard(
-        collection_id=collection_id,
-        scryfall_card_id=payload.scryfall_card_id,
-        quantity=payload.quantity,
-        condition=payload.condition,
-        language=payload.language,
-        is_foil=payload.is_foil,
-        is_for_trade=payload.is_for_trade,
-        trade_notes=payload.trade_notes
-    )
-    db.add(nueva_carta)
-    db.commit()
-    db.refresh(nueva_carta)
-    return nueva_carta
+    return crud_collections.add_card_to_collection(db, collection_id=collection_id, payload=payload)
 
 
 @router.get(
@@ -135,16 +116,40 @@ def list_cards_in_collection(
     collection_id: str,
     db: Session = Depends(get_db)
 ):
-    coleccion = db.query(Collection).filter(Collection.id == collection_id).first()
+    coleccion = crud_collections.get_collection_by_id(db, collection_id=collection_id)
     if not coleccion:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Colección no encontrada.")
 
-    return (
-        db.query(UserCard)
-        .options(joinedload(UserCard.card_catalog))
-        .filter(UserCard.collection_id == collection_id)
-        .all()
-    )
+    return crud_collections.get_cards_in_collection(db, collection_id=collection_id)
+
+
+@router.delete(
+    "/collections/{collection_id}/cards/{card_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Eliminar una carta física de una colección propia"
+)
+def remove_card_from_collection(
+    collection_id: str,
+    card_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    coleccion = crud_collections.get_user_collection(db, collection_id=collection_id, user_id=str(current_user.id))
+    if not coleccion:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Colección no encontrada o no autorizada."
+        )
+
+    carta = crud_collections.get_user_card(db, collection_id=collection_id, card_id=card_id)
+    if not carta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Carta física no encontrada en esta colección."
+        )
+
+    crud_collections.remove_card_from_collection(db, carta)
+    return {"status": "success", "message": "Carta removida de la colección exitosamente."}
 
 
 # ---------------------------------------------------------
@@ -153,17 +158,13 @@ def list_cards_in_collection(
 @router.get(
     "/trade/market",
     response_model=List[TradeMarketItemResponse],
-    summary="Listar cartas para intercambio (sin exponer teléfonos de terceros)"
+    summary="Listar cartas para intercambio de binders públicos"
 )
 def get_trade_market(
-    limit: int = 24,
-    offset: int = 0,
+    limit: int = Query(24, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
 ):
-    """
-    Retorna cartas disponibles para trade usando joinedload para evitar N+1
-    y omitiendo datos de contacto privado hasta que haya acuerdo mutuo.
-    """
     items_trade = (
         db.query(UserCard)
         .join(UserCard.collection)
@@ -172,10 +173,13 @@ def get_trade_market(
             joinedload(UserCard.card_catalog),
             contains_eager(UserCard.collection).contains_eager(Collection.owner)
         )
-        .filter(UserCard.is_for_trade.is_(True))
+        .filter(
+            UserCard.is_for_trade.is_(True),
+            Collection.is_public_trade.is_(True)  # Respetar la privacidad del binder
+        )
         .order_by(UserCard.id.desc())
         .offset(offset)
-        .limit(min(limit, 100))
+        .limit(limit)
         .all()
     )
 

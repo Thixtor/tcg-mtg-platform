@@ -1,11 +1,11 @@
 import uuid
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
 
 
 # ---------------------------------------------------------
-# 5. MAZOS / BIBLIOTECA DE DECKS (HASTA 10 POR USUARIO)
+# MAZOS / BIBLIOTECA DE DECKS (HASTA 10 POR USUARIO)
 # ---------------------------------------------------------
 class Deck(Base):
     """
@@ -19,7 +19,6 @@ class Deck(Base):
     format = Column(String, default="Commander")
     description = Column(String, nullable=True)
 
-    # CORRECCIÓN: Cambiamos backref="decks" por back_populates="decks"
     owner = relationship("User", back_populates="decks")
     cards = relationship("DeckCard", back_populates="deck", cascade="all, delete-orphan")
 
@@ -39,3 +38,8 @@ class DeckCard(Base):
 
     deck = relationship("Deck", back_populates="cards")
     card_catalog = relationship("CartaScryfall")
+
+    # Restricción para garantizar unicidad lógica por categoría en un mismo mazo
+    __table_args__ = (
+        UniqueConstraint('deck_id', 'scryfall_card_id', 'category', name='uq_deck_card_category'),
+    )
