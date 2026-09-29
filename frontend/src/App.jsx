@@ -65,7 +65,7 @@ export default function App() {
     if (!userData) return;
     const sessionData = {
       user: userData,
-      access_token: accessToken || localStorage.getItem('token') || ''
+      access_token: accessToken || getAccessToken() || ''
     };
     saveSession(sessionData);
     setCurrentUser(userData);
@@ -81,7 +81,7 @@ export default function App() {
   const handleProfileUpdated = (updatedFields) => {
     setCurrentUser((prev) => {
       const updated = { ...prev, ...updatedFields };
-      saveSession({ user: updated, access_token: localStorage.getItem('token') || '' });
+      saveSession({ user: updated, access_token: getAccessToken() || '' });
       return updated;
     });
   };

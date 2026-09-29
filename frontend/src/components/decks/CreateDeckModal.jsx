@@ -11,7 +11,7 @@ import {
   Check, 
   Layers 
 } from 'lucide-react';
-import { createDeckApi, addCardToDeckApi } from '../../api/decks';
+import { createDeckApi, addCardToDeckApi } from '@/api/decks.api';
 
 export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0, onDeckCreated }) {
   const [deckName, setDeckName] = useState('');

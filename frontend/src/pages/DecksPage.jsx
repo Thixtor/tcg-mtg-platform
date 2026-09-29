@@ -5,18 +5,23 @@ import React, { useState, useEffect } from 'react';
 import {
   Layers,
   CheckCircle2,
-  AlertTriangle,
   XCircle,
   Plus,
-  Search,
-  Share2,
   Flame,
-  ArrowRight,
   Shield,
   Coins
 } from 'lucide-react';
-import { getMyDecksApi, getDeckCardsWithStatusApi } from '../api/decks';
+import { getMyDecksApi, getDeckCardsWithStatusApi } from '@/api/decks.api';
 
+/**
+ * Vista de constructor y auditor de mazos contra inventario físico.
+ * @param {Object} props
+ * @param {Object} [props.currentUser] - Perfil del usuario activo.
+ * @param {Function} [props.onDeckCountChange] - Notificador para sincronizar el total de mazos en App.
+ * @param {number} [props.refreshTrigger] - Contador reactivo para refrescar listas tras crear un mazo.
+ * @param {Function} props.onOpenCreateDeckModal - Callback para desplegar el modal de creación.
+ * @param {Function} props.onNavigateToTradeWall - Navegación directa hacia el Muro de Intercambio.
+ */
 export default function DecksPage({ 
   currentUser, 
   onDeckCountChange, 
@@ -43,21 +48,22 @@ export default function DecksPage({
 
     getMyDecksApi({ signal: ctrl.signal })
       .then((data) => {
-        setDecks(data || []);
-        onDeckCountChange?.(data?.length || 0);
-        if (data && data.length > 0 && !selectedDeckId) {
-          setSelectedDeckId(data[0].id);
+        const deckList = Array.isArray(data) ? data : [];
+        setDecks(deckList);
+        onDeckCountChange?.(deckList.length);
+        if (deckList.length > 0 && !selectedDeckId) {
+          setSelectedDeckId(deckList[0].id);
         }
       })
       .catch((err) => {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.error('Error al cargar mazos:', err);
+          console.warn('[Mazos] Error al cargar lista de mazos:', err);
         }
       })
       .finally(() => setIsLoadingDecks(false));
 
     return () => ctrl.abort();
-  }, [currentUser, refreshTrigger]);
+  }, [currentUser, refreshTrigger, onDeckCountChange]);
 
   // 2. Cargar cartas y estado de inventario del mazo seleccionado
   useEffect(() => {
@@ -71,11 +77,11 @@ export default function DecksPage({
 
     getDeckCardsWithStatusApi(selectedDeckId, { signal: ctrl.signal })
       .then((cards) => {
-        setDeckCards(cards || []);
+        setDeckCards(Array.isArray(cards) ? cards : []);
       })
       .catch((err) => {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.error('Error al auditar cartas del mazo:', err);
+          console.warn('[Mazos] Error al auditar cartas del mazo:', err);
         }
       })
       .finally(() => setIsLoadingCards(false));
@@ -123,7 +129,7 @@ export default function DecksPage({
               </div>
               <div className="w-16 h-2 bg-neutral-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full"
+                  className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-300"
                   style={{ width: `${Math.min((decks.length / 10) * 100, 100)}%` }}
                 />
               </div>
@@ -260,13 +266,26 @@ export default function DecksPage({
                         <div className="flex items-center gap-3 min-w-0">
                           <span className="font-mono text-xs text-neutral-500 w-6">{card.quantity_needed}x</span>
                           {card.image_url ? (
-                            <img src={card.image_url} alt={card.name} className="w-8 aspect-[2.5/3.5] rounded object-cover border border-neutral-700" />
+                            <img 
+                              src={card.image_url} 
+                              alt={card.name} 
+                              className="w-8 aspect-[2.5/3.5] rounded object-cover border border-neutral-700" 
+                              loading="lazy"
+                            />
                           ) : (
                             <div className="w-8 aspect-[2.5/3.5] rounded bg-neutral-800 border border-neutral-700" />
                           )}
                           <div className="truncate">
                             <span className="text-xs font-semibold text-neutral-200 block truncate">{card.name}</span>
-                            <span className="text-[10px] font-mono text-neutral-500">{card.category}</span>
+                            <div className="flex items-center gap-2 text-[10px] font-mono text-neutral-500">
+                              <span>{card.category}</span>
+                              {card.artist && (
+                                <>
+                                  <span>·</span>
+                                  <span className="font-sans text-neutral-400 truncate">Ilus: {card.artist}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
 

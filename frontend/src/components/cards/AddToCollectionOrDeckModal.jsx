@@ -12,7 +12,7 @@ import {
 import { 
   getMyDecksApi, 
   addCardToDeckApi 
-} from '@/api/decks';
+} from '@/api/decks.api';
 import { getAccessToken } from '@/services/session.service';
 
 const CARD_CONDITIONS = [
