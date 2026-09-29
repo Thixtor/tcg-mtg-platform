@@ -92,7 +92,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
     fetchCards();
   }, [selectedBinderId]);
 
-  // Manejo de actualización reactiva desde EditProfileModal
+  // Manejo de actualización reactiva
   const handleProfileUpdated = (updatedUser) => {
     setProfileData((prev) => ({
       ...prev,
@@ -145,11 +145,10 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-6 space-y-6 text-neutral-100 font-sans">
       
-      {/* 1. CABECERA MODULAR */}
+      {/* 1. CABECERA MODULAR CONECTADA AL ESTADO REACTIVO */}
       <ProfileHeader 
         user={profileData} 
-        onEditProfile={() => setIsEditModalOpen(true)} 
-        onTradeSettings={onOpenTradeModal} 
+        onProfileUpdated={handleProfileUpdated} 
       />
 
       {/* 2. BARRA DE PESTAÑAS */}
@@ -232,7 +231,7 @@ export default function ProfilePage({ user, onOpenBinderModal, onOpenTradeModal,
                   <div>
                     <h3 className="text-xs font-bold text-white truncate">{binder.name}</h3>
                     <div className="text-[9px] text-neutral-500 truncate mt-0.5 italic">
-                      Magic: The Gathering - Art crop[cite: 13]
+                      Magic: The Gathering - Art crop[cite: 11]
                     </div>
                   </div>
 
