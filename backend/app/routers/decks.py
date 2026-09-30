@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_current_user
-from app.models import User, CartaScryfall
+from app.models import User, Deck, DeckCard, CartaScryfall
 from app.crud import crud_decks
 from app.schemas import (
     DeckCreate,
@@ -16,7 +16,7 @@ from app.schemas import (
     AddCardToDeckPayload,
     DeckCardDetailResponse
 )
-# Esquemas para la importación en lote
+# Esquemas para la importación en lote y actualización
 from app.schemas.deck import BulkAddCardsPayload, BulkAddCardsResponse
 from app.services.inventory_service import calculate_deck_availability
 
@@ -26,12 +26,12 @@ router = APIRouter(
 
 
 class UpdateDeckCardPayload(BaseModel):
-    quantity: Optional[int] = Field(None, ge=1, le=100)
-    category: Optional[str] = Field(None, pattern=r"^(mainboard|sideboard|maybeboard|commander)$")
+    quantity: Optional[int] = Field(None, ge=1, le=99)
+    category: Optional[str] = Field(None, pattern=r"^(mainboard|sideboard|maybeboard|commander|companion)$")
 
 
 # ---------------------------------------------------------
-# 1. CREACIÓN Y CONSULTA DE MAZOS
+# 1. CREACIÓN, CONSULTA Y ELIMINACIÓN DE MAZOS
 # ---------------------------------------------------------
 @router.post(
     "/decks",
@@ -73,7 +73,7 @@ def list_my_decks(
 @router.get(
     "/users/{user_id}/decks",
     response_model=List[DeckResponse],
-    include_in_schema=False  # Alias para compatibilidad con llamadas existentes
+    include_in_schema=False  # Alias para compatibilidad hacia atrás
 )
 def list_user_decks(
     user_id: str,
@@ -86,6 +86,28 @@ def list_user_decks(
             detail="Usuario no encontrado."
         )
     return crud_decks.get_user_decks(db, user_id=user_id)
+
+
+@router.delete(
+    "/decks/{deck_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Eliminar un mazo completo del usuario autenticado"
+)
+def delete_deck(
+    deck_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    mazo = crud_decks.get_user_deck_by_id(db, deck_id=deck_id, user_id=str(current_user.id))
+    if not mazo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Mazo no encontrado o no autorizado."
+        )
+
+    db.delete(mazo)
+    db.commit()
+    return {"status": "success", "message": "Mazo eliminado exitosamente."}
 
 
 # ---------------------------------------------------------
@@ -214,12 +236,12 @@ def remove_card_from_deck(
 
 
 # ---------------------------------------------------------
-# 3. DISPONIBILIDAD FÍSICA DE CARTAS
+# 3. DISPONIBILIDAD FÍSICA DE CARTAS (INVENTARIO Y METADATOS)
 # ---------------------------------------------------------
 @router.get(
     "/decks/{deck_id}/cards",
     response_model=List[DeckCardDetailResponse],
-    summary="Obtener cartas del mazo con disponibilidad de inventario"
+    summary="Obtener cartas del mazo con disponibilidad de inventario y metadatos canónicos"
 )
 def get_deck_cards_with_inventory_status(
     deck_id: str,

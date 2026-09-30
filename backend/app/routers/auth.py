@@ -1,10 +1,11 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.core.security import generate_secure_otp, verify_otp_digest, create_access_token
 from app.schemas.user import (
     UserCreate, 
@@ -24,14 +25,22 @@ router = APIRouter(
 )
 
 
+def _mask_phone(phone: str) -> str:
+    """Enmascara el número telefónico para no registrar PII en logs."""
+    if not phone or len(phone) < 4:
+        return "****"
+    return phone[-4:].rjust(len(phone), "*")
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar un nuevo usuario"
 )
-def register_user(payload: UserCreate, db: Session = Depends(get_db)):
-    """Crea un usuario controlando colisiones bajo concurrencia."""
+@limiter.limit("10/hour")
+def register_user(request: Request, payload: UserCreate, db: Session = Depends(get_db)):
+    """Crea un usuario controlando colisiones bajo concurrencia y protegido por rate limit."""
     try:
         return crud_users.create_user(db, payload=payload)
     except IntegrityError:
@@ -43,10 +52,11 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/request-otp", summary="Solicitar código OTP de inicio de sesión")
-def request_otp(payload: RequestCodePayload, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def request_otp(request: Request, payload: RequestCodePayload, db: Session = Depends(get_db)):
     """
     Emite un código OTP si el número existe.
-    Responde con el mismo mensaje genérico para evitar enumeración de usuarios.
+    Protegido contra spam por rate-limit y con respuesta homogénea para evitar enumeración.
     """
     # Bloqueo de fila para evitar condiciones de carrera en solicitudes simultáneas
     usuario = (
@@ -61,17 +71,19 @@ def request_otp(payload: RequestCodePayload, db: Session = Depends(get_db)):
         codigo_otp = generate_secure_otp()
         crud_users.set_user_otp_code(db, user=usuario, code=codigo_otp)
         
-        # Simulación de pasarela de SMS / Gateway
-        logger.info(f"Enviando OTP a {payload.phone_number}")
+        # Log seguro sin persistir PII en texto claro
+        logger.info(f"OTP emitido para destino: {_mask_phone(payload.phone_number)}")
 
+        # Exposición de OTP estrictamente limitada a entornos de desarrollo
         if settings.EXPOSE_DEV_OTP:
             dev_code = codigo_otp
-            logger.warning(f"🔑 [DEV OTP] para {usuario.phone_number}: {codigo_otp}")
-
-        # Imprimir en consola de desarrollo usando la variable correcta
-        print(f"\n==========================================", flush=True)
-        print(f" >>> [DEV OTP CODE]: {codigo_otp} <<< ", flush=True)
-        print(f"==========================================\n", flush=True)
+            logger.warning(f"🔑 [DEV OTP] para {_mask_phone(usuario.phone_number)}: {codigo_otp}")
+            print(f"\n==========================================", flush=True)
+            print(f" >>> [DEV OTP CODE]: {codigo_otp} <<< ", flush=True)
+            print(f"==========================================\n", flush=True)
+        else:
+            # TODO: Despachar a proveedor SMS productivo (Twilio, AWS SNS, etc.)
+            pass
 
     response = {
         "status": "success",
@@ -85,7 +97,8 @@ def request_otp(payload: RequestCodePayload, db: Session = Depends(get_db)):
 
 
 @router.post("/verify-otp", response_model=TokenResponse, summary="Verificar OTP y generar JWT")
-def verify_otp(payload: VerifyCodePayload, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def verify_otp(request: Request, payload: VerifyCodePayload, db: Session = Depends(get_db)):
     """
     Valida el OTP con serialización de intentos en base de datos.
     """

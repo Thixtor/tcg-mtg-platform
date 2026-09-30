@@ -1,9 +1,9 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, contains_eager
 
 from app.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 
 from app.models import User, Collection, UserCard, CartaScryfall
 from app.crud import crud_collections
@@ -22,43 +22,6 @@ router = APIRouter(
     tags=["Colecciones y Mercado de Intercambio"]
 )
 
-# ---------------------------------------------------------
-# DEPENDENCIA OPCIONAL DE USUARIO (Acceso público vs privado)
-# ---------------------------------------------------------
-import jwt
-from app.core.config import settings
-
-def get_current_user_optional(
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
-) -> Optional[User]:
-    """Retorna el User si viene un Bearer token válido; None si no viene o es inválido."""
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    token = authorization.split(" ")[1]
-    
-    # 1. Intentar invocar get_current_user si acepta los argumentos
-    try:
-        return get_current_user(db=db, token=token)
-    except Exception:
-        pass
-
-    try:
-        return get_current_user(token=token, db=db)
-    except Exception:
-        pass
-
-    # 2. Decodificación directa de respaldo con PyJWT
-    try:
-        secret = getattr(settings, "SECRET_KEY", "secret")
-        algorithm = getattr(settings, "ALGORITHM", "HS256")
-        payload = jwt.decode(token, secret, algorithms=[algorithm])
-        user_id = payload.get("sub") or payload.get("user_id") or payload.get("id")
-        if not user_id:
-            return None
-        return db.query(User).filter(User.id == str(user_id)).first()
-    except Exception:
-        return None
 
 # ---------------------------------------------------------
 # 1. GESTIÓN DE COLECCIONES (BINDERS)
@@ -243,15 +206,15 @@ def get_trade_market(
         respuesta.append(
             TradeMarketItemResponse(
                 user_card_id=item.id,
-                card_name=item.card_catalog.name,
-                set_code=item.card_catalog.set,
-                image_url=item.card_catalog.image_url,
+                card_name=item.card_catalog.name if item.card_catalog else "Carta",
+                set_code=item.card_catalog.set if item.card_catalog else None,
+                image_url=item.card_catalog.image_url if item.card_catalog else None,
                 condition=item.condition,
                 language=item.language,
                 is_foil=item.is_foil,
                 trade_notes=item.trade_notes,
                 owner_username=item.collection.owner.username,
-                owner_reputation=item.collection.owner.reputation_score
+                owner_reputation=item.collection.owner.reputation_score or 100
             )
         )
     return respuesta

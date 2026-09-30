@@ -3,9 +3,12 @@
 # ---------------------------------------------------------
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 
-# Importación de configuración y routers
+# Importación de configuración, limitador y routers
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.routers import cards, auth, users, collections, decks, wishlist, prices
 
 app = FastAPI(
@@ -13,6 +16,10 @@ app = FastAPI(
     description="API REST Full Stack para intercambio de cartas, gestión de inventario, mazos y cotizaciones históricas.",
     version=settings.PROJECT_VERSION
 )
+
+# Configuración de Rate Limiting global
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS
 app.add_middleware(

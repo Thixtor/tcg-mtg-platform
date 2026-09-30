@@ -3,7 +3,7 @@ import hmac
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -71,12 +71,22 @@ def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
+def decode_access_token(token: str) -> Dict[str, Any]:
+    """Decodifica y valida rigurosamente la firma y claims obligatorios del token."""
+    return jwt.decode(
+        token, 
+        settings.SECRET_KEY, 
+        algorithms=[settings.ALGORITHM],
+        options={"require": ["exp", "sub"]}
+    )
+
+
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     db: Session = Depends(get_db)
 ) -> User:
     """
-    Dependencia de FastAPI para autenticación Bearer JWT.
+    Dependencia de FastAPI para autenticación Bearer JWT obligatoria.
     """
     if not credentials:
         raise HTTPException(
@@ -85,9 +95,8 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = credentials.credentials
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = decode_access_token(credentials.credentials)
         user_id: str = payload.get("sub")
         if not user_id:
             raise HTTPException(
@@ -111,3 +120,26 @@ def get_current_user(
         )
 
     return user
+
+
+def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Dependencia unificada para endpoints con acceso público/privado opcional (ej: colecciones).
+    Retorna None si no hay token o es inválido. 
+    Los errores de conexión de base de datos se propagan normalmente (sin disfrazar).
+    """
+    if not credentials:
+        return None
+
+    try:
+        payload = decode_access_token(credentials.credentials)
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+    except jwt.PyJWTError:
+        return None
+
+    return db.query(User).filter(User.id == str(user_id)).first()

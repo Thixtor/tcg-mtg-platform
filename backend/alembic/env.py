@@ -23,8 +23,9 @@ if config.config_file_name is not None:
 # Asignar los metadatos para autogeneración de migraciones
 target_metadata = Base.metadata
 
-# Forzar a Alembic a usar la URL configurada y validada en settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Escapar '%' como '%%' para evitar errores de ConfigParser si la contraseña contiene percent-encoding
+safe_db_url = settings.DATABASE_URL.replace("%", "%%")
+config.set_main_option("sqlalchemy.url", safe_db_url)
 
 
 # ---------------------------------------------------------
