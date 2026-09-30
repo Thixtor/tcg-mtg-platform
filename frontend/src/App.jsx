@@ -20,6 +20,7 @@ import { CatalogPage } from './pages/CatalogPage';
 import BindersPage from './pages/BindersPage';
 import DecksPage from './pages/DecksPage';
 import ProfilePage from './pages/ProfilePage';
+import PublicProfilePage from './pages/PublicProfilePage';
 import TradeWallPage from './pages/TradeWallPage';
 import AuthModal from './components/auth/AuthModal';
 import EditProfileModal from './components/profile/EditProfileModal';
@@ -37,6 +38,9 @@ function AppContent() {
 
   const [deckCount, setDeckCount] = useState(0);
   const [selectedDeckId, setSelectedDeckId] = useState(null);
+  const [viewingUserId, setViewingUserId] = useState(null);
+  const [previousTab, setPreviousTab] = useState('catalog');
+
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
@@ -52,6 +56,7 @@ function AppContent() {
       setIsUserDropdownOpen(false);
       setActiveTab('catalog');
       setSelectedDeckId(null);
+      setViewingUserId(null);
     };
 
     window.addEventListener('mtg:logout', handleGlobalLogout);
@@ -85,6 +90,7 @@ function AppContent() {
     setIsUserDropdownOpen(false);
     setActiveTab('catalog');
     setSelectedDeckId(null);
+    setViewingUserId(null);
   };
 
   const handleProfileUpdated = (updatedFields) => {
@@ -93,6 +99,19 @@ function AppContent() {
       saveSession({ user: updated, access_token: getAccessToken() || '' });
       return updated;
     });
+  };
+
+  const handleNavigateToPublicProfile = (targetUserId) => {
+    if (!targetUserId) return;
+    // Si el usuario target es el mismo logueado, lo dirigimos a su propio perfil
+    if (currentUser?.id && String(currentUser.id) === String(targetUserId)) {
+      setActiveTab('profile');
+      setViewingUserId(null);
+      return;
+    }
+    setPreviousTab(activeTab);
+    setViewingUserId(targetUserId);
+    setActiveTab('public-profile');
   };
 
   return (
@@ -110,7 +129,7 @@ function AppContent() {
           
           {/* Logo y Marca */}
           <div 
-            onClick={() => { setActiveTab('catalog'); setSelectedDeckId(null); }} 
+            onClick={() => { setActiveTab('catalog'); setSelectedDeckId(null); setViewingUserId(null); }} 
             className="flex items-center gap-3 cursor-pointer select-none"
           >
             <span className="text-2xl">🧙‍♂️</span>
@@ -131,7 +150,7 @@ function AppContent() {
             isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-900/90'
           }`}>
             <button
-              onClick={() => { setActiveTab('catalog'); setSelectedDeckId(null); }}
+              onClick={() => { setActiveTab('catalog'); setSelectedDeckId(null); setViewingUserId(null); }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'catalog'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -143,7 +162,7 @@ function AppContent() {
             </button>
 
             <button
-              onClick={() => { setActiveTab('binders'); setSelectedDeckId(null); }}
+              onClick={() => { setActiveTab('binders'); setSelectedDeckId(null); setViewingUserId(null); }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'binders'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -158,6 +177,7 @@ function AppContent() {
               onClick={() => {
                 setActiveTab('decks');
                 setSelectedDeckId(null);
+                setViewingUserId(null);
               }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'decks'
@@ -170,7 +190,7 @@ function AppContent() {
             </button>
 
             <button
-              onClick={() => { setActiveTab('tradewall'); setSelectedDeckId(null); }}
+              onClick={() => { setActiveTab('tradewall'); setSelectedDeckId(null); setViewingUserId(null); }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'tradewall'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -182,7 +202,7 @@ function AppContent() {
             </button>
 
             <button
-              onClick={() => { setActiveTab('profile'); setSelectedDeckId(null); }}
+              onClick={() => { setActiveTab('profile'); setSelectedDeckId(null); setViewingUserId(null); }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'profile'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -252,6 +272,7 @@ function AppContent() {
                         setIsUserDropdownOpen(false);
                         setActiveTab('profile');
                         setSelectedDeckId(null);
+                        setViewingUserId(null);
                       }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 transition ${
                         isLightMode ? 'hover:bg-[#EAE4D7]' : 'hover:bg-neutral-800/70 hover:text-white'
@@ -279,6 +300,7 @@ function AppContent() {
                         setIsUserDropdownOpen(false);
                         setActiveTab('tradewall');
                         setSelectedDeckId(null);
+                        setViewingUserId(null);
                       }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 transition ${
                         isLightMode ? 'hover:bg-[#EAE4D7]' : 'hover:bg-neutral-800/70 hover:text-white'
@@ -355,6 +377,7 @@ function AppContent() {
             currentUser={currentUser} 
             onNavigateToCatalog={() => setActiveTab('catalog')}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onNavigateToProfile={handleNavigateToPublicProfile}
           />
         )}
 
@@ -366,6 +389,23 @@ function AppContent() {
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onEditProfileModal={() => setIsEditProfileModalOpen(true)}
             onNavigateToCatalog={() => setActiveTab('catalog')}
+          />
+        )}
+
+        {activeTab === 'public-profile' && viewingUserId && (
+          <PublicProfilePage 
+            userId={viewingUserId}
+            currentUserId={currentUser?.id}
+            onBack={() => {
+              setActiveTab(previousTab || 'tradewall');
+              setViewingUserId(null);
+            }}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onSelectDeck={(deckId) => {
+              setSelectedDeckId(deckId);
+              setActiveTab('decks');
+              setViewingUserId(null);
+            }}
           />
         )}
       </main>

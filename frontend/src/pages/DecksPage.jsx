@@ -1,17 +1,20 @@
 // ---------------------------------------------------------
-// PÁGINA: ORQUESTADOR Y EDITOR DE MAZOS (REFACTORIZADO)
+// PÁGINA: ORQUESTADOR Y EDITOR DE MAZOS (CON SOPORTE PÚBLICO Y FORK)
 // ---------------------------------------------------------
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   AlertTriangle, 
   Trash2, 
   Plus,
-  Shield
+  Shield,
+  Loader2
 } from 'lucide-react';
 
 import { 
   getMyDecksApi, 
   getDeckCardsWithStatusApi, 
+  getPublicDeckDetailApi,
+  forkDeckApi,
   updateDeckCardApi, 
   removeCardFromDeckApi 
 } from '@/api/decks.api';
@@ -57,6 +60,7 @@ export default function DecksPage({
 
   const [decks, setDecks] = useState([]);
   const [internalDeckId, setInternalDeckId] = useState(null);
+  const [externalDeck, setExternalDeck] = useState(null);
   
   const currentSelectedId = selectedDeckId !== undefined ? selectedDeckId : internalDeckId;
   const setDeckSelection = (id) => {
@@ -93,8 +97,8 @@ export default function DecksPage({
     defaultSort: 'type'
   });
 
-  // Guard para visitantes no autenticados (Soft-Gate)
-  if (!hasSession && !currentUser) {
+  // Guard para visitantes no autenticados en vista de biblioteca propia
+  if (!hasSession && !currentUser && !currentSelectedId) {
     return (
       <main className={`min-h-screen px-4 py-12 transition-colors duration-200 ${
         isLightMode ? 'bg-[#FAF7F2]' : 'bg-[#0B0B0B]'
@@ -109,7 +113,7 @@ export default function DecksPage({
     );
   }
 
-  // 2. Cargar catálogo de mazos del usuario
+  // 2. Cargar catálogo de mazos propios
   useEffect(() => {
     if (!currentUser && !hasSession) {
       setDecks([]);
@@ -136,34 +140,86 @@ export default function DecksPage({
     return () => ctrl.abort();
   }, [currentUser, hasSession, refreshTrigger, onDeckCountChange]);
 
-  // 3. Cargar cartas del mazo seleccionado
+  // Identificar el mazo activo (propio o foráneo)
+  const activeDeck = useMemo(() => {
+    if (!currentSelectedId) return null;
+    const own = decks.find((d) => d.id === currentSelectedId);
+    return own || externalDeck;
+  }, [decks, externalDeck, currentSelectedId]);
+
+  const isOwner = Boolean(
+    activeDeck && 
+    (!activeDeck.user_id || (currentUser?.id && String(currentUser.id) === String(activeDeck.user_id)))
+  );
+
+  // 3. Cargar cartas y metadatos del mazo activo
   const refreshCurrentDeckCards = useCallback(() => {
     if (!currentSelectedId) return;
 
     setIsLoadingCards(true);
     setDeckActionError(null);
-    getDeckCardsWithStatusApi(currentSelectedId)
-      .then((cards) => setDeckCards(Array.isArray(cards) ? cards : []))
-      .catch((err) => {
-        console.warn('[Mazos] Error auditando cartas del mazo:', parseApiError(err));
-      })
-      .finally(() => setIsLoadingCards(false));
-  }, [currentSelectedId]);
+
+    // Si es un mazo propio, auditar contra binders
+    const isLocalDeck = decks.some((d) => d.id === currentSelectedId);
+
+    if (isLocalDeck) {
+      setExternalDeck(null);
+      getDeckCardsWithStatusApi(currentSelectedId)
+        .then((cards) => setDeckCards(Array.isArray(cards) ? cards : []))
+        .catch((err) => {
+          console.warn('[Mazos] Error auditando cartas del mazo:', parseApiError(err));
+        })
+        .finally(() => setIsLoadingCards(false));
+    } else {
+      // Si es un mazo externo (abierto desde un perfil público)
+      getPublicDeckDetailApi(currentSelectedId)
+        .then((detail) => {
+          if (detail) {
+            setExternalDeck(detail);
+            setDeckCards(Array.isArray(detail.cards) ? detail.cards : []);
+          }
+        })
+        .catch((err) => {
+          console.warn('[Mazos] Error consultando mazo comunitario:', parseApiError(err));
+          // Fallback al endpoint de cartas estándar si aplica
+          getDeckCardsWithStatusApi(currentSelectedId)
+            .then((cards) => setDeckCards(Array.isArray(cards) ? cards : []))
+            .catch(() => setDeckCards([]));
+        })
+        .finally(() => setIsLoadingCards(false));
+    }
+  }, [currentSelectedId, decks]);
 
   useEffect(() => {
     refreshCurrentDeckCards();
   }, [refreshCurrentDeckCards]);
 
-  const activeDeck = decks.find((d) => d.id === currentSelectedId);
-  const isCommanderFormat = (activeDeck?.format || 'commander').trim().toLowerCase() === 'commander';
+  // 4. Acción de Clonación (Fork de Mazo)
+  const handleForkDeck = async (deckId) => {
+    setDeckActionError(null);
+    try {
+      const clonedDeck = await forkDeckApi(deckId);
+      if (clonedDeck?.id) {
+        // Actualizar lista local de mazos
+        setDecks((prev) => [clonedDeck, ...prev]);
+        onDeckCountChange?.(decks.length + 1);
+        // Abrir inmediatamente la copia propia del usuario
+        setDeckSelection(clonedDeck.id);
+      }
+    } catch (err) {
+      setDeckActionError(parseApiError(err, 'No fue posible clonar la baraja comunitaria.'));
+    }
+  };
 
+  const isCommanderFormat = (activeDeck?.format || 'commander').trim().toLowerCase() === 'commander';
   const commanders = useMemo(() => deckCards.filter((c) => c.category === 'commander'), [deckCards]);
   const commanderIdentity = useMemo(() => getCommanderColorIdentity(commanders), [commanders]);
   const displayCard = hoveredCard || commanders[0] || deckCards[0];
   const legalityReport = useMemo(() => validateDeckLegality(deckCards, activeDeck?.format || 'commander'), [deckCards, activeDeck]);
 
-  // Modificación de copias respetando formato (Singleton en Commander, 4x en Construido)[cite: 3]
+  // Modificación de copias (solo permitido para el dueño)
   const handleUpdateQuantity = async (card, delta) => {
+    if (!isOwner) return;
     setDeckActionError(null);
     const currentQty = card.quantity_needed || 1;
     const newQty = currentQty + delta;
@@ -195,6 +251,7 @@ export default function DecksPage({
   };
 
   const handleUpdateCategory = async (card, newCategory) => {
+    if (!isOwner) return;
     setDeckActionError(null);
     try {
       await updateDeckCardApi(currentSelectedId, card.deck_card_id, { category: newCategory });
@@ -205,6 +262,7 @@ export default function DecksPage({
   };
 
   const handleRemoveCard = async (deckCardId) => {
+    if (!isOwner) return;
     setDeckActionError(null);
     try {
       await removeCardFromDeckApi(currentSelectedId, deckCardId);
@@ -220,7 +278,6 @@ export default function DecksPage({
     maybeboard: deckCards.filter((c) => c.category === 'maybeboard').reduce((a, c) => a + (c.quantity_needed || 1), 0)
   }), [deckCards]);
 
-  // Agrupación de cartas según orden canónico de MTG[cite: 3]
   const groupedCards = useMemo(() => {
     const groups = {};
     SECTIONS_CONFIG.forEach((s) => { 
@@ -260,7 +317,7 @@ export default function DecksPage({
       isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0B0B0B] text-neutral-100'
     }`}>
       
-      {/* 1. BANNER CON RETORNO A LA BIBLIOTECA */}
+      {/* 1. BANNER CON RETORNO, PRIVACIDAD Y CLONACIÓN */}
       {activeDeck && (
         <DeckHeaderBanner
           activeDeck={activeDeck}
@@ -268,10 +325,17 @@ export default function DecksPage({
           commanders={commanders}
           totalCardsCount={zoneCounts.main}
           isLegal={legalityReport.isLegal}
-          onBackToLibrary={() => { setDeckSelection(null); setStatusFilter(null); }}
+          currentUserId={currentUser?.id}
+          onBackToLibrary={() => { 
+            setDeckSelection(null); 
+            setExternalDeck(null);
+            setStatusFilter(null); 
+          }}
           onOpenPlaytest={() => setIsSimulatorOpen(true)}
           onOpenImport={() => setIsBulkModalOpen(true)}
           onNavigateToTradeWall={onNavigateToTradeWall}
+          onForkDeck={handleForkDeck}
+          onOpenAuthModal={onOpenAuthModal}
         />
       )}
 
@@ -330,11 +394,14 @@ export default function DecksPage({
                 </div>
               )}
 
-              <AddCardInline 
-                deckId={activeDeck.id} 
-                onCardAdded={refreshCurrentDeckCards} 
-                isLightMode={isLightMode} 
-              />
+              {/* Formulario de adición rápida (solo disponible para el dueño) */}
+              {isOwner && (
+                <AddCardInline 
+                  deckId={activeDeck.id} 
+                  onCardAdded={refreshCurrentDeckCards} 
+                  isLightMode={isLightMode} 
+                />
+              )}
 
               {!legalityReport.isLegal && legalityReport.errors.length > 0 && (
                 <div className={`p-3 rounded-xl border text-xs font-mono space-y-1 ${
@@ -355,8 +422,9 @@ export default function DecksPage({
               )}
 
               {isLoadingCards ? (
-                <div className="py-24 text-center text-xs font-mono text-neutral-500">
-                  Cargando cartas de la baraja...
+                <div className="py-24 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                  <span>Cargando cartas de la baraja...</span>
                 </div>
               ) : visibleCards.length === 0 ? (
                 <div className={`py-16 text-center text-xs rounded-xl ${
@@ -393,7 +461,7 @@ export default function DecksPage({
 
                             return (
                               <div
-                                key={card.deck_card_id}
+                                key={card.deck_card_id || card.id}
                                 onMouseEnter={() => setHoveredCard(card)}
                                 onClick={() => openCard(card.card_catalog || card)}
                                 className={`py-1 px-2 rounded-lg flex items-center justify-between gap-1.5 transition group cursor-pointer ${
@@ -404,7 +472,7 @@ export default function DecksPage({
                               >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   <span className="font-mono text-xs font-bold text-amber-500 w-4 shrink-0 text-left">
-                                    {card.quantity_needed || 1}
+                                    {card.quantity_needed || card.quantity || 1}
                                   </span>
 
                                   <span
@@ -415,7 +483,7 @@ export default function DecksPage({
                                         ? 'bg-amber-500'
                                         : 'bg-rose-500'
                                     }`}
-                                    title={card.status}
+                                    title={card.status || 'Estado'}
                                   />
 
                                   <span className={`truncate text-sm font-medium transition ${
@@ -434,41 +502,44 @@ export default function DecksPage({
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   <ManaCostSymbols manaCost={manaCost} />
 
-                                  <div 
-                                    className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <select
-                                      value={card.category}
-                                      onChange={(e) => handleUpdateCategory(card, e.target.value)}
-                                      className={`text-[10px] rounded px-1 py-0.5 outline-none cursor-pointer ${
-                                        isLightMode
-                                          ? 'bg-white text-neutral-800 hover:border-amber-500'
-                                          : 'bg-neutral-950 text-neutral-200 hover:border-amber-500'
-                                      }`}
+                                  {/* Acciones de edición (solo si es el propietario) */}
+                                  {isOwner && (
+                                    <div 
+                                      className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition"
+                                      onClick={(e) => e.stopPropagation()}
                                     >
-                                      <option value="mainboard">Main</option>
-                                      <option value="commander">👑 Cmd</option>
-                                      <option value="companion">🧭 Comp</option>
-                                      <option value="sideboard">Side</option>
-                                      <option value="maybeboard">Maybe</option>
-                                    </select>
+                                      <select
+                                        value={card.category}
+                                        onChange={(e) => handleUpdateCategory(card, e.target.value)}
+                                        className={`text-[10px] rounded px-1 py-0.5 outline-none cursor-pointer ${
+                                          isLightMode
+                                            ? 'bg-white text-neutral-800 hover:border-amber-500'
+                                            : 'bg-neutral-950 text-neutral-200 hover:border-amber-500'
+                                        }`}
+                                      >
+                                        <option value="mainboard">Main</option>
+                                        <option value="commander">👑 Cmd</option>
+                                        <option value="companion">🧭 Comp</option>
+                                        <option value="sideboard">Side</option>
+                                        <option value="maybeboard">Maybe</option>
+                                      </select>
 
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(card, 1); }} 
-                                      className="p-0.5 text-neutral-400 hover:text-amber-500" 
-                                      title="Añadir copia"
-                                    >
-                                      <Plus className="w-2.5 h-2.5" />
-                                    </button>
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); handleRemoveCard(card.deck_card_id); }} 
-                                      className="p-0.5 text-neutral-400 hover:text-rose-500" 
-                                      title="Eliminar"
-                                    >
-                                      <Trash2 className="w-2.5 h-2.5" />
-                                    </button>
-                                  </div>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(card, 1); }} 
+                                        className="p-0.5 text-neutral-400 hover:text-amber-500" 
+                                        title="Añadir copia"
+                                      >
+                                        <Plus className="w-2.5 h-2.5" />
+                                      </button>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleRemoveCard(card.deck_card_id); }} 
+                                        className="p-0.5 text-neutral-400 hover:text-rose-500" 
+                                        title="Eliminar"
+                                      >
+                                        <Trash2 className="w-2.5 h-2.5" />
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -502,15 +573,15 @@ export default function DecksPage({
                         <div className="flex flex-wrap gap-3">
                           {group.cards.map((card) => (
                             <CardGridItem
-                              key={card.deck_card_id}
+                              key={card.deck_card_id || card.id}
                               card={card}
                               cardSize={cardSize}
                               isSelected={hoveredCard?.deck_card_id === card.deck_card_id}
                               isLightMode={isLightMode}
                               onHover={setHoveredCard}
                               onClick={() => openCard(card.card_catalog || card)}
-                              onIncrement={() => handleUpdateQuantity(card, 1)}
-                              onRemove={() => handleRemoveCard(card.deck_card_id)}
+                              onIncrement={isOwner ? () => handleUpdateQuantity(card, 1) : undefined}
+                              onRemove={isOwner ? () => handleRemoveCard(card.deck_card_id) : undefined}
                               badgeTopLeft={card.category === 'commander' ? '👑 CMD' : card.status}
                             />
                           ))}
@@ -530,7 +601,7 @@ export default function DecksPage({
         {activeDeck && <DeckAnalyticsSection cards={deckCards} isLightMode={isLightMode} />}
       </div>
 
-      {/* 4. FOOTER CUMPLIENDO POLÍTICA SCRYFALL / WOTC[cite: 3] */}
+      {/* 4. FOOTER CUMPLIENDO POLÍTICA SCRYFALL / WOTC[cite: 14, 15] */}
       <footer className={`fixed bottom-0 left-0 right-0 z-40 px-6 py-2 flex items-center justify-between text-xs font-mono backdrop-blur-md ${
         isLightMode ? 'bg-[#FAF7F2]/95 text-neutral-700 border-t border-[#E0D8C8]' : 'bg-[#0B0B0B]/95 text-neutral-400 border-t border-neutral-900'
       }`}>
@@ -545,12 +616,12 @@ export default function DecksPage({
         </div>
 
         <div className="text-[11px] opacity-60 hidden sm:block">
-          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 3]
+          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 14, 15]
         </div>
       </footer>
 
-      {/* 5. MODALES AUXILIARES */}
-      {activeDeck && (
+      {/* 5. MODALES AUXILIARES (SOLO PROPIETARIO) */}
+      {activeDeck && isOwner && (
         <BulkImportDeckModal
           isOpen={isBulkModalOpen}
           onClose={() => setIsBulkModalOpen(false)}

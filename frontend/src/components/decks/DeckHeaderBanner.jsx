@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// COMPONENTE: BANNER DEL COMANDANTE CON BOTONES Y PRIVACIDAD
+// COMPONENTE: BANNER DEL COMANDANTE CON BOTONES, PRIVACIDAD Y CLONACIÓN
 // ---------------------------------------------------------
 import React, { useState, useEffect } from 'react';
 import { 
@@ -10,10 +10,13 @@ import {
   AlertCircle, 
   CheckCircle2,
   Globe,
-  Lock
+  Lock,
+  Copy,
+  Loader2
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { updateDeckApi } from '@/api/decks.api';
+import { isAuthenticated } from '@/services/session.service';
 
 function getArtCropUrl(card) {
   if (!card) return '';
@@ -34,16 +37,27 @@ export default function DeckHeaderBanner({
   commanders = [],
   totalCardsCount,
   isLegal,
+  currentUserId,
   onBackToLibrary,
   onOpenPlaytest,
   onOpenImport,
-  onNavigateToTradeWall
+  onNavigateToTradeWall,
+  onForkDeck,
+  onOpenAuthModal
 }) {
   const { isLightMode } = useTheme();
+  const hasSession = isAuthenticated();
+
+  // Determinar si el usuario en sesión es el dueño del mazo
+  const isOwner = Boolean(
+    !activeDeck?.user_id || 
+    (currentUserId && String(currentUserId) === String(activeDeck.user_id))
+  );
 
   // Estado local reactivo para la privacidad del mazo activo
   const [isPublic, setIsPublic] = useState(activeDeck?.is_public !== false);
   const [isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
+  const [isForking, setIsForking] = useState(false);
 
   useEffect(() => {
     if (activeDeck) {
@@ -54,7 +68,7 @@ export default function DeckHeaderBanner({
   if (!activeDeck) return null;
 
   const handleTogglePrivacy = async () => {
-    if (isUpdatingPrivacy) return;
+    if (!isOwner || isUpdatingPrivacy) return;
     const nextPrivacy = !isPublic;
     setIsPublic(nextPrivacy);
     setIsUpdatingPrivacy(true);
@@ -66,6 +80,22 @@ export default function DeckHeaderBanner({
       setIsPublic(!nextPrivacy); // Revertir en caso de error
     } finally {
       setIsUpdatingPrivacy(false);
+    }
+  };
+
+  const handleForkClick = async () => {
+    if (!hasSession) {
+      onOpenAuthModal?.();
+      return;
+    }
+
+    if (!onForkDeck || isForking) return;
+
+    try {
+      setIsForking(true);
+      await onForkDeck(activeDeck.id);
+    } finally {
+      setIsForking(false);
     }
   };
 
@@ -115,7 +145,7 @@ export default function DeckHeaderBanner({
             }`}
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Mis Mazos</span>
+            <span>{isOwner ? 'Mis Mazos' : 'Volver'}</span>
           </button>
         </div>
 
@@ -129,21 +159,32 @@ export default function DeckHeaderBanner({
                 {activeDeck.format || 'COMMANDER'}
               </span>
 
-              {/* Selector interactivo de privacidad */}
-              <button
-                type="button"
-                onClick={handleTogglePrivacy}
-                disabled={isUpdatingPrivacy}
-                title={isPublic ? 'Mazo público. Haz clic para cambiarlo a privado.' : 'Mazo privado. Haz clic para compartirlo con la comunidad.'}
-                className={`px-2 py-0.5 rounded flex items-center gap-1 transition ${
+              {/* Selector interactivo de privacidad (Solo para el propietario) */}
+              {isOwner ? (
+                <button
+                  type="button"
+                  onClick={handleTogglePrivacy}
+                  disabled={isUpdatingPrivacy}
+                  title={isPublic ? 'Mazo público. Haz clic para cambiarlo a privado.' : 'Mazo privado. Haz clic para compartirlo con la comunidad.'}
+                  className={`px-2 py-0.5 rounded flex items-center gap-1 transition ${
+                    isPublic 
+                      ? (isLightMode ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-emerald-950/70 text-emerald-400 hover:bg-emerald-900/70')
+                      : (isLightMode ? 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700')
+                  }`}
+                >
+                  {isPublic ? <Globe className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5" />}
+                  <span>{isPublic ? 'Público' : 'Privado'}</span>
+                </button>
+              ) : (
+                <span className={`px-2 py-0.5 rounded flex items-center gap-1 font-mono text-[10px] ${
                   isPublic 
-                    ? (isLightMode ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-emerald-950/70 text-emerald-400 hover:bg-emerald-900/70')
-                    : (isLightMode ? 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700')
-                }`}
-              >
-                {isPublic ? <Globe className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5" />}
-                <span>{isPublic ? 'Público' : 'Privado'}</span>
-              </button>
+                    ? (isLightMode ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-950/70 text-emerald-400')
+                    : (isLightMode ? 'bg-neutral-200 text-neutral-700' : 'bg-neutral-800 text-neutral-300')
+                }`}>
+                  <Globe className="w-2.5 h-2.5" />
+                  <span>Comunitario</span>
+                </span>
+              )}
 
               <span className={`px-2 py-0.5 rounded flex items-center gap-1 ${
                 isLegal 
@@ -176,30 +217,52 @@ export default function DeckHeaderBanner({
             </p>
           </div>
 
-          {/* EXTREMO DERECHO: BOTONES DIRECTOS (SIN MENÚ OCULTO) */}
+          {/* EXTREMO DERECHO: BOTONES DE ACCIÓN */}
           <div className="flex flex-wrap items-center gap-2 pb-1">
             
-            {/* 1. Playtest */}
+            {/* Si NO es el dueño, desplegar botón CLONAR MAZO */}
+            {!isOwner && (
+              <button
+                onClick={handleForkClick}
+                disabled={isForking}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                {isForking ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 stroke-[2.5]" />
+                )}
+                <span>{isForking ? 'Clonando...' : 'Clonar Mazo'}</span>
+              </button>
+            )}
+
+            {/* 1. Playtest (disponible para todos) */}
             <button
               onClick={onOpenPlaytest}
-              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm active:scale-95"
+              className={`px-3.5 py-2 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm active:scale-95 ${
+                isOwner 
+                  ? 'bg-amber-500 hover:bg-amber-400 text-neutral-950' 
+                  : (isLightMode ? 'bg-[#DDD5C5]/70 hover:bg-[#DDD5C5] text-neutral-800' : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200')
+              }`}
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Playtest</span>
             </button>
 
-            {/* 2. Importar */}
-            <button
-              onClick={onOpenImport}
-              className={`px-3 py-2 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm ${
-                isLightMode
-                  ? 'bg-[#DDD5C5]/70 hover:bg-[#DDD5C5] text-neutral-800'
-                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5 text-amber-500" />
-              <span>Importar</span>
-            </button>
+            {/* 2. Importar (solo para el propietario) */}
+            {isOwner && (
+              <button
+                onClick={onOpenImport}
+                className={`px-3 py-2 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm ${
+                  isLightMode
+                    ? 'bg-[#DDD5C5]/70 hover:bg-[#DDD5C5] text-neutral-800'
+                    : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5 text-amber-500" />
+                <span>Importar</span>
+              </button>
+            )}
 
             {/* 3. Trade Wall */}
             <button

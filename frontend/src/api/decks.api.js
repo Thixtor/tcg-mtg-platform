@@ -70,6 +70,17 @@ export const getPublicDeckDetailApi = async (deckId, options = {}) => {
 };
 
 /**
+ * Clona una baraja pública ajena hacia la biblioteca del usuario en sesión.
+ * @param {string|number} deckId - ID del mazo público a duplicar.
+ * @param {import('axios').AxiosRequestConfig} [options]
+ * @returns {Promise<Object>}
+ */
+export const forkDeckApi = async (deckId, options = {}) => {
+  const response = await apiClient.post(`/decks/${deckId}/fork`, {}, options);
+  return response.data;
+};
+
+/**
  * Agrega una carta a un mazo específico.
  * @param {string|number} deckId - ID del mazo destino.
  * @param {Object} payload - Objeto con scryfall_card_id, quantity y category.
