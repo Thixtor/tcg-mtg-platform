@@ -1,20 +1,14 @@
 // ---------------------------------------------------------
-// COMPONENTE: BUSCADOR RÁPIDO E INLINE PARA MAZOS
+// COMPONENTE: COMMAND BAR INTEGRADO Y COMPACTO
 // ---------------------------------------------------------
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Loader2, Sparkles, Check } from 'lucide-react';
+import { Search, Plus, Loader2, Check } from 'lucide-react';
 import { addCardToDeckApi } from '@/api/decks.api';
 
-/**
- * Buscador rápido una a una con selector de categoría y cantidad.
- * @param {Object} props
- * @param {string|number} props.deckId - ID del mazo activo.
- * @param {Function} props.onCardAdded - Callback ejecutado al insertar la carta.
- */
 export default function AddCardInline({ deckId, onCardAdded }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [selectedCard, setSelectedCommander] = useState(null);
+  const [selectedCard, setSelectedCard] = useState(null);
   const [quantity, setQuantity] = useState(1);
   const [category, setCategory] = useState('mainboard');
   const [isSearching, setIsSearching] = useState(false);
@@ -23,7 +17,6 @@ export default function AddCardInline({ deckId, onCardAdded }) {
   
   const containerRef = useRef(null);
 
-  // Cerrar lista al hacer clic afuera
   useEffect(() => {
     function handleClickOutside(e) {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
@@ -34,7 +27,6 @@ export default function AddCardInline({ deckId, onCardAdded }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Búsqueda con debounce en Scryfall respetando cabeceras
   useEffect(() => {
     if (searchTerm.trim().length < 3) {
       setSearchResults([]);
@@ -63,19 +55,19 @@ export default function AddCardInline({ deckId, onCardAdded }) {
       } finally {
         setIsSearching(false);
       }
-    }, 350);
+    }, 250);
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   const handleSelectCard = (card) => {
-    setSelectedCommander(card);
+    setSelectedCard(card);
     setSearchTerm(card.name);
     setIsOpenDropdown(false);
   };
 
   const handleAddCard = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (!selectedCard?.id || !deckId) return;
 
     setIsSubmitting(true);
@@ -86,113 +78,124 @@ export default function AddCardInline({ deckId, onCardAdded }) {
         category: category
       });
 
-      // Resetear estado
-      setSelectedCommander(null);
+      setSelectedCard(null);
       setSearchTerm('');
       setQuantity(1);
       onCardAdded?.();
     } catch (err) {
-      console.warn('[AddCardInline] Error agregando carta:', err);
-      alert(err.response?.data?.detail || 'No se pudo agregar la carta al mazo.');
+      alert(err.response?.data?.detail || 'No se pudo agregar la carta.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="relative bg-neutral-950/80 border border-neutral-800 rounded-xl p-3 shadow-inner" ref={containerRef}>
-      <form onSubmit={handleAddCard} className="flex flex-col sm:flex-row items-center gap-2.5">
-        
+    <div className="relative w-full" ref={containerRef}>
+      <form
+        onSubmit={handleAddCard}
+        className="flex items-center bg-neutral-900/90 border border-neutral-800 hover:border-neutral-700 focus-within:border-amber-500/80 rounded-xl p-1 shadow-md transition"
+      >
         {/* Input Buscador */}
-        <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
+        <div className="relative flex-1 flex items-center min-w-0 pl-2.5">
+          <Search className="w-3.5 h-3.5 text-neutral-500 shrink-0 mr-2" />
           <input
             type="text"
-            placeholder="Buscar carta para añadir (ej: Sol Ring, Counterspell)..."
+            placeholder="Buscar carta para añadir (ej: Sol Ring, Demonic Tutor)..."
             value={searchTerm}
             onChange={(e) => {
               setSearchTerm(e.target.value);
-              setSelectedCommander(null);
+              setSelectedCard(null);
             }}
-            className="w-full bg-neutral-900 border border-neutral-800 rounded-lg pl-9 pr-8 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-amber-500 transition"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !isOpenDropdown && selectedCard) {
+                handleAddCard(e);
+              }
+            }}
+            className="w-full bg-transparent text-xs text-neutral-100 placeholder:text-neutral-500 focus:outline-none truncate"
           />
+
           {isSearching && (
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500 absolute right-3 top-2.5" />
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500 shrink-0 mr-1.5" />
           )}
-          {selectedCard && (
-            <span className="absolute right-3 top-2 text-emerald-400">
-              <Check className="w-4 h-4" />
-            </span>
+          {selectedCard && !isSearching && (
+            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mr-1.5" />
           )}
         </div>
 
-        {/* Dropdown flotante de resultados */}
-        {isOpenDropdown && searchResults.length > 0 && (
-          <div className="absolute left-3 right-3 sm:right-auto sm:w-96 top-14 bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl z-50 overflow-hidden divide-y divide-neutral-800">
-            {searchResults.map((card) => {
-              const imgUrl = card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small;
-              return (
-                <div
-                  key={card.id}
-                  onClick={() => handleSelectCard(card)}
-                  className="p-2 flex items-center gap-3 hover:bg-neutral-800/80 cursor-pointer transition"
-                >
-                  {imgUrl ? (
-                    <img src={imgUrl} alt={card.name} className="w-7 h-10 object-cover rounded" loading="lazy" />
-                  ) : (
-                    <div className="w-7 h-10 bg-neutral-950 rounded" />
-                  )}
-                  <div className="flex-1 truncate">
-                    <span className="text-xs font-semibold text-white block truncate">{card.name}</span>
-                    <span className="text-[10px] text-neutral-400 font-mono">
-                      {(card.set || '---').toUpperCase()} · {card.type_line || 'MTG Card'}
-                    </span>
-                    {card.artist && (
-                      <span className="text-[9px] text-neutral-500 block">Ilus: {card.artist}</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {/* Separador */}
+        <div className="h-4 w-px bg-neutral-800 shrink-0 mx-1" />
 
-        {/* Selector de Cantidad */}
-        <div className="flex items-center gap-1.5 w-full sm:w-auto">
+        {/* Contador compacto */}
+        <div className="flex items-center shrink-0">
           <input
             type="number"
             min="1"
             max="99"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
-            className="w-16 bg-neutral-900 border border-neutral-800 rounded-lg px-2 py-1.5 text-xs text-center text-neutral-100 focus:outline-none focus:border-amber-500"
+            className="w-10 bg-neutral-950/70 border border-neutral-800 rounded-lg py-1 text-center font-mono text-xs text-neutral-200 focus:outline-none focus:border-amber-500"
             title="Cantidad"
           />
+        </div>
 
-          {/* Selector de Categoría */}
+        {/* Selector de Ubicación */}
+        <div className="shrink-0 px-1.5">
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-amber-500"
+            className="bg-neutral-950/70 border border-neutral-800 rounded-lg px-2 py-1 text-[11px] font-medium text-neutral-300 focus:outline-none focus:border-amber-500 cursor-pointer"
           >
-            <option value="mainboard">Mainboard</option>
-            <option value="commander">Commander</option>
+            <option value="mainboard">Mazo Principal</option>
+            <option value="commander">Comandante</option>
+            <option value="companion">Companion</option>
             <option value="sideboard">Sideboard</option>
             <option value="maybeboard">Maybeboard</option>
           </select>
-
-          {/* Botón Añadir */}
-          <button
-            type="submit"
-            disabled={!selectedCard || isSubmitting}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-neutral-950 font-bold text-xs rounded-lg transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{isSubmitting ? 'Añadiendo...' : 'Añadir'}</span>
-          </button>
         </div>
 
+        {/* Botón Añadir */}
+        <button
+          type="submit"
+          disabled={!selectedCard || isSubmitting}
+          className="shrink-0 px-3 py-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-neutral-950 font-bold text-xs rounded-lg flex items-center gap-1 transition shadow active:scale-95"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{isSubmitting ? '...' : 'Añadir'}</span>
+        </button>
       </form>
+
+      {/* Dropdown Flotante de Resultados */}
+      {isOpenDropdown && searchResults.length > 0 && (
+        <div className="absolute left-0 right-0 top-11 bg-neutral-950 border border-neutral-800 rounded-xl shadow-2xl z-50 overflow-hidden divide-y divide-neutral-900 max-h-72 overflow-y-auto">
+          {searchResults.map((card) => {
+            const imgUrl = card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small;
+            return (
+              <div
+                key={card.id}
+                onClick={() => handleSelectCard(card)}
+                className="p-2 flex items-center gap-3 hover:bg-neutral-900 cursor-pointer transition"
+              >
+                {imgUrl ? (
+                  <img src={imgUrl} alt={card.name} className="w-8 aspect-[2.5/3.5] object-cover rounded shadow" loading="lazy" />
+                ) : (
+                  <div className="w-8 aspect-[2.5/3.5] bg-neutral-900 rounded" />
+                )}
+                <div className="flex-1 truncate">
+                  <span className="text-xs font-semibold text-white block truncate">{card.name}</span>
+                  <span className="text-[10px] text-neutral-400 font-mono">
+                    {(card.set || '---').toUpperCase()} · {card.type_line || 'MTG Card'}
+                  </span>
+                </div>
+                {card.prices?.usd && (
+                  <span className="text-[11px] font-mono font-bold text-amber-400 pr-2">
+                    ${card.prices.usd}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
