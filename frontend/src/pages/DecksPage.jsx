@@ -1,8 +1,20 @@
 // ---------------------------------------------------------
-// PÁGINA: ORQUESTADOR DE BIBLIOTECA Y CONSTRUCTOR DE MAZOS
+// PÁGINA: ORQUESTADOR Y EDITOR DE MAZOS (CON MODAL DE CARTA)
 // ---------------------------------------------------------
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Trash2, Crown, AlertTriangle } from 'lucide-react';
+import { 
+  Plus, 
+  Trash2, 
+  Crown, 
+  AlertTriangle, 
+  X, 
+  ExternalLink, 
+  DollarSign, 
+  Layers, 
+  CheckCircle2, 
+  Clock 
+} from 'lucide-react';
+
 import { 
   getMyDecksApi, 
   getDeckCardsWithStatusApi, 
@@ -18,6 +30,7 @@ import CardShowcaseSidebar from '@/components/common/CardShowcaseSidebar';
 import DeckHeaderBanner from '@/components/decks/DeckHeaderBanner';
 import DeckAnalyticsSection from '@/components/decks/DeckAnalyticsSection';
 import DeckLibraryPage from '@/pages/DeckLibraryPage';
+import ManaCostSymbols from '@/components/common/ManaCostSymbols';
 
 import { useTheme } from '@/context/ThemeContext';
 import { 
@@ -27,6 +40,117 @@ import {
   canHaveMultipleCopies 
 } from '@/utils/deckLegality';
 import { resolveCardType, SECTIONS_CONFIG } from '@/utils/mtgTypeResolver';
+
+// Modal flotante para inspección detallada de una carta
+function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
+  if (!isOpen || !card) return null;
+
+  const imageUrl = card.image_url || card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || '';
+  const oracleText = card.oracle_text || card.card_faces?.[0]?.oracle_text || 'Sin texto de reglas disponible.';
+  const typeLine = card.type_line || card.type || 'Tipo desconocido';
+  const priceUsd = card.prices?.usd ? `$${card.prices.usd}` : (card.price_usd ? `$${card.price_usd}` : 'N/A');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+      <div 
+        className={`relative w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row border transition-colors ${
+          isLightMode 
+            ? 'bg-[#FAF7F2] border-[#E8E2D5] text-[#24211E]' 
+            : 'bg-neutral-900 border-neutral-800 text-neutral-100'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Botón de Cierre */}
+        <button
+          onClick={onClose}
+          className={`absolute top-3 right-3 p-1.5 rounded-full z-10 transition ${
+            isLightMode 
+              ? 'bg-[#EAE4D7] text-neutral-700 hover:bg-[#DDD5C5]' 
+              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
+          }`}
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        {/* Lado Izquierdo: Imagen de la Carta */}
+        <div className="w-full md:w-1/2 p-6 flex items-center justify-center bg-black/20">
+          {imageUrl ? (
+            <img 
+              src={imageUrl} 
+              alt={card.name} 
+              className="w-full max-w-[260px] rounded-xl shadow-xl transition-transform hover:scale-105"
+            />
+          ) : (
+            <div className="w-48 h-64 border border-dashed rounded-xl flex items-center justify-center text-xs text-neutral-500 text-center p-4">
+              Imagen no disponible
+            </div>
+          )}
+        </div>
+
+        {/* Lado Derecho: Metadatos y Reglas */}
+        <div className="w-full md:w-1/2 p-6 flex flex-col justify-between space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-start justify-between gap-2 pr-6">
+              <h2 className="text-xl font-black uppercase tracking-tight leading-tight">
+                {card.name}
+              </h2>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <ManaCostSymbols manaCost={card.mana_cost || card.manaCost || ''} />
+              <span className="text-xs font-mono opacity-70">
+                (CMC: {card.cmc ?? card.mana_value ?? 0})
+              </span>
+            </div>
+
+            <p className={`text-xs font-mono font-bold pb-2 border-b ${
+              isLightMode ? 'border-[#EAE4D7] text-neutral-600' : 'border-neutral-800 text-neutral-400'
+            }`}>
+              {typeLine}
+            </p>
+
+            {/* Texto de Reglas Oracle */}
+            <div className={`p-3 rounded-xl text-xs leading-relaxed max-h-40 overflow-y-auto font-sans whitespace-pre-wrap ${
+              isLightMode ? 'bg-[#EAE4D7]/60' : 'bg-neutral-950/60'
+            }`}>
+              {oracleText}
+            </div>
+          </div>
+
+          {/* Información de Inventario y Precios */}
+          <div className="space-y-2 pt-2 border-t border-neutral-800/40">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="opacity-70">Estado Físico:</span>
+              <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                card.status === 'DISPONIBLE'
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : card.status === 'EN_OTRO_MAZO'
+                  ? 'bg-amber-500/20 text-amber-400'
+                  : 'bg-rose-500/20 text-rose-400'
+              }`}>
+                {card.status || 'DESCONOCIDO'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="opacity-70">Precio Mercado (USD):</span>
+              <span className="font-bold text-emerald-500 flex items-center gap-0.5">
+                {priceUsd}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="opacity-70">Cantidad en este mazo:</span>
+              <span className="font-bold text-amber-500">
+                {card.quantity_needed || 1}x
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function DecksPage({ 
   currentUser, 
@@ -42,7 +166,6 @@ export default function DecksPage({
   const [decks, setDecks] = useState([]);
   const [internalDeckId, setInternalDeckId] = useState(null);
   
-  // Soporta tanto estado interno como controlado desde App.jsx
   const currentSelectedId = selectedDeckId !== undefined ? selectedDeckId : internalDeckId;
   const setDeckSelection = (id) => {
     if (onSelectDeckId) onSelectDeckId(id);
@@ -51,6 +174,7 @@ export default function DecksPage({
 
   const [deckCards, setDeckCards] = useState([]);
   const [hoveredCard, setHoveredCard] = useState(null);
+  const [selectedCardForModal, setSelectedCardForModal] = useState(null);
   const [isLoadingDecks, setIsLoadingDecks] = useState(false);
   const [isLoadingCards, setIsLoadingCards] = useState(false);
 
@@ -66,7 +190,7 @@ export default function DecksPage({
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
 
-  // 1. Cargar lista de mazos
+  // 1. Cargar lista general de mazos
   useEffect(() => {
     if (!currentUser) {
       setDecks([]);
@@ -85,7 +209,7 @@ export default function DecksPage({
       })
       .catch((err) => {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.warn('[Mazos] Error:', err);
+          console.warn('[Mazos] Error al consultar mazos:', err);
         }
       })
       .finally(() => setIsLoadingDecks(false));
@@ -93,14 +217,14 @@ export default function DecksPage({
     return () => ctrl.abort();
   }, [currentUser, refreshTrigger, onDeckCountChange]);
 
-  // 2. Cargar cartas si hay un mazo seleccionado
+  // 2. Cargar cartas del mazo seleccionado
   const refreshCurrentDeckCards = useCallback(() => {
     if (!currentSelectedId) return;
 
     setIsLoadingCards(true);
     getDeckCardsWithStatusApi(currentSelectedId)
       .then((cards) => setDeckCards(Array.isArray(cards) ? cards : []))
-      .catch((err) => console.warn('[Mazos] Error auditando cartas:', err))
+      .catch((err) => console.warn('[Mazos] Error auditando cartas del mazo:', err))
       .finally(() => setIsLoadingCards(false));
   }, [currentSelectedId]);
 
@@ -160,6 +284,7 @@ export default function DecksPage({
     maybeboard: deckCards.filter((c) => c.category === 'maybeboard').reduce((a, c) => a + (c.quantity_needed || 1), 0)
   }), [deckCards]);
 
+  // FILTRADO INTELIGENTE: POR NOMBRE, TIPO, SÍMBOLOS Y COSTE DE MANÁ (CMC)
   const visibleCards = useMemo(() => {
     let pool = currentTab === 'main'
       ? deckCards.filter((c) => c.category === 'mainboard' || c.category === 'commander' || c.category === 'companion')
@@ -170,11 +295,44 @@ export default function DecksPage({
     }
 
     if (inDeckFilter.trim()) {
-      const q = inDeckFilter.toLowerCase();
-      pool = pool.filter((c) => 
-        (c.name || '').toLowerCase().includes(q) || 
-        (c.type_line || '').toLowerCase().includes(q)
-      );
+      const rawQuery = inDeckFilter.trim().toLowerCase();
+      const normalizedQuery = rawQuery.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+      const cmcMatch = rawQuery.match(/^(?:cmc|mv|coste|cost)\s*([><=:]+)?\s*(\d+)$/i);
+
+      pool = pool.filter((c) => {
+        const cardCmc = c.cmc !== undefined ? Number(c.cmc) : (c.mana_value !== undefined ? Number(c.mana_value) : 0);
+        
+        if (cmcMatch) {
+          const operator = cmcMatch[1] || ':';
+          const targetValue = Number(cmcMatch[2]);
+
+          if (operator === '>') return cardCmc > targetValue;
+          if (operator === '>=') return cardCmc >= targetValue;
+          if (operator === '<') return cardCmc < targetValue;
+          if (operator === '<=') return cardCmc <= targetValue;
+          return cardCmc === targetValue;
+        }
+
+        const isNumericOnly = !isNaN(Number(rawQuery));
+        if (isNumericOnly && cardCmc === Number(rawQuery)) {
+          return true;
+        }
+
+        const name = (c.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const typeLine = (c.type_line || c.type || c.card_type || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const resolvedType = resolveCardType(c);
+        const section = SECTIONS_CONFIG.find((s) => s.key === resolvedType);
+        const label = (section?.label || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const mana = (c.mana_cost || c.manaCost || '').toLowerCase();
+
+        return (
+          name.includes(normalizedQuery) || 
+          typeLine.includes(normalizedQuery) || 
+          label.includes(normalizedQuery) || 
+          mana.includes(normalizedQuery)
+        );
+      });
     }
 
     return pool.sort((a, b) => {
@@ -185,14 +343,20 @@ export default function DecksPage({
     });
   }, [deckCards, currentTab, statusFilter, inDeckFilter, sortBy]);
 
+  // AGRUPACIÓN JERÁRQUICA CANÓNICA CON TOTAL DE COPIAS
   const groupedCards = useMemo(() => {
     const groups = {};
-    SECTIONS_CONFIG.forEach((s) => { groups[s.key] = { label: s.label, cards: [] }; });
+    SECTIONS_CONFIG.forEach((s) => { 
+      groups[s.key] = { label: s.label, icon: s.icon, cards: [], totalQty: 0 }; 
+    });
 
     visibleCards.forEach((card) => {
       const typeKey = resolveCardType(card);
-      if (groups[typeKey]) groups[typeKey].cards.push(card);
-      else groups.other.cards.push(card);
+      const targetGroup = groups[typeKey] || groups.other;
+      const qty = card.quantity_needed || 1;
+
+      targetGroup.cards.push(card);
+      targetGroup.totalQty += qty;
     });
 
     return groups;
@@ -223,13 +387,13 @@ export default function DecksPage({
     );
   }
 
-  // Si hay mazo seleccionado, mostramos el Workspace del Mazo
+  // Vista de Workspace y Edición del Mazo
   return (
     <div className={`min-h-screen transition-colors duration-200 ${
       isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0B0B0B] text-neutral-100'
     }`}>
       
-      {/* 1. BANNER CON BOTÓN MIS MAZOS Y BOTONES COMPLETOS */}
+      {/* 1. BANNER CON RETORNO A LA BIBLIOTECA */}
       {activeDeck && (
         <DeckHeaderBanner
           activeDeck={activeDeck}
@@ -323,41 +487,49 @@ export default function DecksPage({
                 </div>
               ) : viewMode === 'text' ? (
                 
-                /* VISTA TEXTO DESENCAPSULADA */
-                <div className="columns-1 sm:columns-2 xl:columns-3 2xl:columns-4 gap-8 [column-fill:_balance]">
-                  {SECTIONS_CONFIG.map(({ key, label }) => {
+                /* VISTA TEXTO DESENCAPSULADA A 4 COLUMNAS CON JERARQUÍA OFICIAL */
+                <div className="columns-1 sm:columns-2 xl:columns-3 2xl:columns-4 gap-6 [column-fill:_balance]">
+                  {SECTIONS_CONFIG.map(({ key, label, icon }) => {
                     const group = groupedCards[key];
                     if (!group || group.cards.length === 0) return null;
 
-                    const groupCount = group.cards.reduce((acc, c) => acc + (c.quantity_needed || 1), 0);
-
                     return (
                       <div key={key} className="break-inside-avoid mb-6">
-                        <div className={`flex items-center justify-between pb-1.5 mb-1.5 font-mono border-b ${
+                        
+                        {/* Cabecera de la sección con ícono y conteo total */}
+                        <div className={`flex items-center justify-between pb-1.5 mb-2 font-mono border-b ${
                           isLightMode ? 'border-[#E0D8C8] text-[#1F1C19]' : 'border-neutral-800 text-neutral-200'
                         }`}>
                           <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider">
-                            {key === 'commander' && <Crown className="w-3.5 h-3.5 text-amber-500" />}
-                            {label}
+                            <span>{icon}</span>
+                            <span>{label}</span>
+                            <span className="opacity-70 font-semibold">({group.totalQty})</span>
                           </span>
-                          <span className="text-xs opacity-60">({groupCount})</span>
                         </div>
 
+                        {/* Listado de Cartas dentro de la sección */}
                         <div className="space-y-0.5">
                           {group.cards.map((card) => {
                             const isColorLegal = commanders.length === 0 || isCardColorIdentityLegal(card, commanderIdentity);
+                            const manaCost = card.mana_cost || card.manaCost || '';
 
                             return (
                               <div
                                 key={card.deck_card_id}
                                 onMouseEnter={() => setHoveredCard(card)}
-                                className={`py-1.5 px-2 rounded-lg flex items-center justify-between gap-2 transition group cursor-pointer ${
+                                onClick={() => setSelectedCardForModal(card)}
+                                className={`py-1 px-2 rounded-lg flex items-center justify-between gap-1.5 transition group cursor-pointer ${
                                   hoveredCard?.deck_card_id === card.deck_card_id
                                     ? (isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-800/80')
                                     : (isLightMode ? 'hover:bg-[#F2EDE2]' : 'hover:bg-neutral-900/60')
                                 }`}
                               >
+                                {/* Izquierda: Cantidad + Punto de Estado + Nombre */}
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <span className="font-mono text-xs font-bold text-amber-500 w-4 shrink-0 text-left">
+                                    {card.quantity_needed || 1}
+                                  </span>
+
                                   <span
                                     className={`w-2 h-2 rounded-full shrink-0 ${
                                       card.status === 'DISPONIBLE'
@@ -368,6 +540,7 @@ export default function DecksPage({
                                     }`}
                                     title={card.status}
                                   />
+
                                   <span className={`truncate text-sm font-medium transition ${
                                     isLightMode ? 'text-[#1F1C19] group-hover:text-amber-700' : 'text-neutral-100 group-hover:text-amber-400'
                                   }`}>
@@ -376,17 +549,23 @@ export default function DecksPage({
 
                                   {!isColorLegal && (
                                     <span title="Fuera de la identidad de color del Comandante">
-                                      <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                      <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                                     </span>
                                   )}
                                 </div>
 
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition">
+                                {/* Derecha: Símbolos de Maná + Controles de Hover */}
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <ManaCostSymbols manaCost={manaCost} />
+
+                                  <div 
+                                    className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
                                     <select
                                       value={card.category}
                                       onChange={(e) => handleUpdateCategory(card, e.target.value)}
-                                      className={`text-[10px] rounded px-1.5 py-0.5 outline-none cursor-pointer ${
+                                      className={`text-[10px] rounded px-1 py-0.5 outline-none cursor-pointer ${
                                         isLightMode
                                           ? 'bg-white text-neutral-800 hover:border-amber-500'
                                           : 'bg-neutral-950 text-neutral-200 hover:border-amber-500'
@@ -414,10 +593,6 @@ export default function DecksPage({
                                       <Trash2 className="w-2.5 h-2.5" />
                                     </button>
                                   </div>
-
-                                  <span className="font-mono text-xs font-bold text-amber-500 w-5 text-right">
-                                    {card.quantity_needed}x
-                                  </span>
                                 </div>
                               </div>
                             );
@@ -432,7 +607,7 @@ export default function DecksPage({
 
                 /* VISTA GRID VISUAL */
                 <div className="space-y-6">
-                  {SECTIONS_CONFIG.map(({ key, label }) => {
+                  {SECTIONS_CONFIG.map(({ key, label, icon }) => {
                     const group = groupedCards[key];
                     if (!group || group.cards.length === 0) return null;
 
@@ -441,8 +616,11 @@ export default function DecksPage({
                         <div className={`flex items-center justify-between pb-1 text-xs font-mono uppercase tracking-wider border-b ${
                           isLightMode ? 'border-[#E0D8C8] text-neutral-700' : 'border-neutral-800 text-neutral-300'
                         }`}>
-                          <span className="font-bold">{label}</span>
-                          <span className="text-amber-500 font-bold">{group.cards.length} cartas</span>
+                          <span className="font-bold flex items-center gap-1.5">
+                            <span>{icon}</span>
+                            <span>{label}</span>
+                          </span>
+                          <span className="text-amber-500 font-bold">{group.totalQty} cartas</span>
                         </div>
 
                         <div className="flex flex-wrap gap-3">
@@ -450,6 +628,7 @@ export default function DecksPage({
                             <div
                               key={card.deck_card_id}
                               onMouseEnter={() => setHoveredCard(card)}
+                              onClick={() => setSelectedCardForModal(card)}
                               className={`group relative rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-amber-500 transition-all ${
                                 isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-900'
                               } ${getGridCardClass()}`}
@@ -466,11 +645,14 @@ export default function DecksPage({
                                   {card.quantity_needed}x
                                 </span>
 
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition">
-                                  <button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(card, 1); }} className="p-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white" title="Aumentar">
+                                <div 
+                                  className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button onClick={() => handleUpdateQuantity(card, 1)} className="p-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white" title="Aumentar">
                                     <Plus className="w-3 h-3" />
                                   </button>
-                                  <button onClick={(e) => { e.stopPropagation(); handleRemoveCard(card.deck_card_id); }} className="p-1 rounded bg-neutral-800 hover:bg-rose-900 text-rose-300" title="Eliminar">
+                                  <button onClick={() => handleRemoveCard(card.deck_card_id)} className="p-1 rounded bg-neutral-800 hover:bg-rose-900 text-rose-300" title="Eliminar">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </div>
@@ -514,11 +696,18 @@ export default function DecksPage({
         </div>
 
         <div className="text-[11px] opacity-60 hidden sm:block">
-          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 12]
+          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 11]
         </div>
       </footer>
 
-      {/* MODALES */}
+      {/* 5. MODALES */}
+      <CardDetailsModal 
+        card={selectedCardForModal}
+        isOpen={Boolean(selectedCardForModal)}
+        onClose={() => setSelectedCardForModal(null)}
+        isLightMode={isLightMode}
+      />
+
       {activeDeck && (
         <BulkImportDeckModal
           isOpen={isBulkModalOpen}
