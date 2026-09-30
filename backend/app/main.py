@@ -9,7 +9,7 @@ from slowapi import _rate_limit_exceeded_handler
 # Importación de configuración, limitador y routers
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.routers import cards, auth, users, collections, decks, wishlist, prices
+from app.routers import cards, auth, users, collections, decks, wishlist, prices, trade
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -38,6 +38,7 @@ app.include_router(collections.router, prefix=settings.API_V1_STR)
 app.include_router(decks.router, prefix=settings.API_V1_STR)
 app.include_router(wishlist.router, prefix=settings.API_V1_STR)
 app.include_router(prices.router, prefix=settings.API_V1_STR)
+app.include_router(trade.router, prefix=settings.API_V1_STR)
 
 
 @app.get("/", tags=["Health Check"])

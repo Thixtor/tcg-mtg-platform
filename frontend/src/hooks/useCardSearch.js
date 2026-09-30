@@ -1,6 +1,4 @@
-// ---------------------------------------------------------
-// HOOK PERSONALIZADO: BÚSQUEDA REACTIVA CON MULTIFILTROS
-// ---------------------------------------------------------
+// src/hooks/useCardSearch.js
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { searchCardsApi } from '../api/cards';
@@ -11,7 +9,7 @@ const INITIAL_FILTERS = {
   cmc: null,
 };
 
-export function useCardSearch(initialQuery = '', debounceDelay = 300) {
+export function useCardSearch(initialQuery = '', debounceDelay = 320) {
   const [searchTerm, setSearchTerm] = useState(initialQuery);
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [results, setResults] = useState([]);
@@ -27,7 +25,8 @@ export function useCardSearch(initialQuery = '', debounceDelay = 300) {
   };
 
   useEffect(() => {
-    const hasQuery = searchTerm.trim().length >= 2;
+    const trimmed = searchTerm.trim();
+    const hasQuery = trimmed.length >= 2;
     const hasActiveFilters = Boolean(
       filters.type || filters.colors || filters.cmc !== null
     );
@@ -47,11 +46,11 @@ export function useCardSearch(initialQuery = '', debounceDelay = 300) {
     const timer = setTimeout(async () => {
       try {
         const payload = {
-          ...(hasQuery ? { q: searchTerm.trim() } : {}),
+          ...(hasQuery ? { q: trimmed } : {}),
           ...(filters.type && filters.type !== 'all' ? { type: filters.type } : {}),
           ...(filters.colors ? { colors: filters.colors } : {}),
           ...(filters.cmc !== null ? { cmc: filters.cmc } : {}),
-          limit: 24,
+          limit: 30,
         };
 
         const data = await searchCardsApi(payload, { signal: controller.signal });

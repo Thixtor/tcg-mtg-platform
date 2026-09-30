@@ -1,39 +1,51 @@
 from typing import List, Dict, Set, Any
+from collections import defaultdict
 from sqlalchemy.orm import Session, joinedload
 
-# Importación de modelos y esquemas del núcleo
 from app.models import User, WishlistItem, UserCard, Collection
-from app.schemas import TradeMatchUserResponse, MatchedCard
+from app.schemas.trade import TradeMatchUserResponse, MatchedCard
 
 
 # ---------------------------------------------------------
 # SERVICIO DEL MOTOR DE MATCHMAKING (CRUCE DE TRADES)
 # ---------------------------------------------------------
-def find_trade_matches_for_user(db: Session, user_id: str) -> List[TradeMatchUserResponse]:
+def find_trade_matches_for_user(
+    db: Session, 
+    user_id: str, 
+    limit: int = 20
+) -> List[TradeMatchUserResponse]:
     """
-    Ejecuta el cruce algorítmico entre la lista de deseos y la bolsa de intercambio:
+    Ejecuta el cruce algorítmico entre la lista de deseos (Wishlist) y binders públicos:
     1. Obtiene las cartas que el usuario busca (Wishlist).
-    2. Identifica contrapartes que posean esas cartas marcadas como is_for_trade = True.
-    3. Comprueba si esas contrapartes buscan cartas que el usuario ofrece (Mutual Match).
-    4. Ordena los resultados priorizando las coincidencias mutuas al inicio.
+    2. Identifica usuarios con binders públicos (is_public_trade = True) que ofrecen esas cartas.
+    3. Resuelve en UNA sola consulta agrupada qué cartas mías buscan ellos (sin N+1).
+    4. Ordena priorizando coincidencias mutuas y reputación de usuario.
     """
-    # 1. Obtener IDs de cartas requeridas por el usuario
-    mi_wishlist = db.query(WishlistItem.scryfall_card_id).filter(WishlistItem.user_id == user_id).all()
+    # 1. Obtener IDs de cartas requeridas por el usuario en su Wishlist
+    mi_wishlist = (
+        db.query(WishlistItem.scryfall_card_id)
+        .filter(WishlistItem.user_id == user_id)
+        .all()
+    )
     mis_deseos_ids: Set[str] = {w[0] for w in mi_wishlist}
 
     if not mis_deseos_ids:
         return []
 
-    # 2. Obtener IDs de cartas que este usuario tiene disponibles para cambio
+    # 2. Obtener IDs de cartas que YO ofrezco en mis carpetas públicas para trade
     mis_cartas_trade = (
         db.query(UserCard.scryfall_card_id)
         .join(Collection, UserCard.collection_id == Collection.id)
-        .filter(Collection.user_id == user_id, UserCard.is_for_trade == True)
+        .filter(
+            Collection.user_id == user_id,
+            Collection.is_public_trade.is_(True),  # Privacidad respetada
+            UserCard.is_for_trade.is_(True)
+        )
         .all()
     )
     mis_trade_ids: Set[str] = {c[0] for c in mis_cartas_trade}
 
-    # 3. Buscar otros usuarios que tengan en trade cartas de mi wishlist (con joinedload para evitar N+1)
+    # 3. Buscar contrapartes con binders públicos que tengan cartas de mi wishlist
     otros_con_mis_deseos = (
         db.query(UserCard, User)
         .join(Collection, UserCard.collection_id == Collection.id)
@@ -41,68 +53,85 @@ def find_trade_matches_for_user(db: Session, user_id: str) -> List[TradeMatchUse
         .options(joinedload(UserCard.card_catalog))
         .filter(
             User.id != user_id,
-            UserCard.is_for_trade == True,
+            Collection.is_public_trade.is_(True),  # Privacidad respetada
+            UserCard.is_for_trade.is_(True),
             UserCard.scryfall_card_id.in_(mis_deseos_ids)
         )
         .all()
     )
 
+    if not otros_con_mis_deseos:
+        return []
+
     usuarios_coincidentes: Dict[str, Dict[str, Any]] = {}
     for user_card, otro_usuario in otros_con_mis_deseos:
-        if otro_usuario.id not in usuarios_coincidentes:
-            usuarios_coincidentes[otro_usuario.id] = {
+        otro_id = str(otro_usuario.id)
+        if otro_id not in usuarios_coincidentes:
+            usuarios_coincidentes[otro_id] = {
                 "user": otro_usuario,
                 "they_have": []
             }
         carta_cat = user_card.card_catalog
-        usuarios_coincidentes[otro_usuario.id]["they_have"].append(
+        usuarios_coincidentes[otro_id]["they_have"].append(
             MatchedCard(
                 scryfall_card_id=user_card.scryfall_card_id,
                 card_name=carta_cat.name if carta_cat else "Carta",
+                set_code=carta_cat.set if carta_cat else None,
                 image_url=carta_cat.image_url if carta_cat else None,
+                quantity=user_card.quantity,
                 condition=user_card.condition,
                 is_foil=user_card.is_foil
             )
         )
 
-    # 4. Validar cruce bidireccional (si la contraparte busca lo que yo tengo)
-    resultados: List[TradeMatchUserResponse] = []
-    for otro_id, data in usuarios_coincidentes.items():
-        otro_user: User = data["user"]
-
-        they_want_records = (
+    # 4. OPTIMIZACIÓN SQL: Resolver en UNA sola consulta qué quieren ellos que yo tengo (Sin N+1)
+    mapa_they_want: Dict[str, List[MatchedCard]] = defaultdict(list)
+    
+    if mis_trade_ids:
+        candidatos_ids = list(usuarios_coincidentes.keys())
+        wants_records = (
             db.query(WishlistItem)
             .options(joinedload(WishlistItem.card_catalog))
             .filter(
-                WishlistItem.user_id == otro_id,
+                WishlistItem.user_id.in_(candidatos_ids),
                 WishlistItem.scryfall_card_id.in_(mis_trade_ids)
             )
             .all()
         )
 
-        they_want_cards: List[MatchedCard] = []
-        for wl in they_want_records:
+        for wl in wants_records:
             carta_cat = wl.card_catalog
-            they_want_cards.append(
+            mapa_they_want[str(wl.user_id)].append(
                 MatchedCard(
                     scryfall_card_id=wl.scryfall_card_id,
                     card_name=carta_cat.name if carta_cat else "Carta",
-                    image_url=carta_cat.image_url if carta_cat else None
+                    set_code=carta_cat.set if carta_cat else None,
+                    image_url=carta_cat.image_url if carta_cat else None,
+                    quantity=1
                 )
             )
 
+    # 5. Construir respuesta estructurada
+    resultados: List[TradeMatchUserResponse] = []
+    for otro_id, data in usuarios_coincidentes.items():
+        otro_user: User = data["user"]
+        they_want_cards = mapa_they_want.get(otro_id, [])
+        is_mutual = len(they_want_cards) > 0
+
         resultados.append(
             TradeMatchUserResponse(
-                user_id=otro_user.id,
+                user_id=str(otro_user.id),
                 username=otro_user.username,
-                # phone_number retirado para proteger PII
-                reputation_score=otro_user.reputation_score,
+                reputation_score=otro_user.reputation_score or 100,
+                is_mutual_match=is_mutual,
                 they_have=data["they_have"],
-                they_want=they_want_cards,
-                is_mutual_match=(len(they_want_cards) > 0)
+                they_want=they_want_cards
             )
         )
 
-    # 5. Ordenar priorizando coincidencias mutuas al inicio
-    resultados.sort(key=lambda r: r.is_mutual_match, reverse=True)
-    return resultados
+    # 6. Ordenar: Coincidencias mutuas primero, luego por cantidad de cartas y reputación
+    resultados.sort(
+        key=lambda r: (r.is_mutual_match, len(r.they_have) + len(r.they_want), r.reputation_score),
+        reverse=True
+    )
+    return resultados[:limit]
