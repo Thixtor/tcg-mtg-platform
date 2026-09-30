@@ -40,24 +40,45 @@ def stream_scryfall_raw_cards() -> Generator[Dict[str, Any], None, None]:
         with gzip.GzipFile(fileobj=bulk_response.raw) as gz:
             for line in gz:
                 line_str = line.decode("utf-8").strip()
+                # Filtrar delimitadores si Scryfall retorna un array JSON en vez de JSONL puro
+                if line_str in ("[", "]", ","):
+                    continue
+                if line_str.endswith(","):
+                    line_str = line_str[:-1]
                 if line_str:
-                    yield json.loads(line_str)
+                    try:
+                        yield json.loads(line_str)
+                    except json.JSONDecodeError:
+                        continue
 
 
 def extract_card_properties(card: Dict[str, Any]) -> Dict[str, Any]:
-    """Extrae atributos nativos normalizados para la BD."""
+    """Extrae atributos nativos normalizados para la BD con soporte canónico para DFCs."""
+    card_faces = card.get("card_faces") if isinstance(card.get("card_faces"), list) else []
+
+    # Imagen
     image_url = None
-    if "image_uris" in card:
+    if "image_uris" in card and isinstance(card["image_uris"], dict):
         image_url = card["image_uris"].get("normal")
-    elif "card_faces" in card and isinstance(card["card_faces"], list) and len(card["card_faces"]) > 0:
-        face = card["card_faces"][0]
-        if "image_uris" in face:
+    elif card_faces and len(card_faces) > 0:
+        face = card_faces[0]
+        if "image_uris" in face and isinstance(face["image_uris"], dict):
             image_url = face["image_uris"].get("normal")
+
+    # Type line con soporte para cartas de dos caras (CR 205.2b)
+    type_line = card.get("type_line")
+    if not type_line and card_faces:
+        type_line = " // ".join(f.get("type_line", "") for f in card_faces if f.get("type_line"))
+
+    # Mana cost
+    mana_cost = card.get("mana_cost")
+    if not mana_cost and card_faces:
+        mana_cost = " // ".join(f.get("mana_cost", "") for f in card_faces if f.get("mana_cost"))
 
     # Oracle text
     oracle_text = card.get("oracle_text")
-    if not oracle_text and "card_faces" in card and isinstance(card["card_faces"], list):
-        oracle_text = " // ".join(f.get("oracle_text", "") for f in card["card_faces"] if f.get("oracle_text"))
+    if not oracle_text and card_faces:
+        oracle_text = " // ".join(f.get("oracle_text", "") for f in card_faces if f.get("oracle_text"))
 
     # Colores
     raw_colors = card.get("colors") or card.get("color_identity") or []
@@ -67,8 +88,8 @@ def extract_card_properties(card: Dict[str, Any]) -> Dict[str, Any]:
         "id": card.get("id"),
         "name": card.get("name"),
         "set": card.get("set"),
-        "type_line": card.get("type_line"),
-        "mana_cost": card.get("mana_cost"),
+        "type_line": type_line,
+        "mana_cost": mana_cost,
         "cmc": float(card.get("cmc") or 0.0),
         "rarity": (card.get("rarity") or "common").lower(),
         "colors": colors_str,

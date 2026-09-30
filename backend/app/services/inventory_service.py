@@ -81,7 +81,7 @@ def calculate_deck_availability(db: Session, deck: Deck) -> List[DeckCardDetailR
     for row in otros_mazos_records:
         mapa_nombres_mazos.setdefault(row[0], []).append(row[1])
 
-    # 5. Clasificar estado cuantitativo
+    # 5. Clasificar estado cuantitativo y mapear metadatos canónicos
     resultado: List[DeckCardDetailResponse] = []
     for dc in cartas_mazo:
         scry_id: str = str(dc.scryfall_card_id)
@@ -105,6 +105,9 @@ def calculate_deck_availability(db: Session, deck: Deck) -> List[DeckCardDetailR
                 scryfall_card_id=scry_id,
                 name=carta_cat.name if carta_cat else "Desconocida",
                 set_code=carta_cat.set if carta_cat else None,
+                type_line=carta_cat.type_line if carta_cat else None,
+                mana_cost=getattr(carta_cat, "mana_cost", None) if carta_cat else None,
+                cmc=getattr(carta_cat, "cmc", 0.0) if carta_cat else 0.0,
                 image_url=carta_cat.image_url if carta_cat else None,
                 quantity_needed=cantidad_pedida,
                 category=dc.category,

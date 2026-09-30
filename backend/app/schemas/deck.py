@@ -43,6 +43,8 @@ class DeckCardDetailResponse(BaseModel):
     name: str
     set_code: Optional[str] = None
     type_line: Optional[str] = None  # Crucial para la clasificación canónica por tipo
+    mana_cost: Optional[str] = None  # Crucial para renderizar ManaCostSymbols.jsx
+    cmc: Optional[float] = None      # Crucial para la curva de maná en DecksPage
     image_url: Optional[str] = None
     quantity_needed: int
     category: str
