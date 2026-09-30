@@ -1,33 +1,29 @@
+# app/routers/decks.py
 # ---------------------------------------------------------
 # ROUTER: MAZOS Y CONSTRUCCIÓN DE DECKS (MTG)
 # ---------------------------------------------------------
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_current_user
-from app.models import User, Deck, DeckCard, CartaScryfall
+from app.models import User, CartaScryfall
 from app.crud import crud_decks
-from app.schemas import (
+from app.schemas.deck import (
     DeckCreate,
     DeckResponse,
     AddCardToDeckPayload,
+    UpdateDeckCardPayload,
+    BulkAddCardsPayload,
+    BulkAddCardsResponse,
     DeckCardDetailResponse
 )
-# Esquemas para la importación en lote y actualización
-from app.schemas.deck import BulkAddCardsPayload, BulkAddCardsResponse
 from app.services.inventory_service import calculate_deck_availability
 
 router = APIRouter(
     tags=["Mazos y Construcción de Decks"]
 )
-
-
-class UpdateDeckCardPayload(BaseModel):
-    quantity: Optional[int] = Field(None, ge=1, le=99)
-    category: Optional[str] = Field(None, pattern=r"^(mainboard|sideboard|maybeboard|commander|companion)$")
 
 
 # ---------------------------------------------------------
@@ -68,12 +64,12 @@ def list_my_decks(
 @router.get(
     "/decks/users/{user_id}",
     response_model=List[DeckResponse],
-    summary="Listar mazos de otro usuario"
+    summary="Listar mazos públicos de otro usuario"
 )
 @router.get(
     "/users/{user_id}/decks",
     response_model=List[DeckResponse],
-    include_in_schema=False  # Alias para compatibilidad hacia atrás
+    include_in_schema=False
 )
 def list_user_decks(
     user_id: str,
@@ -154,7 +150,6 @@ def bulk_add_cards_to_deck(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Verificación IDOR-Safe de pertenencia del mazo
     mazo = crud_decks.get_user_deck_by_id(db, deck_id=deck_id, user_id=str(current_user.id))
     if not mazo:
         raise HTTPException(

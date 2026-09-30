@@ -1,69 +1,84 @@
-from typing import Optional, List, Literal
-from pydantic import BaseModel, Field
+# app/schemas/deck.py
+# ---------------------------------------------------------
+# ESQUEMAS PYDANTIC: MAZOS, CARTAS Y DISPONIBILIDAD CANÓNICA
+# ---------------------------------------------------------
+from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ---------------------------------------------------------
-# 1. ESQUEMAS DE MAZOS (DECKS)
+# 1. ESQUEMAS DE MAZO (DECKS)
 # ---------------------------------------------------------
 class DeckCreate(BaseModel):
-    """Creación de un nuevo mazo."""
-    name: str = Field(min_length=1, max_length=100)
-    format: str = Field("Commander", max_length=50)
-    description: Optional[str] = Field(None, max_length=500)
+    name: str = Field(min_length=1, max_length=100, description="Nombre del mazo")
+    format: str = Field(default="Commander", max_length=50, description="Formato MTG")
+    description: Optional[str] = Field(None, max_length=500, description="Descripción del mazo")
 
 
 class DeckResponse(BaseModel):
-    """Información general de un mazo creado."""
     id: str
     user_id: str
     name: str
     format: str
     description: Optional[str] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
 
+# ---------------------------------------------------------
+# 2. ESQUEMAS DE MUTACIÓN DE CARTAS EN MAZO
+# ---------------------------------------------------------
 class AddCardToDeckPayload(BaseModel):
-    """Agregar cartas a la estructura de un mazo."""
     scryfall_card_id: str
-    quantity: int = Field(1, ge=1, le=99)
-    category: Literal["commander", "companion", "mainboard", "sideboard", "maybeboard"] = "mainboard"
+    quantity: int = Field(default=1, ge=1, le=99)
+    category: str = Field(
+        default="mainboard", 
+        pattern=r"^(mainboard|sideboard|maybeboard|commander|companion)$"
+    )
 
 
 class UpdateDeckCardPayload(BaseModel):
-    """Actualización puntual de cantidad o ubicación de una carta en el mazo."""
     quantity: Optional[int] = Field(None, ge=1, le=99)
-    category: Optional[Literal["commander", "companion", "mainboard", "sideboard", "maybeboard"]] = None
+    category: Optional[str] = Field(
+        None, 
+        pattern=r"^(mainboard|sideboard|maybeboard|commander|companion)$"
+    )
 
 
-class DeckCardDetailResponse(BaseModel):
-    """Estado de disponibilidad física y metadatos de cada carta en el mazo."""
-    deck_card_id: str
+class BulkAddCardItem(BaseModel):
     scryfall_card_id: str
-    name: str
-    set_code: Optional[str] = None
-    type_line: Optional[str] = None  # Crucial para la clasificación canónica por tipo
-    mana_cost: Optional[str] = None  # Crucial para renderizar ManaCostSymbols.jsx
-    cmc: Optional[float] = None      # Crucial para la curva de maná en DecksPage
-    image_url: Optional[str] = None
-    quantity_needed: int
-    category: str
-    status: Literal["DISPONIBLE", "EN_OTRO_MAZO", "FALTANTE"]
-    assigned_other_decks: List[str] = []
-
-    model_config = {"from_attributes": True}
+    quantity: int = Field(default=1, ge=1, le=99)
+    category: str = Field(
+        default="mainboard",
+        pattern=r"^(mainboard|sideboard|maybeboard|commander|companion)$"
+    )
 
 
-# ---------------------------------------------------------
-# 2. ESQUEMAS PARA IMPORTACIÓN EN LOTE (BULK IMPORT)
-# ---------------------------------------------------------
 class BulkAddCardsPayload(BaseModel):
-    """Lote de cartas a registrar en un mazo."""
-    cards: List[AddCardToDeckPayload] = Field(..., min_length=1, max_length=200)
+    cards: List[BulkAddCardItem]
 
 
 class BulkAddCardsResponse(BaseModel):
-    """Resumen de ejecución de importación en lote."""
     message: str
     added_count: int
     failed_card_ids: List[str] = []
+
+
+# ---------------------------------------------------------
+# 3. DETALLE DE CARTA EN MAZO CON METADATOS CANÓNICOS
+# ---------------------------------------------------------
+class DeckCardDetailResponse(BaseModel):
+    deck_card_id: str = "dc-default"
+    scryfall_card_id: str = "card-default"
+    name: str = "Desconocida"
+    set_code: Optional[str] = None
+    type_line: Optional[str] = None
+    mana_cost: Optional[str] = None
+    cmc: Optional[float] = 0.0
+    image_url: Optional[str] = None
+    quantity_needed: int = 1
+    category: Optional[str] = "mainboard"
+    status: str = "DISPONIBLE"
+    assigned_other_decks: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)

@@ -1,25 +1,24 @@
+# app/routers/collections.py
+# ---------------------------------------------------------
+# ROUTER: GESTIÓN DE COLECCIONES Y BINDERS DE USUARIO
+# ---------------------------------------------------------
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session, joinedload, contains_eager
+from sqlalchemy.orm import Session, joinedload, defer
 
 from app.database import get_db
 from app.core.security import get_current_user, get_current_user_optional
-
 from app.models import User, Collection, UserCard, CartaScryfall
 from app.crud import crud_collections
 from app.schemas import (
     CollectionCreate,
     CollectionResponse,
     AddCardToCollectionPayload,
-    UserCardResponse,
-    TradeMarketItemResponse
+    UserCardResponse
 )
 
-# ---------------------------------------------------------
-# INSTANCIA DEL ROUTER
-# ---------------------------------------------------------
 router = APIRouter(
-    tags=["Colecciones y Mercado de Intercambio"]
+    tags=["Colecciones y Binders"]
 )
 
 
@@ -36,7 +35,7 @@ router = APIRouter(
     "/collections/me",
     response_model=CollectionResponse,
     status_code=status.HTTP_201_CREATED,
-    include_in_schema=False  # Alias para compatibilidad hacia atrás
+    include_in_schema=False
 )
 def create_collection(
     payload: CollectionCreate,
@@ -114,10 +113,12 @@ def add_card_to_collection(
 @router.get(
     "/collections/{collection_id}/cards",
     response_model=List[UserCardResponse],
-    summary="Listar las cartas contenidas en una colección"
+    summary="Listar las cartas contenidas en una colección con paginación"
 )
 def list_cards_in_collection(
     collection_id: str,
+    page: int = Query(1, ge=1, description="Número de página"),
+    page_size: int = Query(50, ge=1, le=200, description="Cartas por página"),
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
@@ -128,17 +129,30 @@ def list_cards_in_collection(
             detail="Colección no encontrada."
         )
 
-    # Si el binder es privado, solo el propietario puede ver las cartas
+    # Si el binder es privado, solo el propietario puede consultar su contenido (Anti-enumeración)
     is_public = getattr(coleccion, "is_public_trade", True)
     is_owner = current_user is not None and str(current_user.id) == str(coleccion.user_id)
 
     if not is_public and not is_owner:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permisos para ver el contenido de este binder privado."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Colección no encontrada."
         )
 
-    return crud_collections.get_cards_in_collection(db, collection_id=collection_id)
+    offset = (page - 1) * page_size
+    query = (
+        db.query(UserCard)
+        .filter(UserCard.collection_id == collection_id)
+        .options(joinedload(UserCard.card_catalog).defer(CartaScryfall.scryfall_raw_data))
+    )
+
+    # REGLA SQLALCHEMY: order_by DEBE ir antes de offset() y limit()
+    if hasattr(UserCard, "created_at"):
+        query = query.order_by(UserCard.created_at.desc())
+    else:
+        query = query.order_by(UserCard.id.desc())
+
+    return query.offset(offset).limit(page_size).all()
 
 
 @router.delete(
@@ -168,53 +182,3 @@ def remove_card_from_collection(
 
     crud_collections.remove_card_from_collection(db, carta)
     return {"status": "success", "message": "Carta removida de la colección exitosamente."}
-
-
-# ---------------------------------------------------------
-# 3. MURO PÚBLICO DEL MERCADO (TRADE MARKET)
-# ---------------------------------------------------------
-@router.get(
-    "/trade/market",
-    response_model=List[TradeMarketItemResponse],
-    summary="Listar cartas para intercambio de binders públicos"
-)
-def get_trade_market(
-    limit: int = Query(24, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
-):
-    items_trade = (
-        db.query(UserCard)
-        .join(UserCard.collection)
-        .join(Collection.owner)
-        .options(
-            joinedload(UserCard.card_catalog),
-            contains_eager(UserCard.collection).contains_eager(Collection.owner)
-        )
-        .filter(
-            UserCard.is_for_trade.is_(True),
-            Collection.is_public_trade.is_(True)  # Respetar la privacidad del binder
-        )
-        .order_by(UserCard.id.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
-
-    respuesta = []
-    for item in items_trade:
-        respuesta.append(
-            TradeMarketItemResponse(
-                user_card_id=item.id,
-                card_name=item.card_catalog.name if item.card_catalog else "Carta",
-                set_code=item.card_catalog.set if item.card_catalog else None,
-                image_url=item.card_catalog.image_url if item.card_catalog else None,
-                condition=item.condition,
-                language=item.language,
-                is_foil=item.is_foil,
-                trade_notes=item.trade_notes,
-                owner_username=item.collection.owner.username,
-                owner_reputation=item.collection.owner.reputation_score or 100
-            )
-        )
-    return respuesta

@@ -1,14 +1,23 @@
+# app/schemas/user.py
 # ---------------------------------------------------------
 # ESQUEMAS PYDANTIC: USUARIOS Y PERFIL P2P
 # ---------------------------------------------------------
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, HttpUrl
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 
 
-# 1. Esquema base para registro y lectura simple
+# ---------------------------------------------------------
+# 1. ESQUEMAS BASE Y REGISTRO (ANTI-HOMOGLIFOS Y LOWERCASE)
+# ---------------------------------------------------------
 class UserBase(BaseModel):
-    username: str = Field(min_length=3, max_length=30, pattern=r"^[\w.-]+$")
+    # Regex ASCII estricta para mitigar suplantación por caracteres Unicode similares
+    username: str = Field(
+        min_length=3, 
+        max_length=30, 
+        pattern=r"^[a-zA-Z0-9_.-]+$",
+        description="Nombre de usuario alfanumérico ASCII sin espacios ni caracteres especiales complejos"
+    )
     email: EmailStr
     phone_number: str = Field(
         pattern=r"^\+[1-9]\d{7,14}$",
@@ -16,12 +25,24 @@ class UserBase(BaseModel):
     )
     location: Optional[str] = Field("Medellín / Bello, Antioquia", max_length=100)
 
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, v: str) -> str:
+        return v.strip().lower()
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.strip().lower()
+
 
 class UserCreate(UserBase):
     pass
 
 
-# 2. Esquema de resumen público para listados (sin PII)
+# ---------------------------------------------------------
+# 2. RESUMEN PÚBLICO (SIN PII)
+# ---------------------------------------------------------
 class UserPublicSummary(BaseModel):
     id: str
     username: str
@@ -34,7 +55,9 @@ class UserPublicSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# 3. Métricas y KPIs de Inventario
+# ---------------------------------------------------------
+# 3. MÉTRICAS Y KPIS DE INVENTARIO
+# ---------------------------------------------------------
 class UserProfileKPIs(BaseModel):
     active_binders: int
     max_binders: int = 10
@@ -43,7 +66,9 @@ class UserProfileKPIs(BaseModel):
     wishlist_wants: int
 
 
-# 4. Resumen de Binder
+# ---------------------------------------------------------
+# 4. RESUMEN DE BINDERS
+# ---------------------------------------------------------
 class ProfileBinderSummary(BaseModel):
     id: str
     name: str
@@ -55,7 +80,9 @@ class ProfileBinderSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# 5. Esquema para actualizar perfil propio
+# ---------------------------------------------------------
+# 5. ACTUALIZACIÓN DE PERFIL PROPIO
+# ---------------------------------------------------------
 class UserProfileUpdate(BaseModel):
     bio: Optional[str] = Field(None, max_length=500)
     location: Optional[str] = Field(None, max_length=100)
@@ -65,7 +92,9 @@ class UserProfileUpdate(BaseModel):
     allows_nationwide_shipping: Optional[bool] = None
 
 
-# 6. Perfil público visible por terceros (ESTRICTAMENTE SIN EMAIL NI TELÉFONO)
+# ---------------------------------------------------------
+# 6. PERFIL PÚBLICO VISIBLE POR TERCEROS (ESTRICTAMENTE SIN EMAIL NI TELÉFONO)
+# ---------------------------------------------------------
 class UserPublicProfileResponse(BaseModel):
     id: str
     username: str
@@ -89,14 +118,18 @@ class UserPublicProfileResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# 7. Perfil privado (Solo devuelto en /users/me/profile)
+# ---------------------------------------------------------
+# 7. PERFIL PRIVADO (Solo devuelto en /users/me/profile)
+# ---------------------------------------------------------
 class UserPrivateProfileResponse(UserPublicProfileResponse):
     email: EmailStr
     phone_number: str
     is_phone_verified: bool
 
 
-# 8. Esquemas OTP y Token
+# ---------------------------------------------------------
+# 8. ESQUEMAS OTP Y TOKEN
+# ---------------------------------------------------------
 class RequestCodePayload(BaseModel):
     phone_number: str = Field(pattern=r"^\+[1-9]\d{7,14}$")
 

@@ -1,13 +1,14 @@
+# app/routers/trade.py
 # ---------------------------------------------------------
 # ROUTER: MERCADO DE INTERCAMBIO Y MATCHMAKING P2P (MTG)
 # ---------------------------------------------------------
 from typing import List
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.orm import Session, joinedload, contains_eager
+from sqlalchemy.orm import Session, joinedload, contains_eager, defer
 
 from app.database import get_db
 from app.core.security import get_current_user
-from app.models import User, UserCard, Collection
+from app.models import User, UserCard, Collection, CartaScryfall
 from app.schemas.trade import TradeMarketItemResponse, TradeMatchUserResponse
 from app.services.matchmaking_service import find_trade_matches_for_user
 
@@ -30,29 +31,33 @@ def get_trade_market(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
 ):
-    items_trade = (
+    query = (
         db.query(UserCard)
         .join(UserCard.collection)
         .join(Collection.owner)
         .options(
-            joinedload(UserCard.card_catalog),
+            joinedload(UserCard.card_catalog).defer(CartaScryfall.scryfall_raw_data),
             contains_eager(UserCard.collection).contains_eager(Collection.owner)
         )
         .filter(
             UserCard.is_for_trade.is_(True),
             Collection.is_public_trade.is_(True)
         )
-        .order_by(UserCard.id.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
     )
+
+    # Orden determinista cronológico si existe created_at, o id por defecto
+    if hasattr(UserCard, "created_at"):
+        query = query.order_by(UserCard.created_at.desc())
+    else:
+        query = query.order_by(UserCard.id.desc())
+
+    items_trade = query.offset(offset).limit(limit).all()
 
     respuesta = []
     for item in items_trade:
         respuesta.append(
             TradeMarketItemResponse(
-                user_card_id=item.id,
+                user_card_id=str(item.id),
                 card_name=item.card_catalog.name if item.card_catalog else "Carta",
                 set_code=item.card_catalog.set if item.card_catalog else None,
                 image_url=item.card_catalog.image_url if item.card_catalog else None,

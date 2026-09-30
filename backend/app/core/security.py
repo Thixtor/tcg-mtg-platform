@@ -1,3 +1,4 @@
+# app/core/security.py
 import secrets
 import hmac
 import hashlib
@@ -18,45 +19,61 @@ logger = logging.getLogger("security")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-# --- 1. LÓGICA DE OTP SEGURO ---
-
+# ---------------------------------------------------------
+# 1. LÓGICA DE OTP SEGURO
+# ---------------------------------------------------------
 def generate_secure_otp() -> str:
-    """Genera un OTP numérico seguro de 6 dígitos."""
+    """Genera un OTP numérico seguro de 6 dígitos mediante secrets."""
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
 def hash_otp(code: str, user_id: str) -> str:
-    """Genera un HMAC-SHA256 único ligado al user_id para prevenir colisiones o rainbow tables."""
+    """
+    Genera un HMAC-SHA256 ligado al user_id para prevenir colisiones
+    o ataques basados en tablas precalculadas (rainbow tables).
+    """
     message = f"{user_id}:{code.strip()}".encode("utf-8")
     return hmac.new(settings.SECRET_KEY.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 def verify_otp_digest(user: User, code: str) -> bool:
     """
-    Verifica el código contra el hash almacenado, validando expiración e intentos.
-    Incrementa de forma atómica user.otp_attempts (debe llamarse con la fila bloqueada).
+    Verifica el código contra el hash almacenado, controlando expiración e intentos.
+    Incrementa de forma atómica user.otp_attempts (debe ejecutarse con la fila bloqueada FOR UPDATE).
+    Si se superan los 5 intentos, invalida el código de inmediato.
     """
     now = datetime.now(timezone.utc)
     user_expires = user.otp_expires_at
 
-    # Normalizar timestamps naive provenientes de SQLAlchemy
+    # Normalizar timestamps naive provenientes de la base de datos
     if user_expires and user_expires.tzinfo is None:
         user_expires = user_expires.replace(tzinfo=timezone.utc)
 
-    # Si ya superó el umbral de intentos o expiró, rechazar
+    # Si ya superó el umbral o expiró, rechazar
     if not user.otp_hash or not user_expires or user_expires < now or (user.otp_attempts or 0) >= 5:
+        # Invalidar hash expirado/agotado para mitigar reutilizaciones
+        user.otp_hash = None
+        user.otp_expires_at = None
         return False
 
     user.otp_attempts = (user.otp_attempts or 0) + 1
 
     expected_hash = hash_otp(code, str(user.id))
-    return hmac.compare_digest(user.otp_hash, expected_hash)
+    is_valid = hmac.compare_digest(user.otp_hash, expected_hash)
+
+    # Si se agotan los 5 intentos en este fallo, se destruye el hash activo
+    if not is_valid and user.otp_attempts >= 5:
+        user.otp_hash = None
+        user.otp_expires_at = None
+
+    return is_valid
 
 
-# --- 2. LÓGICA DE JWT Y AUTENTICACIÓN ---
-
+# ---------------------------------------------------------
+# 2. LÓGICA DE JWT Y AUTENTICACIÓN
+# ---------------------------------------------------------
 def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
-    """Genera un token JWT firmado con expiración UTC."""
+    """Genera un token JWT firmado con expiración UTC y claims estándar."""
     now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta

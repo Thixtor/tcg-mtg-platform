@@ -1,8 +1,12 @@
+# app/scripts/ingest_scryfall.py
+# ---------------------------------------------------------
+# SCRIPT ETL: INGESTA Y SINCRONIZACIÓN BULK DATA (SCRYFALL)
+# ---------------------------------------------------------
 import sys
 import gzip
 import json
 import logging
-from typing import Generator, Dict, Any
+from typing import Generator, Dict, Any, List
 import requests
 from sqlalchemy.dialects.postgresql import insert
 
@@ -11,12 +15,16 @@ from app.models.card import CartaScryfall
 from app.core.config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("ingest")
+logger = logging.getLogger("ingest_scryfall")
 
 BATCH_SIZE = 2000
 
 
 def stream_scryfall_raw_cards() -> Generator[Dict[str, Any], None, None]:
+    """
+    Descarga en streaming el archivo Default Cards de Scryfall.
+    Soporta tanto JSON Lines (.jsonl) como arrays JSON tradicionales delimitados por coma.
+    """
     headers = {
         "User-Agent": settings.SCRYFALL_USER_AGENT,
         "Accept": settings.SCRYFALL_ACCEPT_HEADER
@@ -30,30 +38,40 @@ def stream_scryfall_raw_cards() -> Generator[Dict[str, Any], None, None]:
         target_item = next((item for item in items if item.get("type") == "default_cards"), None)
 
     if not target_item:
-        raise ValueError("No se encontró el objeto 'default_cards' en Scryfall.")
+        raise ValueError("No se encontró el objeto 'default_cards' en la API de Scryfall.")
 
     download_uri = target_item.get("jsonl_download_uri") or target_item.get("download_uri")
     logger.info(f"Descargando catálogo vía stream desde: {download_uri}")
 
-    with requests.get(download_uri, headers=headers, stream=True, timeout=60) as bulk_response:
+    # stream=True y decodificación de líneas para procesar sin saturar la RAM
+    with requests.get(download_uri, headers=headers, stream=True, timeout=120) as bulk_response:
         bulk_response.raise_for_status()
-        with gzip.GzipFile(fileobj=bulk_response.raw) as gz:
-            for line in gz:
-                line_str = line.decode("utf-8").strip()
-                # Filtrar delimitadores si Scryfall retorna un array JSON en vez de JSONL puro
-                if line_str in ("[", "]", ","):
+        
+        # Si el endpoint viene comprimido en gzip y requests no lo descomprimió automáticamente
+        if download_uri.endswith(".gz") or bulk_response.headers.get("Content-Type") == "application/gzip":
+            raw_stream = gzip.GzipFile(fileobj=bulk_response.raw)
+        else:
+            raw_stream = bulk_response.raw
+
+        for line in raw_stream:
+            line_str = line.decode("utf-8").strip()
+            # Ignorar corchetes de inicio/fin de array si viene como JSON array
+            if line_str in ("[", "]", ","):
+                continue
+            if line_str.endswith(","):
+                line_str = line_str[:-1]
+            if line_str:
+                try:
+                    yield json.loads(line_str)
+                except json.JSONDecodeError:
                     continue
-                if line_str.endswith(","):
-                    line_str = line_str[:-1]
-                if line_str:
-                    try:
-                        yield json.loads(line_str)
-                    except json.JSONDecodeError:
-                        continue
 
 
 def extract_card_properties(card: Dict[str, Any]) -> Dict[str, Any]:
-    """Extrae atributos nativos normalizados para la BD con soporte canónico para DFCs."""
+    """
+    Extrae atributos normalizados e indexables para la BD.
+    Garantiza el guardado de oracle_id y type_line para soporte canónico de MTG (CR 108.1 y CR 205.2b).
+    """
     card_faces = card.get("card_faces") if isinstance(card.get("card_faces"), list) else []
 
     # Imagen
@@ -65,7 +83,7 @@ def extract_card_properties(card: Dict[str, Any]) -> Dict[str, Any]:
         if "image_uris" in face and isinstance(face["image_uris"], dict):
             image_url = face["image_uris"].get("normal")
 
-    # Type line con soporte para cartas de dos caras (CR 205.2b)
+    # Type line con soporte para cartas de dos caras (DFCs)
     type_line = card.get("type_line")
     if not type_line and card_faces:
         type_line = " // ".join(f.get("type_line", "") for f in card_faces if f.get("type_line"))
@@ -84,8 +102,14 @@ def extract_card_properties(card: Dict[str, Any]) -> Dict[str, Any]:
     raw_colors = card.get("colors") or card.get("color_identity") or []
     colors_str = ",".join(raw_colors) if raw_colors else "C"
 
+    # oracle_id es la clave funcional canónica de MTG
+    oracle_id = card.get("oracle_id")
+    if not oracle_id and card_faces and len(card_faces) > 0:
+        oracle_id = card_faces[0].get("oracle_id")
+
     return {
         "id": card.get("id"),
+        "oracle_id": oracle_id,
         "name": card.get("name"),
         "set": card.get("set"),
         "type_line": type_line,
@@ -99,14 +123,19 @@ def extract_card_properties(card: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def upsert_batch(session, batch: list[dict]):
+def upsert_batch(session, batch: List[Dict[str, Any]]):
     if not batch:
         return
 
-    stmt = insert(CartaScryfall).values(batch)
+    # Deduplicar en memoria por ID para evitar PostgreSQL CardinalityViolation
+    dedup: Dict[str, Dict[str, Any]] = {item["id"]: item for item in batch}
+    unique_batch = list(dedup.values())
+
+    stmt = insert(CartaScryfall).values(unique_batch)
     stmt = stmt.on_conflict_do_update(
         index_elements=["id"],
         set_={
+            "oracle_id": stmt.excluded.oracle_id,
             "name": stmt.excluded.name,
             "set": stmt.excluded.set,
             "type_line": stmt.excluded.type_line,
@@ -128,7 +157,7 @@ def run_ingest():
     batch = []
 
     try:
-        logger.info("Iniciando ingesta no destructiva...")
+        logger.info("Iniciando ingesta de cartas desde Scryfall...")
         for raw_card in stream_scryfall_raw_cards():
             if not raw_card.get("id"):
                 continue
@@ -148,10 +177,10 @@ def run_ingest():
             total_processed += len(batch)
             batch.clear()
 
-        logger.info(f"Ingesta completada. Total sincronizado: {total_processed} cartas.")
+        logger.info(f"Ingesta completada exitosamente. Total sincronizado: {total_processed} cartas.")
     except Exception as e:
         session.rollback()
-        logger.error(f"Error crítico en la ingesta: {e}", exc_info=True)
+        logger.error(f"Error crítico durante la ingesta: {e}", exc_info=True)
         sys.exit(1)
     finally:
         session.close()

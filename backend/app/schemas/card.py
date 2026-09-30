@@ -1,28 +1,28 @@
-# ---------------------------------------------------------
-# SCHEMAS DE PYDANTIC PARA CARTAS Y CATÁLOGO
-# ---------------------------------------------------------
+# app/schemas/card.py
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, ConfigDict
 
-
-# ---------------------------------------------------------
-# 1. SCHEMA PRINCIPAL DE RESPUESTA DE CARTA
-# ---------------------------------------------------------
-class CardResponse(BaseModel):
+class CardSummary(BaseModel):
+    """Esquema ligero para búsquedas, listados, catálogo y binders (Sin JSONB pesado)."""
     id: str
     name: str
     set: Optional[str] = None
     type_line: Optional[str] = None
     mana_cost: Optional[str] = None
+    cmc: Optional[float] = None
     image_url: Optional[str] = None
-    scryfall_raw_data: Optional[Dict[str, Any]] = None
-
     model_config = ConfigDict(from_attributes=True)
 
+class CardDetail(CardSummary):
+    """Esquema extendido solo para detalle individual GET /cards/{id}."""
+    oracle_text: Optional[str] = None
+    rarity: Optional[str] = None
+    scryfall_raw_data: Optional[Dict[str, Any]] = None
 
-# ---------------------------------------------------------
-# 2. SCHEMA PARA CARTAS FUNCIONALMENTE SIMILARES
-# ---------------------------------------------------------
+class CardResponse(CardDetail):
+    """Mantenido por retrocompatibilidad."""
+    pass
+
 class SimilarCardItem(BaseModel):
     id: str
     name: str
@@ -33,9 +33,7 @@ class SimilarCardItem(BaseModel):
     set: Optional[str] = None
     similarity_reason: str
     current_price_usd: Optional[float] = None
-
     model_config = ConfigDict(from_attributes=True)
-
 
 class SimilarCardsResponse(BaseModel):
     base_card_id: str

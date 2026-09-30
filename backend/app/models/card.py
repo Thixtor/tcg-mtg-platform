@@ -1,3 +1,4 @@
+# app/models/card.py
 from sqlalchemy import Column, String, Float, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -14,7 +15,8 @@ class CartaScryfall(Base):
     """
     __tablename__ = 'cartas'
 
-    id = Column(String, primary_key=True, index=True)  # Scryfall UUID
+    id = Column(String, primary_key=True, index=True)  # Scryfall Printing UUID
+    oracle_id = Column(String, index=True, nullable=True)  # Identidad canónica MTG (CR 108.1)
     name = Column(String, nullable=False, index=True)
     set = Column(String, index=True)
     type_line = Column(String, index=True)

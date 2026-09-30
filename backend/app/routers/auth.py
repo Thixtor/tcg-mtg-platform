@@ -1,3 +1,4 @@
+# app/routers/auth.py
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -40,14 +41,17 @@ def _mask_phone(phone: str) -> str:
 )
 @limiter.limit("10/hour")
 def register_user(request: Request, payload: UserCreate, db: Session = Depends(get_db)):
-    """Crea un usuario controlando colisiones bajo concurrencia y protegido por rate limit."""
+    """
+    Crea un usuario controlando colisiones bajo concurrencia y protegido por rate limit.
+    Devuelve un error genérico anti-enumeración.
+    """
     try:
         return crud_users.create_user(db, payload=payload)
     except IntegrityError:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Ya existe un usuario registrado con ese username, email o teléfono."
+            detail="Los datos proporcionados coinciden con una cuenta existente."
         )
 
 
@@ -58,10 +62,9 @@ def request_otp(request: Request, payload: RequestCodePayload, db: Session = Dep
     Emite un código OTP si el número existe.
     Protegido contra spam por rate-limit y con respuesta homogénea para evitar enumeración.
     """
-    # Bloqueo de fila para evitar condiciones de carrera en solicitudes simultáneas
     usuario = (
         db.query(User)
-        .filter(User.phone_number == payload.phone_number)
+        .filter(User.phone_number == payload.phone_number.strip())
         .with_for_update()
         .first()
     )
@@ -71,18 +74,15 @@ def request_otp(request: Request, payload: RequestCodePayload, db: Session = Dep
         codigo_otp = generate_secure_otp()
         crud_users.set_user_otp_code(db, user=usuario, code=codigo_otp)
         
-        # Log seguro sin persistir PII en texto claro
-        logger.info(f"OTP emitido para destino: {_mask_phone(payload.phone_number)}")
+        # Log estructurado sin persistir PII
+        logger.info(f"OTP emitido exitosamente para destino: {_mask_phone(payload.phone_number)}")
 
-        # Exposición de OTP estrictamente limitada a entornos de desarrollo
+        # Exposición de OTP estrictamente condicionada al flag de desarrollo
         if settings.EXPOSE_DEV_OTP:
             dev_code = codigo_otp
-            logger.warning(f"🔑 [DEV OTP] para {_mask_phone(usuario.phone_number)}: {codigo_otp}")
-            print(f"\n==========================================", flush=True)
-            print(f" >>> [DEV OTP CODE]: {codigo_otp} <<< ", flush=True)
-            print(f"==========================================\n", flush=True)
+            logger.warning(f"🔑 [DEV OTP]: {codigo_otp}")
         else:
-            # TODO: Despachar a proveedor SMS productivo (Twilio, AWS SNS, etc.)
+            # En producción: invocar proveedor SMS (AWS SNS, Twilio, etc.)
             pass
 
     response = {
@@ -104,7 +104,7 @@ def verify_otp(request: Request, payload: VerifyCodePayload, db: Session = Depen
     """
     usuario = (
         db.query(User)
-        .filter(User.phone_number == payload.phone_number)
+        .filter(User.phone_number == payload.phone_number.strip())
         .with_for_update()
         .first()
     )

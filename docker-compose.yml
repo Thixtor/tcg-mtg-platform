@@ -9,8 +9,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-mtg_market}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # El puerto 5432 queda cerrado para el host en producción;
-    # si requieres conectarte con DBeaver/PgAdmin en local, puedes mapear "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-mtg_market}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
@@ -24,9 +27,9 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secretpassword}@db:5432/${POSTGRES_DB:-mtg_market}
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - ./backend:/app
 

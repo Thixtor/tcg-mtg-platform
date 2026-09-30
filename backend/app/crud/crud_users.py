@@ -1,3 +1,4 @@
+# app/crud/crud_users.py
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
@@ -26,17 +27,17 @@ def get_user_by_unique_fields(
     phone_number: str
 ) -> Optional[User]:
     return db.query(User).filter(
-        (User.username == username) |
-        (User.email == email) |
-        (User.phone_number == phone_number)
+        (User.username == username.strip().lower()) |
+        (User.email == email.strip().lower()) |
+        (User.phone_number == phone_number.strip())
     ).first()
 
 
 def create_user(db: Session, payload: UserCreate) -> User:
     nuevo_usuario = User(
-        username=payload.username,
-        email=payload.email,
-        phone_number=payload.phone_number,
+        username=payload.username.strip().lower(),
+        email=payload.email.strip().lower(),
+        phone_number=payload.phone_number.strip(),
         location=payload.location or "Medellín / Bello, Antioquia",
         is_phone_verified=False,
         reputation_score=100,
@@ -105,7 +106,6 @@ def get_user_profile_aggregates(
             )
         )
 
-    # Conteo de deseos (wishlist)
     wishlist_wants = db.query(func.count(WishlistItem.id)).filter(
         WishlistItem.user_id == user_id
     ).scalar() or 0
@@ -121,23 +121,27 @@ def get_user_profile_aggregates(
     return kpis, binders
 
 
-from datetime import datetime, timezone
-
 def can_issue_otp(user: User) -> bool:
     """
-    Verifica si se puede emitir un nuevo código OTP respetando el tiempo de expiración y cooldown.
-    Maneja diferencias entre datetimes naive (DB) y aware (UTC).
+    Verifica si se puede emitir un nuevo código OTP.
+    Permite reemitir si los intentos previos se agotaron (mitiga DoS por atacante),
+    respetando un cooldown mínimo de 60 segundos entre reemisiones legítimas.
     """
     now = datetime.now(timezone.utc)
     
     if user.otp_expires_at:
         expires_at = user.otp_expires_at
-        # Si la fecha de la DB es naive (sin timezone), asignarle UTC
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
             
-        # Si aún no ha expirado el código previo, se bloquea el reenvío inmediato
-        if expires_at > now:
+        # Si se quemaron los 5 intentos, el código ya no sirve y se permite renovarlo
+        if (user.otp_attempts or 0) >= 5:
+            return True
+            
+        # Cooldown de 60 segundos: no reemitir si fue emitido hace menos de 1 minuto
+        # (El código dura 5 min; si faltan más de 4 min, se solicita esperar)
+        tiempo_restante = (expires_at - now).total_seconds()
+        if tiempo_restante > 240:  # Menos de 60 segundos desde la emisión
             return False
 
     return True
@@ -145,21 +149,10 @@ def can_issue_otp(user: User) -> bool:
 
 def set_user_otp_code(db: Session, user: User, code: str) -> None:
     """
-    Guarda el hash del OTP con expiración de 5 minutos.
-    Solo reinicia intentos si el código anterior ya expiró.
+    Guarda el hash del OTP con expiración de 5 minutos y reinicia el contador de intentos.
     """
     now = datetime.now(timezone.utc)
-    
-    # Normalizar comparación con fecha previa si existe
-    if user.otp_expires_at:
-        prev_expires = user.otp_expires_at
-        if prev_expires.tzinfo is None:
-            prev_expires = prev_expires.replace(tzinfo=timezone.utc)
-        if prev_expires <= now:
-            user.otp_attempts = 0
-    else:
-        user.otp_attempts = 0
-
+    user.otp_attempts = 0
     user.otp_hash = hash_otp(code, str(user.id))
     user.otp_expires_at = now + timedelta(minutes=5)
     db.commit()

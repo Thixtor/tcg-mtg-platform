@@ -1,5 +1,9 @@
+# app/schemas/trade.py
+# ---------------------------------------------------------
+# ESQUEMAS PYDANTIC: MERCADO P2P Y MOTOR DE COINCIDENCIAS
+# ---------------------------------------------------------
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ---------------------------------------------------------
@@ -10,31 +14,30 @@ class TradeMarketItemResponse(BaseModel):
     card_name: str
     set_code: Optional[str] = None
     image_url: Optional[str] = None
-    condition: str
-    language: str
-    is_foil: bool
+    condition: str = "NM"
+    language: str = "EN"
+    is_foil: bool = False
     trade_notes: Optional[str] = None
     
-    # Datos públicos del dueño (PII protegida)
     owner_username: str
     owner_reputation: int = 100
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
 
 # ---------------------------------------------------------
 # 2. ESQUEMAS DE MATCHMAKING P2P (CRUCE BIDIRECCIONAL)
 # ---------------------------------------------------------
 class MatchedCard(BaseModel):
-    scryfall_card_id: str
-    card_name: str
+    scryfall_card_id: str = "card-default"
+    card_name: str = "Carta"
     set_code: Optional[str] = None
     image_url: Optional[str] = None
     quantity: int = 1
     condition: Optional[str] = "NM"
     is_foil: Optional[bool] = False
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
 
 class TradeMatchUserResponse(BaseModel):
@@ -51,4 +54,4 @@ class TradeMatchUserResponse(BaseModel):
         description="Cartas que la contraparte busca y yo ofrezco en mis binders públicos"
     )
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)

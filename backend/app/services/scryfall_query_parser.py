@@ -1,34 +1,50 @@
+# app/services/scryfall_query_parser.py
 # ---------------------------------------------------------
 # SERVICIO TRADUCTOR DE SINTAXIS SCRYFALL A SQL (SQLALCHEMY)
 # ---------------------------------------------------------
 import re
 from typing import List, Any
 from sqlalchemy import or_, and_, cast, Integer
-from app.models.card import CartaScryfall
 
-# Captura pares operador:valor soportando comillas: ej. o:"destroy all", pow>=4, mv<=3
+from app.models.card import CartaScryfall
+from app.crud.crud_cards import escape_like
+
 TOKEN_REGEX = re.compile(
     r'(?P<key>[a-zA-Z]+)(?P<op>[:=<>!]+)(?:"(?P<quoted_val>[^"]+)"|(?P<raw_val>[^\s]+))'
 )
 
+def _build_safe_stat_filter(stat_field: str, op: str, val_str: str):
+    """
+    Construye filtros numéricos para stats (pow/tou) protegiendo contra
+    valores no enteros de MTG (*, 1+*, X, ?) que rompen CAST() en PostgreSQL.
+    """
+    col_as_text = CartaScryfall.scryfall_raw_data[stat_field].astext
+    
+    # Si el valor buscado es puramente numérico (ej. pow>=4)
+    if re.match(r"^-?\d+$", val_str):
+        int_val = int(val_str)
+        # Validación regex en base de datos: solo aplicar cast si el campo en la fila es un entero
+        is_numeric = col_as_text.op("~")(r"^-?[0-9]+$")
+        casted_col = cast(col_as_text, Integer)
+        
+        if op in (":", "="):
+            return and_(is_numeric, casted_col == int_val)
+        elif op == "<=":
+            return and_(is_numeric, casted_col <= int_val)
+        elif op == ">=":
+            return and_(is_numeric, casted_col >= int_val)
+        elif op == "<":
+            return and_(is_numeric, casted_col < int_val)
+        elif op == ">":
+            return and_(is_numeric, casted_col > int_val)
+        elif op == "!=":
+            return or_(~is_numeric, casted_col != int_val)
+            
+    # Si buscan valores simbólicos como pow:* o tou:X, comparar como cadena literal
+    return col_as_text == val_str
+
 
 def parse_scryfall_query(query_str: str) -> List[Any]:
-    """
-    Traduce una cadena de búsqueda con sintaxis Scryfall en cláusulas SQLAlchemy.
-    Soporta:
-      - t: o type: (ej. t:creature, t:artifact)
-      - c: o color: (con modificadores de inclusión, exactitud o identidad)
-      - mv:, cmc: (operadores =, <=, >=, <, >)
-      - pow:, power:, tou:, toughness: (fuerza y resistencia)
-      - r: o rarity: (common, uncommon, rare, mythic)
-      - s: o set: (código de edición)
-      - o: o oracle: (texto de reglas)
-      - kw: o keyword: (palabras clave de mecánicas)
-      - a: o artist: (ilustrador)
-      - f: o format: (legalidad de formatos)
-      - is: (is:commander)
-      - Palabras libres: Búsqueda difusa en el nombre
-    """
     if not query_str:
         return []
 
@@ -43,7 +59,7 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
 
         # 1. Tipo y Subtipo de carta
         if key in ("t", "type"):
-            filters.append(CartaScryfall.type_line.ilike(f"%{val}%"))
+            filters.append(CartaScryfall.type_line.ilike(f"%{escape_like(val)}%", escape="\\"))
 
         # 2. Color e Identidad
         elif key in ("c", "color", "colors", "id", "identity"):
@@ -53,7 +69,7 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
             elif val_upper in ("M", "MULTI", "MULTICOLOR"):
                 filters.append(CartaScryfall.colors.like("%,%"))
             else:
-                color_conditions = [CartaScryfall.colors.ilike(f"%{char}%") for char in val_upper if char in "WUBRG"]
+                color_conditions = [CartaScryfall.colors.ilike(f"%{c}%", escape="\\") for c in val_upper if c in "WUBRG"]
                 if color_conditions:
                     filters.append(and_(*color_conditions))
 
@@ -74,64 +90,40 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
             except ValueError:
                 pass
 
-        # 4. Estadísticas de Combate: Fuerza (Power) y Resistencia (Toughness)
+        # 4. Estadísticas de Combate (Fuerza y Resistencia Seguras)
         elif key in ("pow", "power"):
-            try:
-                pow_val = int(val)
-                pow_col = cast(CartaScryfall.scryfall_raw_data["power"].astext, Integer)
-                if op in (":", "="):
-                    filters.append(pow_col == pow_val)
-                elif op == "<=":
-                    filters.append(pow_col <= pow_val)
-                elif op == ">=":
-                    filters.append(pow_col >= pow_val)
-                elif op == "<":
-                    filters.append(pow_col < pow_val)
-                elif op == ">":
-                    filters.append(pow_col > pow_val)
-            except (ValueError, Exception):
-                pass
+            condition = _build_safe_stat_filter("power", op, val)
+            if condition is not None:
+                filters.append(condition)
 
         elif key in ("tou", "toughness"):
-            try:
-                tou_val = int(val)
-                tou_col = cast(CartaScryfall.scryfall_raw_data["toughness"].astext, Integer)
-                if op in (":", "="):
-                    filters.append(tou_col == tou_val)
-                elif op == "<=":
-                    filters.append(tou_col <= tou_val)
-                elif op == ">=":
-                    filters.append(tou_col >= tou_val)
-                elif op == "<":
-                    filters.append(tou_col < tou_val)
-                elif op == ">":
-                    filters.append(tou_col > tou_val)
-            except (ValueError, Exception):
-                pass
+            condition = _build_safe_stat_filter("toughness", op, val)
+            if condition is not None:
+                filters.append(condition)
 
         # 5. Rareza
         elif key in ("r", "rarity"):
-            filters.append(CartaScryfall.rarity.ilike(val.lower()))
+            filters.append(CartaScryfall.rarity.ilike(escape_like(val.lower()), escape="\\"))
 
         # 6. Edición / Código de Set
         elif key in ("s", "set", "e", "edition"):
-            filters.append(CartaScryfall.set.ilike(val.lower()))
+            filters.append(CartaScryfall.set.ilike(escape_like(val.lower()), escape="\\"))
 
         # 7. Reglas (Oracle Text) y Palabras Clave (Keywords)
         elif key in ("o", "oracle"):
-            filters.append(CartaScryfall.oracle_text.ilike(f"%{val}%"))
+            filters.append(CartaScryfall.oracle_text.ilike(f"%{escape_like(val)}%", escape="\\"))
 
         elif key in ("kw", "keyword"):
             filters.append(
                 or_(
-                    CartaScryfall.oracle_text.ilike(f"%{val}%"),
-                    CartaScryfall.scryfall_raw_data["keywords"].astext.ilike(f"%{val}%")
+                    CartaScryfall.oracle_text.ilike(f"%{escape_like(val)}%", escape="\\"),
+                    CartaScryfall.scryfall_raw_data["keywords"].astext.ilike(f"%{escape_like(val)}%", escape="\\")
                 )
             )
 
         # 8. Artista / Ilustrador
         elif key in ("a", "artist"):
-            filters.append(CartaScryfall.scryfall_raw_data["artist"].astext.ilike(f"%{val}%"))
+            filters.append(CartaScryfall.scryfall_raw_data["artist"].astext.ilike(f"%{escape_like(val)}%", escape="\\"))
 
         # 9. Formato Legal
         elif key in ("f", "format", "legal"):
@@ -146,18 +138,18 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
                 filters.append(
                     or_(
                         and_(
-                            CartaScryfall.type_line.ilike("%Legendary%"),
-                            CartaScryfall.type_line.ilike("%Creature%")
+                            CartaScryfall.type_line.ilike("%Legendary%", escape="\\"),
+                            CartaScryfall.type_line.ilike("%Creature%", escape="\\")
                         ),
-                        CartaScryfall.oracle_text.ilike("%can be your commander%")
+                        CartaScryfall.oracle_text.ilike("%can be your commander%", escape="\\")
                     )
                 )
 
         remaining_text = remaining_text.replace(match.group(0), "")
 
-    # Búsqueda por coincidencia de nombre para los términos sueltos
+    # Búsqueda por nombre en términos restantes
     clean_name = remaining_text.strip()
     if clean_name:
-        filters.append(CartaScryfall.name.ilike(f"%{clean_name}%"))
+        filters.append(CartaScryfall.name.ilike(f"%{escape_like(clean_name)}%", escape="\\"))
 
     return filters

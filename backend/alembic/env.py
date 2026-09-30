@@ -1,3 +1,4 @@
+# alembic/env.py
 import sys
 from os.path import abspath, dirname
 from logging.config import fileConfig
@@ -8,7 +9,6 @@ from alembic import context
 # ---------------------------------------------------------
 # IMPORTACIÓN DEL NÚCLEO Y MODELOS DE LA APLICACIÓN
 # ---------------------------------------------------------
-# Asegurar que el directorio raíz de la app esté en el path de Python
 sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
 from app.core.config import settings
@@ -20,10 +20,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Asignar los metadatos para autogeneración de migraciones
 target_metadata = Base.metadata
 
-# Escapar '%' como '%%' para evitar errores de ConfigParser si la contraseña contiene percent-encoding
+# Escapar '%' como '%%' para evitar errores de ConfigParser con contraseñas codificadas
 safe_db_url = settings.DATABASE_URL.replace("%", "%%")
 config.set_main_option("sqlalchemy.url", safe_db_url)
 
@@ -47,8 +46,10 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Ejecuta migraciones en modo online contra PostgreSQL activo."""
+    configuration = config.get_section(config.config_ini_section, {})
+    
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
@@ -56,7 +57,8 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         context.configure(
             connection=connection, 
-            target_metadata=target_metadata
+            target_metadata=target_metadata,
+            compare_type=True
         )
 
         with context.begin_transaction():
