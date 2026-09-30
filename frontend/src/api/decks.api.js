@@ -26,12 +26,46 @@ export const getMyDecksApi = async (options = {}) => {
 
 /**
  * Registra un nuevo mazo para el usuario en sesión.
- * @param {Object} deckData - Objeto con datos del mazo (name, format, description).
+ * @param {Object} deckData - Objeto con datos del mazo (name, format, description, is_public).
  * @param {import('axios').AxiosRequestConfig} [options]
  * @returns {Promise<Object>}
  */
 export const createDeckApi = async (deckData, options = {}) => {
   const response = await apiClient.post('/decks', deckData, options);
+  return response.data;
+};
+
+/**
+ * Actualiza la información base o configuración de privacidad de un mazo.
+ * @param {string|number} deckId - ID del mazo a modificar.
+ * @param {Object} deckData - Atributos a actualizar (name, description, is_public, format).
+ * @param {import('axios').AxiosRequestConfig} [options]
+ * @returns {Promise<Object>}
+ */
+export const updateDeckApi = async (deckId, deckData, options = {}) => {
+  const response = await apiClient.patch(`/decks/${deckId}`, deckData, options);
+  return response.data;
+};
+
+/**
+ * Obtiene el listado de barajas públicas de la comunidad.
+ * @param {Object} [params] - Parámetros de consulta (format, search, skip, limit).
+ * @param {import('axios').AxiosRequestConfig} [options]
+ * @returns {Promise<Array<Object>>}
+ */
+export const getPublicDecksApi = async (params = {}, options = {}) => {
+  const response = await apiClient.get('/decks/public', { params, ...options });
+  return response.data;
+};
+
+/**
+ * Consulta el detalle público y lista de cartas de un mazo abierto de la comunidad.
+ * @param {string|number} deckId - ID del mazo público.
+ * @param {import('axios').AxiosRequestConfig} [options]
+ * @returns {Promise<Object>}
+ */
+export const getPublicDeckDetailApi = async (deckId, options = {}) => {
+  const response = await apiClient.get(`/decks/${deckId}/public`, options);
   return response.data;
 };
 

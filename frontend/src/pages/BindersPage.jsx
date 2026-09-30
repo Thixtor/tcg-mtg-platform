@@ -9,7 +9,6 @@ import {
   ArrowLeft, 
   Loader2, 
   RefreshCw, 
-  Lock, 
   Sparkles, 
   ArrowUpDown 
 } from 'lucide-react';
@@ -24,9 +23,11 @@ import {
 } from '@/api/collections';
 
 import { isAuthenticated } from '@/services/session.service';
+import { useCardModal } from '@/context/CardModalContext';
 import CreateCollectionModal from '@/components/collections/CreateCollectionModal';
 import WorkspaceToolbar from '@/components/common/WorkspaceToolbar';
 import CardGridItem from '@/components/common/CardGridItem';
+import GuestStateBanner from '@/components/common/GuestStateBanner';
 import { useTheme } from '@/context/ThemeContext';
 import { parseApiError } from '@/utils/apiErrors';
 import { 
@@ -36,6 +37,7 @@ import {
 
 export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTradeWall }) {
   const { isLightMode } = useTheme();
+  const { openCard } = useCardModal();
   const hasSession = isAuthenticated();
 
   const [collections, setCollections] = useState([]);
@@ -67,6 +69,22 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
     enableZones: false,
     defaultSort: 'name'
   });
+
+  // Guard para visitantes anónimos en vista personal (Soft-Gate)
+  if (!userId && !hasSession) {
+    return (
+      <main className={`min-h-screen px-4 py-12 transition-colors duration-200 ${
+        isLightMode ? 'bg-[#FAF7F2]' : 'bg-[#0B0B0B]'
+      }`}>
+        <GuestStateBanner
+          title="Carpetas y Gestión de Inventario Físico"
+          description="Organiza tus cartas de Magic en Binders digitales, controla tus copias disponibles y publica listas para intercambio local en el Muro de Trade."
+          icon={Layers}
+          onOpenAuthModal={onOpenAuthModal}
+        />
+      </main>
+    );
+  }
 
   // 2. Cargar listado de binders (autenticado o por perfil público)
   const fetchCollections = useCallback(async (signal) => {
@@ -185,29 +203,6 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
 
   const activeDisplayCard = hoveredCard || visibleCards[0] || null;
 
-  // Estado para visitantes no autenticados
-  if (!userId && !hasSession && !loadingCollections) {
-    return (
-      <div className="flex flex-col items-center justify-center py-28 text-center space-y-4">
-        <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-inner">
-          <Lock className="w-6 h-6" />
-        </div>
-        <h2 className="text-xl font-bold text-white tracking-tight">Inicia sesión para gestionar tus binders</h2>
-        <p className="text-sm text-neutral-400 max-w-md leading-relaxed">
-          Para ver tus binders, catalogar copias físicas y configurar cartas disponibles para trade necesitas autenticarte.
-        </p>
-        {onOpenAuthModal && (
-          <button
-            onClick={onOpenAuthModal}
-            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl transition shadow-md"
-          >
-            Iniciar Sesión / Registrarse
-          </button>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className={`min-h-screen transition-colors duration-200 ${
       isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0B0B0B] text-neutral-100'
@@ -289,12 +284,15 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
 
                   {activeDisplayCard ? (
                     <div className="space-y-4">
-                      <div className="aspect-[2.5/3.5] w-full rounded-xl overflow-hidden bg-neutral-950 shadow-xl relative">
+                      <div 
+                        className="aspect-[2.5/3.5] w-full rounded-xl overflow-hidden bg-neutral-950 shadow-xl relative cursor-pointer"
+                        onClick={() => openCard(activeDisplayCard.card_catalog || activeDisplayCard)}
+                      >
                         {activeDisplayCard.card_catalog?.image_url || activeDisplayCard.image_url ? (
                           <img 
                             src={activeDisplayCard.card_catalog?.image_url || activeDisplayCard.image_url} 
                             alt={activeDisplayCard.card_catalog?.name || activeDisplayCard.name}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover hover:scale-105 transition duration-300"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-xs text-neutral-500 p-4 text-center">
@@ -309,7 +307,10 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
                       </div>
 
                       <div className="space-y-2">
-                        <h3 className="text-base font-black truncate">
+                        <h3 
+                          className="text-base font-black truncate cursor-pointer hover:text-amber-500 transition"
+                          onClick={() => openCard(activeDisplayCard.card_catalog || activeDisplayCard)}
+                        >
                           {activeDisplayCard.card_catalog?.name || activeDisplayCard.name}
                         </h3>
                         <p className="text-xs text-neutral-400">
@@ -400,6 +401,7 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
                         isSelected={hoveredCard?.id === item.id}
                         isLightMode={isLightMode}
                         onHover={setHoveredCard}
+                        onClick={() => openCard(item.card_catalog || item)}
                         onIncrement={() => handleUpdateQuantity(item, 1)}
                         onRemove={() => handleRemoveCard(item.id)}
                         onToggleTrade={() => handleToggleTradeStatus(item)}

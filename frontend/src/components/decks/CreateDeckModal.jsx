@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// MODAL: CREACIÓN Y REGISTRO DE NUEVO MAZO
+// MODAL: CREACIÓN Y REGISTRO DE NUEVO MAZO (CON PRIVACIDAD)
 // ---------------------------------------------------------
 import React, { useState, useEffect } from 'react';
 import { 
@@ -9,7 +9,9 @@ import {
   Sparkles, 
   AlertCircle, 
   Check, 
-  Layers 
+  Layers,
+  Globe,
+  Lock
 } from 'lucide-react';
 import { createDeckApi, addCardToDeckApi } from '@/api/decks.api';
 
@@ -18,6 +20,7 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
   const [format, setFormat] = useState('commander');
   const [archetype, setArchetype] = useState('');
   const [description, setDescription] = useState('');
+  const [isPublic, setIsPublic] = useState(true);
   
   const [commanderSearch, setCommanderSearch] = useState('');
   const [commanderResults, setCommanderResults] = useState([]);
@@ -32,6 +35,7 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
       setFormat('commander');
       setArchetype('');
       setDescription('');
+      setIsPublic(true);
       setCommanderSearch('');
       setCommanderResults([]);
       setSelectedCommander(null);
@@ -95,11 +99,12 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
         description.trim() ? description.trim() : null
       ].filter(Boolean).join(' | ');
 
-      // 1. Guardar mazo en backend
+      // 1. Guardar mazo en backend incluyendo flag de privacidad
       const createdDeck = await createDeckApi({
         name: deckName.trim(),
         format: format === 'commander' ? 'Commander' : format.toUpperCase(),
-        description: fullDescription || undefined
+        description: fullDescription || undefined,
+        is_public: isPublic
       });
 
       // 2. Si es Commander, agregar el comandante seleccionado al mazo
@@ -199,6 +204,50 @@ export default function CreateDeckModal({ isOpen, onClose, currentDeckCount = 0,
               onChange={(e) => setArchetype(e.target.value)}
               className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2 text-neutral-200 placeholder:text-neutral-600 outline-none focus:border-amber-500 transition"
             />
+          </div>
+
+          {/* Control de Visibilidad y Privacidad */}
+          <div className="space-y-2 p-3.5 bg-neutral-950/80 rounded-xl border border-neutral-800/80">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-300 font-bold block">
+                  Visibilidad en la Comunidad
+                </span>
+                <span className="text-[11px] text-neutral-400">
+                  {isPublic 
+                    ? 'Visible en tu perfil público y disponible para que otros jugadores lo exploren o clonen.' 
+                    : 'Privado. Solo tú podrás ver y editar esta baraja.'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-neutral-900 p-1 rounded-xl border border-neutral-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsPublic(true)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    isPublic 
+                      ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs' 
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Público</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPublic(false)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    !isPublic 
+                      ? 'bg-neutral-800 text-white font-bold shadow-xs' 
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Privado</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {format === 'commander' && (

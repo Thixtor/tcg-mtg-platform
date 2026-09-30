@@ -4,9 +4,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   AlertTriangle, 
-  X, 
   Trash2, 
-  Plus 
+  Plus,
+  Shield
 } from 'lucide-react';
 
 import { 
@@ -26,8 +26,11 @@ import DeckLibraryPage from '@/pages/DeckLibraryPage';
 import ManaCostSymbols from '@/components/common/ManaCostSymbols';
 import WorkspaceToolbar from '@/components/common/WorkspaceToolbar';
 import CardGridItem from '@/components/common/CardGridItem';
+import GuestStateBanner from '@/components/common/GuestStateBanner';
 
 import { useTheme } from '@/context/ThemeContext';
+import { useCardModal } from '@/context/CardModalContext';
+import { isAuthenticated } from '@/services/session.service';
 import { 
   validateDeckLegality, 
   getCommanderColorIdentity, 
@@ -35,127 +38,8 @@ import {
   canHaveUnlimitedCopies 
 } from '@/utils/deckLegality';
 import { resolveCardType, SECTIONS_CONFIG } from '@/utils/mtgTypeResolver';
-import { 
-  useCardCollectionFilter, 
-  extractCardPriceUsd 
-} from '@/hooks/useCardCollectionFilter';
+import { useCardCollectionFilter } from '@/hooks/useCardCollectionFilter';
 import { parseApiError } from '@/utils/apiErrors';
-
-// Modal flotante para inspección detallada de una carta
-function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
-  if (!isOpen || !card) return null;
-
-  const catalog = card.card_catalog || card.scryfall_raw_data || {};
-  const imageUrl = 
-    card.image_url || 
-    catalog.image_url || 
-    card.image_uris?.normal || 
-    catalog.image_uris?.normal || 
-    card.card_faces?.[0]?.image_uris?.normal || 
-    catalog.card_faces?.[0]?.image_uris?.normal || 
-    '';
-
-  const oracleText = 
-    card.oracle_text || 
-    catalog.oracle_text || 
-    card.card_faces?.[0]?.oracle_text || 
-    catalog.card_faces?.[0]?.oracle_text || 
-    'Sin texto de reglas disponible.';
-
-  const typeLine = card.type_line || catalog.type_line || card.type || 'Tipo desconocido';
-  const numericPrice = extractCardPriceUsd(card);
-  const priceDisplay = numericPrice > 0 ? `$${numericPrice.toFixed(2)}` : 'N/A';
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm transition-opacity">
-      <div 
-        className={`relative w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row border transition-colors ${
-          isLightMode 
-            ? 'bg-[#FAF7F2] border-[#E8E2D5] text-[#24211E]' 
-            : 'bg-neutral-900 border-neutral-800 text-neutral-100'
-        }`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          onClick={onClose}
-          className={`absolute top-3 right-3 p-1.5 rounded-full z-10 transition ${
-            isLightMode 
-              ? 'bg-[#EAE4D7] text-neutral-700 hover:bg-[#DDD5C5]' 
-              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
-          }`}
-        >
-          <X className="w-4 h-4" />
-        </button>
-
-        <div className="w-full md:w-1/2 p-6 flex items-center justify-center bg-black/20">
-          {imageUrl ? (
-            <img 
-              src={imageUrl} 
-              alt={card.name} 
-              className="w-full max-w-[260px] rounded-xl shadow-xl transition-transform hover:scale-105"
-            />
-          ) : (
-            <div className="w-48 h-64 border border-dashed rounded-xl flex items-center justify-center text-xs text-neutral-500 text-center p-4">
-              Imagen no disponible
-            </div>
-          )}
-        </div>
-
-        <div className="w-full md:w-1/2 p-6 flex flex-col justify-between space-y-4">
-          <div className="space-y-2">
-            <h2 className="text-xl font-black uppercase tracking-tight leading-tight pr-6">
-              {card.name}
-            </h2>
-
-            <div className="flex items-center gap-2">
-              <ManaCostSymbols manaCost={card.mana_cost || catalog.mana_cost || card.manaCost || ''} />
-              <span className="text-xs font-mono opacity-70">
-                (CMC: {card.cmc ?? catalog.cmc ?? card.mana_value ?? catalog.mana_value ?? 0})
-              </span>
-            </div>
-
-            <p className={`text-xs font-mono font-bold pb-2 border-b ${
-              isLightMode ? 'border-[#EAE4D7] text-neutral-600' : 'border-neutral-800 text-neutral-400'
-            }`}>
-              {typeLine}
-            </p>
-
-            <div className={`p-3 rounded-xl text-xs leading-relaxed max-h-40 overflow-y-auto font-sans whitespace-pre-wrap ${
-              isLightMode ? 'bg-[#EAE4D7]/60' : 'bg-neutral-950/60'
-            }`}>
-              {oracleText}
-            </div>
-          </div>
-
-          <div className="space-y-2 pt-2 border-t border-neutral-800/40 font-mono text-xs">
-            <div className="flex items-center justify-between">
-              <span className="opacity-70">Estado Físico:</span>
-              <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
-                card.status === 'DISPONIBLE'
-                  ? 'bg-emerald-500/20 text-emerald-400'
-                  : card.status === 'EN_OTRO_MAZO'
-                  ? 'bg-amber-500/20 text-amber-400'
-                  : 'bg-rose-500/20 text-rose-400'
-              }`}>
-                {card.status || 'DESCONOCIDO'}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="opacity-70">Precio Mercado (USD):</span>
-              <span className="font-bold text-emerald-500">{priceDisplay}</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="opacity-70">Cantidad en este mazo:</span>
-              <span className="font-bold text-amber-500">{card.quantity_needed || 1}x</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function DecksPage({ 
   currentUser, 
@@ -164,9 +48,12 @@ export default function DecksPage({
   onOpenCreateDeckModal, 
   onNavigateToTradeWall,
   selectedDeckId,
-  onSelectDeckId
+  onSelectDeckId,
+  onOpenAuthModal
 }) {
   const { isLightMode } = useTheme();
+  const { openCard } = useCardModal();
+  const hasSession = isAuthenticated();
 
   const [decks, setDecks] = useState([]);
   const [internalDeckId, setInternalDeckId] = useState(null);
@@ -179,7 +66,6 @@ export default function DecksPage({
 
   const [deckCards, setDeckCards] = useState([]);
   const [hoveredCard, setHoveredCard] = useState(null);
-  const [selectedCardForModal, setSelectedCardForModal] = useState(null);
   const [isLoadingDecks, setIsLoadingDecks] = useState(false);
   const [isLoadingCards, setIsLoadingCards] = useState(false);
   const [deckActionError, setDeckActionError] = useState(null);
@@ -207,9 +93,25 @@ export default function DecksPage({
     defaultSort: 'type'
   });
 
+  // Guard para visitantes no autenticados (Soft-Gate)
+  if (!hasSession && !currentUser) {
+    return (
+      <main className={`min-h-screen px-4 py-12 transition-colors duration-200 ${
+        isLightMode ? 'bg-[#FAF7F2]' : 'bg-[#0B0B0B]'
+      }`}>
+        <GuestStateBanner
+          title="Constructor y Gestor de Mazos"
+          description="Crea, analiza y valida la legalidad de tus barajas de Commander y Construido enlazándolas automáticamente con tu colección física."
+          icon={Shield}
+          onOpenAuthModal={onOpenAuthModal}
+        />
+      </main>
+    );
+  }
+
   // 2. Cargar catálogo de mazos del usuario
   useEffect(() => {
-    if (!currentUser) {
+    if (!currentUser && !hasSession) {
       setDecks([]);
       onDeckCountChange?.(0);
       return;
@@ -232,7 +134,7 @@ export default function DecksPage({
       .finally(() => setIsLoadingDecks(false));
 
     return () => ctrl.abort();
-  }, [currentUser, refreshTrigger, onDeckCountChange]);
+  }, [currentUser, hasSession, refreshTrigger, onDeckCountChange]);
 
   // 3. Cargar cartas del mazo seleccionado
   const refreshCurrentDeckCards = useCallback(() => {
@@ -260,7 +162,7 @@ export default function DecksPage({
   const displayCard = hoveredCard || commanders[0] || deckCards[0];
   const legalityReport = useMemo(() => validateDeckLegality(deckCards, activeDeck?.format || 'commander'), [deckCards, activeDeck]);
 
-  // Modificación de copias respetando formato (Singleton en Commander, 4x en Construido)[cite: 15]
+  // Modificación de copias respetando formato (Singleton en Commander, 4x en Construido)[cite: 3]
   const handleUpdateQuantity = async (card, delta) => {
     setDeckActionError(null);
     const currentQty = card.quantity_needed || 1;
@@ -318,7 +220,7 @@ export default function DecksPage({
     maybeboard: deckCards.filter((c) => c.category === 'maybeboard').reduce((a, c) => a + (c.quantity_needed || 1), 0)
   }), [deckCards]);
 
-  // Agrupación de cartas según orden canónico de MTG
+  // Agrupación de cartas según orden canónico de MTG[cite: 3]
   const groupedCards = useMemo(() => {
     const groups = {};
     SECTIONS_CONFIG.forEach((s) => { 
@@ -493,7 +395,7 @@ export default function DecksPage({
                               <div
                                 key={card.deck_card_id}
                                 onMouseEnter={() => setHoveredCard(card)}
-                                onClick={() => setSelectedCardForModal(card)}
+                                onClick={() => openCard(card.card_catalog || card)}
                                 className={`py-1 px-2 rounded-lg flex items-center justify-between gap-1.5 transition group cursor-pointer ${
                                   hoveredCard?.deck_card_id === card.deck_card_id
                                     ? (isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-800/80')
@@ -606,7 +508,7 @@ export default function DecksPage({
                               isSelected={hoveredCard?.deck_card_id === card.deck_card_id}
                               isLightMode={isLightMode}
                               onHover={setHoveredCard}
-                              onClick={setSelectedCardForModal}
+                              onClick={() => openCard(card.card_catalog || card)}
                               onIncrement={() => handleUpdateQuantity(card, 1)}
                               onRemove={() => handleRemoveCard(card.deck_card_id)}
                               badgeTopLeft={card.category === 'commander' ? '👑 CMD' : card.status}
@@ -628,7 +530,7 @@ export default function DecksPage({
         {activeDeck && <DeckAnalyticsSection cards={deckCards} isLightMode={isLightMode} />}
       </div>
 
-      {/* 4. FOOTER CUMPLIENDO POLÍTICA SCRYFALL / WOTC */}
+      {/* 4. FOOTER CUMPLIENDO POLÍTICA SCRYFALL / WOTC[cite: 3] */}
       <footer className={`fixed bottom-0 left-0 right-0 z-40 px-6 py-2 flex items-center justify-between text-xs font-mono backdrop-blur-md ${
         isLightMode ? 'bg-[#FAF7F2]/95 text-neutral-700 border-t border-[#E0D8C8]' : 'bg-[#0B0B0B]/95 text-neutral-400 border-t border-neutral-900'
       }`}>
@@ -643,18 +545,11 @@ export default function DecksPage({
         </div>
 
         <div className="text-[11px] opacity-60 hidden sm:block">
-          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 16]
+          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 3]
         </div>
       </footer>
 
-      {/* 5. MODALES */}
-      <CardDetailsModal 
-        card={selectedCardForModal}
-        isOpen={Boolean(selectedCardForModal)}
-        onClose={() => setSelectedCardForModal(null)}
-        isLightMode={isLightMode}
-      />
-
+      {/* 5. MODALES AUXILIARES */}
       {activeDeck && (
         <BulkImportDeckModal
           isOpen={isBulkModalOpen}

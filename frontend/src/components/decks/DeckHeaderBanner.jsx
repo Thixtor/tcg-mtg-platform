@@ -1,16 +1,19 @@
 // ---------------------------------------------------------
-// COMPONENTE: BANNER DEL COMANDANTE CON BOTONES COMPLETOS
+// COMPONENTE: BANNER DEL COMANDANTE CON BOTONES Y PRIVACIDAD
 // ---------------------------------------------------------
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft,
   Plus, 
   FileText, 
   Flame, 
   AlertCircle, 
-  CheckCircle2
+  CheckCircle2,
+  Globe,
+  Lock
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
+import { updateDeckApi } from '@/api/decks.api';
 
 function getArtCropUrl(card) {
   if (!card) return '';
@@ -38,7 +41,33 @@ export default function DeckHeaderBanner({
 }) {
   const { isLightMode } = useTheme();
 
+  // Estado local reactivo para la privacidad del mazo activo
+  const [isPublic, setIsPublic] = useState(activeDeck?.is_public !== false);
+  const [isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
+
+  useEffect(() => {
+    if (activeDeck) {
+      setIsPublic(activeDeck.is_public !== false);
+    }
+  }, [activeDeck]);
+
   if (!activeDeck) return null;
+
+  const handleTogglePrivacy = async () => {
+    if (isUpdatingPrivacy) return;
+    const nextPrivacy = !isPublic;
+    setIsPublic(nextPrivacy);
+    setIsUpdatingPrivacy(true);
+
+    try {
+      await updateDeckApi(activeDeck.id, { is_public: nextPrivacy });
+    } catch (err) {
+      console.error('[DeckHeaderBanner] Error al actualizar privacidad:', err);
+      setIsPublic(!nextPrivacy); // Revertir en caso de error
+    } finally {
+      setIsUpdatingPrivacy(false);
+    }
+  };
 
   const artCropUrl = getArtCropUrl(commanderCard || commanders[0]);
 
@@ -99,6 +128,22 @@ export default function DeckHeaderBanner({
               <span className="px-2 py-0.5 rounded bg-amber-500 text-neutral-950 uppercase font-black">
                 {activeDeck.format || 'COMMANDER'}
               </span>
+
+              {/* Selector interactivo de privacidad */}
+              <button
+                type="button"
+                onClick={handleTogglePrivacy}
+                disabled={isUpdatingPrivacy}
+                title={isPublic ? 'Mazo público. Haz clic para cambiarlo a privado.' : 'Mazo privado. Haz clic para compartirlo con la comunidad.'}
+                className={`px-2 py-0.5 rounded flex items-center gap-1 transition ${
+                  isPublic 
+                    ? (isLightMode ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-emerald-950/70 text-emerald-400 hover:bg-emerald-900/70')
+                    : (isLightMode ? 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700')
+                }`}
+              >
+                {isPublic ? <Globe className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5" />}
+                <span>{isPublic ? 'Público' : 'Privado'}</span>
+              </button>
 
               <span className={`px-2 py-0.5 rounded flex items-center gap-1 ${
                 isLegal 

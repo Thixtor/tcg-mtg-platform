@@ -325,36 +325,16 @@ function AppContent() {
         </div>
       </header>
 
-      {/* 2. CONTENIDO PRINCIPAL */}
-      <div className="flex-1 flex flex-col">
+      {/* 2. CONTENIDO PRINCIPAL CON GUARDS MODULARES */}
+      <main className="flex-1 flex flex-col">
         {activeTab === 'catalog' && <CatalogPage />}
         
         {activeTab === 'binders' && (
-          currentUser?.id ? (
-            <BindersPage userId={currentUser?.id} onOpenAuthModal={() => setIsAuthModalOpen(true)} />
-          ) : (
-            <div className="flex-1 flex items-center justify-center p-6">
-              <div className={`w-full max-w-md p-8 rounded-2xl text-center space-y-3 ${
-                isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-900/60'
-              }`}>
-                <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
-                  <UserIcon className="w-6 h-6" />
-                </div>
-                <h3 className={`text-lg font-bold ${isLightMode ? 'text-[#1F1C19]' : 'text-white'}`}>
-                  Inicia Sesión
-                </h3>
-                <p className="text-sm text-neutral-500 leading-relaxed">
-                  Para ver y organizar tus binders comerciales, inicia sesión con tu cuenta.
-                </p>
-                <button
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl transition"
-                >
-                  Iniciar Sesión
-                </button>
-              </div>
-            </div>
-          )
+          <BindersPage 
+            userId={currentUser?.id} 
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onNavigateToTradeWall={() => setActiveTab('tradewall')} 
+          />
         )}
 
         {activeTab === 'decks' && (
@@ -366,13 +346,15 @@ function AppContent() {
             onNavigateToTradeWall={() => setActiveTab('tradewall')}
             selectedDeckId={selectedDeckId}
             onSelectDeckId={setSelectedDeckId}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
           />
         )}
 
         {activeTab === 'tradewall' && (
           <TradeWallPage 
             currentUser={currentUser} 
-            onNavigateToCatalog={() => setActiveTab('catalog')} 
+            onNavigateToCatalog={() => setActiveTab('catalog')}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
           />
         )}
 
@@ -383,16 +365,17 @@ function AppContent() {
             onOpenTradeModal={() => setActiveTab('tradewall')}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onEditProfileModal={() => setIsEditProfileModalOpen(true)}
+            onNavigateToCatalog={() => setActiveTab('catalog')}
           />
         )}
-      </div>
+      </main>
 
       {/* 3. MODALES GLOBALES */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         onLoginSuccess={(user) => {
-          setCurrentUser(user);
+          handleSelectUser(user);
           setIsAuthModalOpen(false);
         }}
       />
@@ -413,7 +396,7 @@ function AppContent() {
         }}
       />
 
-      {/* 4. FOOTER CUMPLIENDO POLÍTICA FAN CONTENT */}
+      {/* 4. FOOTER CUMPLIENDO DIRECTIVA SCRYFALL Y WOTC */}
       <footer className={`py-6 text-center text-xs px-4 transition-colors duration-200 border-t ${
         isLightMode 
           ? 'bg-[#FAF7F2] border-[#E8E2D5] text-neutral-600' 

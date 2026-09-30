@@ -1,10 +1,16 @@
 // ---------------------------------------------------------
-// PÁGINA: BIBLIOTECA DE MAZOS (CON AUDITORÍA FÍSICA RÁPIDA)
+// PÁGINA: BIBLIOTECA DE MAZOS (CON AUDITORÍA Y PRIVACIDAD)
 // ---------------------------------------------------------
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Shield, CheckCircle2, Layers, AlertCircle } from 'lucide-react';
+import { 
+  Plus, 
+  Search, 
+  Shield, 
+  Globe, 
+  Lock 
+} from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
-import { getDeckCardsWithStatusApi } from '@/api/decks.api';
+import { getDeckCardsWithStatusApi, updateDeckApi } from '@/api/decks.api';
 
 function extractArtCrop(card) {
   if (!card) return '';
@@ -28,15 +34,22 @@ export default function DeckLibraryPage({
   const { isLightMode } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Estado local para mutaciones reactivas de visibilidad
+  const [localDecks, setLocalDecks] = useState(decks);
+
+  useEffect(() => {
+    setLocalDecks(decks);
+  }, [decks]);
+  
   // Cache por mazo: { artCrop, commanderName, available, inOther, missing, total }
   const [deckMetaMap, setDeckMetaMap] = useState({});
 
   useEffect(() => {
-    if (!decks || decks.length === 0) return;
+    if (!localDecks || localDecks.length === 0) return;
 
     let isMounted = true;
 
-    decks.forEach((deck) => {
+    localDecks.forEach((deck) => {
       if (deckMetaMap[deck.id]) return;
 
       getDeckCardsWithStatusApi(deck.id)
@@ -83,10 +96,31 @@ export default function DeckLibraryPage({
     return () => {
       isMounted = false;
     };
-  }, [decks]);
+  }, [localDecks, deckMetaMap]);
+
+  // Alternar privacidad rápida en el mazo
+  const handleTogglePrivacy = async (e, deck) => {
+    e.stopPropagation();
+    const nextPrivacy = deck.is_public === false;
+    
+    // Actualización optimista local
+    setLocalDecks((prev) =>
+      prev.map((d) => (d.id === deck.id ? { ...d, is_public: nextPrivacy } : d))
+    );
+
+    try {
+      await updateDeckApi(deck.id, { is_public: nextPrivacy });
+    } catch (err) {
+      console.error('[Biblioteca] Error actualizando privacidad del mazo:', err);
+      // Revertir en caso de fallo
+      setLocalDecks((prev) =>
+        prev.map((d) => (d.id === deck.id ? { ...d, is_public: !nextPrivacy } : d))
+      );
+    }
+  };
 
   const filteredDecks = useMemo(() => {
-    return decks.filter((d) => {
+    return localDecks.filter((d) => {
       const meta = deckMetaMap[d.id];
       const cmdName = meta?.commanderName || d.commander_name || '';
       return (
@@ -95,7 +129,7 @@ export default function DeckLibraryPage({
         (d.description || '').toLowerCase().includes(searchTerm.toLowerCase())
       );
     });
-  }, [decks, searchTerm, deckMetaMap]);
+  }, [localDecks, searchTerm, deckMetaMap]);
 
   return (
     <div className={`min-h-[calc(100vh-4rem)] px-6 py-6 transition-colors duration-200 ${
@@ -113,7 +147,7 @@ export default function DeckLibraryPage({
               <span>Mi Biblioteca de Mazos</span>
             </h1>
             <p className="text-xs font-mono text-neutral-500">
-              {decks.length} de 10 mazos registrados
+              {localDecks.length} de 10 mazos registrados
             </p>
           </div>
 
@@ -175,6 +209,7 @@ export default function DeckLibraryPage({
               const artCrop = meta.artCrop || '';
               const commanderTitle = meta.commanderName || deck.commander_name;
               const formatTag = (deck.format || 'Commander').slice(0, 3).toUpperCase();
+              const isDeckPublic = deck.is_public !== false; // Público por defecto
 
               const total = meta.total || deck.total_cards || 100;
               const available = meta.available ?? 0;
@@ -213,11 +248,29 @@ export default function DeckLibraryPage({
                       : 'bg-gradient-to-t from-[#0B0B0B] via-[#0B0B0B]/85 to-black/30'
                   }`} />
 
-                  {/* Cabecera de la Tarjeta */}
+                  {/* Cabecera de la Tarjeta con Insignia de Privacidad */}
                   <div className="relative z-10 flex items-center justify-between">
-                    <span className="px-2 py-0.5 rounded bg-amber-500 text-neutral-950 font-black text-[9px] tracking-wider uppercase shadow-xs">
-                      {formatTag}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded bg-amber-500 text-neutral-950 font-black text-[9px] tracking-wider uppercase shadow-xs">
+                        {formatTag}
+                      </span>
+                      
+                      {/* Botón interactivo de privacidad */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleTogglePrivacy(e, deck)}
+                        title={isDeckPublic ? 'Mazo público (haz clic para hacerlo privado)' : 'Mazo privado (haz clic para hacerlo público)'}
+                        className={`px-2 py-0.5 rounded-md font-mono text-[9px] font-bold flex items-center gap-1 transition backdrop-blur-md ${
+                          isDeckPublic
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-neutral-800/80 text-neutral-300 border border-neutral-700 hover:bg-neutral-700'
+                        }`}
+                      >
+                        {isDeckPublic ? <Globe className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5" />}
+                        <span>{isDeckPublic ? 'Público' : 'Privado'}</span>
+                      </button>
+                    </div>
+
                     <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full backdrop-blur-md font-semibold ${
                       isLightMode 
                         ? 'bg-[#FAF7F2]/90 text-neutral-800' 
