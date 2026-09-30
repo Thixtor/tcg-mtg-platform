@@ -1,7 +1,7 @@
 // ---------------------------------------------------------
 // PÁGINA: MURO DE INTERCAMBIOS P2P & MATCHMAKING LOCAL
 // ---------------------------------------------------------
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ArrowLeftRight,
   Store,
@@ -16,34 +16,48 @@ import {
   Send,
   X,
   Flame,
-  AlertCircle
+  Copy,
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import { getTradeMarketApi, getMyTradeMatchesApi } from '../api/trade';
+import { parseApiError } from '@/utils/apiErrors';
 
 export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
   const [marketCards, setMarketCards] = useState([]);
   const [mutualMatches, setMutualMatches] = useState([]);
   const [isLoadingMarket, setIsLoadingMarket] = useState(false);
   const [isLoadingMatches, setIsLoadingMatches] = useState(false);
+  const [apiError, setApiError] = useState(null);
 
   const [selectedProposal, setSelectedProposal] = useState(null);
+  const [meetingLocation, setMeetingLocation] = useState('LGS Dragon Hobby • Bello');
   const [proposalNote, setProposalNote] = useState('');
-  const [proposalSuccess, setProposalSuccess] = useState('');
+  const [copiedDraft, setCopiedDraft] = useState(false);
 
   const [searchFilter, setSearchFilter] = useState('');
   const [onlyFoils, setOnlyFoils] = useState(false);
   const [nearMintOnly, setNearMintOnly] = useState(false);
 
+  // Tasa de cambio acordada (leída de las preferencias del usuario o fallback)
+  const currentUsdRate = useMemo(() => {
+    return localStorage.getItem('mtg_trade_rate') || '3000';
+  }, []);
+
+  const userLocation = currentUser?.location || 'Área Metropolitana';
+
   // 1. Cargar cartas disponibles del mercado global
   useEffect(() => {
     const ctrl = new AbortController();
     setIsLoadingMarket(true);
+    setApiError(null);
 
     getTradeMarketApi({ limit: 40 }, { signal: ctrl.signal })
-      .then((data) => setMarketCards(data || []))
+      .then((data) => setMarketCards(Array.isArray(data) ? data : []))
       .catch((err) => {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.error('Error al cargar cartas de trade:', err);
+          console.error('[TradeWall] Error al cargar mercado:', err);
+          setApiError(parseApiError(err, 'No fue posible cargar las cartas en trade.'));
         }
       })
       .finally(() => setIsLoadingMarket(false));
@@ -62,10 +76,10 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
     setIsLoadingMatches(true);
 
     getMyTradeMatchesApi({ signal: ctrl.signal })
-      .then((data) => setMutualMatches(data || []))
+      .then((data) => setMutualMatches(Array.isArray(data) ? data : []))
       .catch((err) => {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.error('Error al cargar cruces:', err);
+          console.error('[TradeWall] Error al cargar cruces mutuos:', err);
         }
       })
       .finally(() => setIsLoadingMatches(false));
@@ -74,31 +88,37 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
   }, [currentUser]);
 
   // Filtrado reactivo en cliente sobre las cartas del mercado
-  const filteredMarketCards = marketCards.filter((card) => {
-    if (onlyFoils && !card.is_foil) return false;
-    if (nearMintOnly && card.condition !== 'NM') return false;
-    if (searchFilter.trim()) {
-      const q = searchFilter.toLowerCase();
-      const matchName = card.card_name.toLowerCase().includes(q);
-      const matchOwner = card.owner_username.toLowerCase().includes(q);
-      const matchSet = (card.set_code || '').toLowerCase().includes(q);
-      if (!matchName && !matchOwner && !matchSet) return false;
-    }
-    return true;
-  });
+  const filteredMarketCards = useMemo(() => {
+    return marketCards.filter((card) => {
+      if (onlyFoils && !card.is_foil) return false;
+      if (nearMintOnly && card.condition !== 'NM') return false;
+      if (searchFilter.trim()) {
+        const q = searchFilter.toLowerCase();
+        const cardName = (card.card_name || card.name || '').toLowerCase();
+        const ownerName = (card.owner_username || '').toLowerCase();
+        const setCode = (card.set_code || '').toLowerCase();
+        if (!cardName.includes(q) && !ownerName.includes(q) && !setCode.includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [marketCards, onlyFoils, nearMintOnly, searchFilter]);
 
   const handleOpenProposal = (match) => {
     setSelectedProposal(match);
-    setProposalNote(`Hola ${match.username}, me interesan las cartas de tu colección para revisión presencial.`);
-    setProposalSuccess('');
+    setCopiedDraft(false);
+    const wantedCards = match.they_have.map((c) => c.card_name).slice(0, 3).join(', ');
+    setProposalNote(
+      `Hola @${match.username}, te escribo desde MTG Trade Platform. Me interesan: ${wantedCards}. Tengo cartas de tu Wishlist disponibles para coordinar en ${meetingLocation}.`
+    );
   };
 
-  const handleSendProposal = () => {
-    setProposalSuccess(`¡Propuesta enviada con éxito a @${selectedProposal.username}! Te notificaremos cuando responda.`);
-    setTimeout(() => {
-      setSelectedProposal(null);
-      setProposalSuccess('');
-    }, 2000);
+  const handleCopyProposalDraft = () => {
+    if (!proposalNote) return;
+    navigator.clipboard.writeText(proposalNote);
+    setCopiedDraft(true);
+    setTimeout(() => setCopiedDraft(false), 2500);
   };
 
   return (
@@ -109,11 +129,11 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
         <div className="flex items-center gap-4 overflow-x-auto text-neutral-400">
           <div className="flex items-center gap-1.5 bg-neutral-950/80 px-2.5 py-1 rounded border border-neutral-800">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-neutral-200 font-semibold">MOTOR SCRYFALL P2P</span>
+            <span className="text-neutral-200 font-semibold">MOTOR DE INTERCAMBIO P2P</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-neutral-500">TASA TRM:</span>
-            <span className="text-amber-500 font-bold">1 USD ≈ 3,980 COP</span>
+            <span className="text-neutral-500">TASA ACORDADA:</span>
+            <span className="text-amber-500 font-bold">1 USD = ${Number(currentUsdRate).toLocaleString('es-CO')} COP</span>
           </div>
           <span className="text-neutral-700">•</span>
           <div>
@@ -122,11 +142,17 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 text-emerald-400 text-[11px]">
-          <ShieldCheck className="w-4 h-4" />
-          <span>Intercambios presenciales protegidos</span>
+        <div className="flex items-center gap-1.5 text-neutral-400 text-[11px]">
+          <Store className="w-4 h-4 text-amber-500" />
+          <span>Intercambios presenciales recomendados en tiendas LGS</span>
         </div>
       </section>
+
+      {apiError && (
+        <div className="p-3 bg-rose-950/40 border border-rose-500/50 rounded-xl text-xs text-rose-300">
+          {apiError}
+        </div>
+      )}
 
       {/* 2. BARRA DE FILTROS */}
       <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-4 backdrop-blur-md space-y-4">
@@ -135,8 +161,8 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
             <div className="flex items-center gap-2 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800 text-xs">
               <MapPin className="w-4 h-4 text-amber-500" />
               <div>
-                <span className="text-[10px] text-neutral-500 block uppercase font-mono">Ubicación</span>
-                <span className="font-bold text-white">Bello • Medellín</span>
+                <span className="text-[10px] text-neutral-500 block uppercase font-mono">Zona activa</span>
+                <span className="font-bold text-white">{userLocation}</span>
               </div>
             </div>
           </div>
@@ -189,7 +215,7 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
               </div>
               <div>
                 <h2 className="text-base font-bold text-white tracking-tight">Cruces Mutuos (Mutual Matches)</h2>
-                <p className="text-xs text-neutral-400">Coincidencias entre tu Wishlist y cartas en trade</p>
+                <p className="text-xs text-neutral-400">Coincidencias entre tu Wishlist y cartas en trade público</p>
               </div>
             </div>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-emerald-950/60 border border-emerald-800/60 text-emerald-400">
@@ -204,9 +230,17 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
           ) : isLoadingMatches ? (
             <div className="py-8 text-center text-xs font-mono text-neutral-500">Calculando cruces de trade...</div>
           ) : mutualMatches.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-neutral-900/40 border border-neutral-800 text-center text-xs text-neutral-500 space-y-2">
+            <div className="p-6 rounded-2xl bg-neutral-900/40 border border-neutral-800 text-center text-xs text-neutral-500 space-y-3">
               <Flame className="w-6 h-6 text-neutral-600 mx-auto" />
               <p>No hay cruces directos en este momento. Agrega más cartas a tu Wishlist y marca cartas para trade en tus colecciones.</p>
+              {onNavigateToCatalog && (
+                <button
+                  onClick={onNavigateToCatalog}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
+                >
+                  <Search className="w-3.5 h-3.5" /> Explorar Catálogo
+                </button>
+              )}
             </div>
           ) : (
             mutualMatches.map((match) => (
@@ -226,7 +260,7 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
                           <Star className="w-3 h-3 fill-amber-400 text-amber-400" /> {match.reputation_score} pts
                         </span>
                       </div>
-                      <span className="text-xs text-neutral-400">Punto de encuentro: Área Metropolitana</span>
+                      <span className="text-xs text-neutral-400">Punto sugerido: Tienda LGS local</span>
                     </div>
                   </div>
 
@@ -270,7 +304,7 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
                     onClick={() => handleOpenProposal(match)}
                     className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-500/10"
                   >
-                    <Send className="w-3.5 h-3.5" /> Iniciar Propuesta
+                    <Send className="w-3.5 h-3.5" /> Preparar Contacto de Trade
                   </button>
                 </div>
               </article>
@@ -287,7 +321,7 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
               </div>
               <div>
                 <h2 className="text-base font-bold text-white tracking-tight">Cartas en Binders Locales</h2>
-                <p className="text-xs text-neutral-400">Cartas activas para intercambio</p>
+                <p className="text-xs text-neutral-400">Publicadas para intercambio directo</p>
               </div>
             </div>
           </div>
@@ -308,7 +342,7 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
                   <div>
                     <div className="aspect-[2.5/3.5] w-full rounded-lg overflow-hidden bg-neutral-950 relative mb-2">
                       {item.image_url ? (
-                        <img src={item.image_url} alt={item.card_name} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                        <img src={item.image_url} alt={item.card_name} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" />
                       ) : (
                         <div className="w-full h-full bg-neutral-900 flex items-center justify-center text-neutral-600 text-xs">Sin Arte</div>
                       )}
@@ -358,15 +392,15 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
 
       </div>
 
-      {/* 4. MODAL INTERACTIVO DE PROPUESTA */}
+      {/* 4. MODAL TRANSPARENTE DE PROPUESTA P2P */}
       {selectedProposal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 bg-neutral-950 border-b border-neutral-800 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-white">Mesa de Negociación • @{selectedProposal.username}</h3>
+                <h3 className="text-base font-bold text-white">Coordinar Intercambio • @{selectedProposal.username}</h3>
                 <span className="text-xs text-neutral-400 font-mono">
-                  Reputación: {selectedProposal.reputation_score} pts
+                  Reputación comercial: {selectedProposal.reputation_score} pts
                 </span>
               </div>
               <button
@@ -378,59 +412,73 @@ export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-5 text-xs">
-              {proposalSuccess ? (
-                <div className="p-4 rounded-xl bg-emerald-950/50 border border-emerald-800/60 text-emerald-300 text-center font-mono">
-                  {proposalSuccess}
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-mono text-neutral-400 block font-semibold">
-                      Punto de Encuentro Sugerido (Tienda LGS)
-                    </label>
-                    <select className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 outline-none focus:border-amber-500">
-                      <option>LGS Dragon Hobby • Bello</option>
-                      <option>La Cueva del Geek • Medellín / Estadio</option>
-                      <option>Comic Store Viva Envigado • Envigado</option>
-                    </select>
-                  </div>
+              <div className="p-3 bg-amber-950/20 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-amber-300">
+                <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                <p className="text-[11px] leading-relaxed">
+                  Para tu seguridad, los intercambios deben concretarse de mutuo acuerdo en tiendas LGS o sitios públicos reconocidos. Copia este mensaje para iniciar contacto directo con el jugador.
+                </p>
+              </div>
 
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-mono text-neutral-400 block font-semibold">
-                      Mensaje para la contraparte
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={proposalNote}
-                      onChange={(e) => setProposalNote(e.target.value)}
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-neutral-200 outline-none focus:border-amber-500 resize-none"
-                    />
-                  </div>
-                </>
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase font-mono text-neutral-400 block font-semibold">
+                  Punto de Encuentro Sugerido
+                </label>
+                <select 
+                  value={meetingLocation}
+                  onChange={(e) => {
+                    setMeetingLocation(e.target.value);
+                    const wantedCards = selectedProposal.they_have.map((c) => c.card_name).slice(0, 3).join(', ');
+                    setProposalNote(
+                      `Hola @${selectedProposal.username}, te escribo desde MTG Trade Platform. Me interesan: ${wantedCards}. Tengo cartas de tu Wishlist disponibles para coordinar en ${e.target.value}.`
+                    );
+                  }}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 outline-none focus:border-amber-500"
+                >
+                  <option value="LGS Dragon Hobby • Bello">LGS Dragon Hobby • Bello</option>
+                  <option value="La Cueva del Geek • Medellín / Estadio">La Cueva del Geek • Medellín / Estadio</option>
+                  <option value="Comic Store Viva Envigado • Envigado">Comic Store Viva Envigado • Envigado</option>
+                  <option value="Punto Neutral Acordado">Punto Neutral Acordado</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase font-mono text-neutral-400 block font-semibold">
+                  Mensaje de Negociación Preparado
+                </label>
+                <textarea
+                  rows={4}
+                  value={proposalNote}
+                  onChange={(e) => setProposalNote(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-neutral-200 outline-none focus:border-amber-500 resize-none font-mono text-xs leading-relaxed"
+                />
+              </div>
+
+              {copiedDraft && (
+                <div className="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 text-center font-mono text-xs flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" /> Mensaje copiado al portapapeles. Listo para enviar por chat.
+                </div>
               )}
             </div>
 
-            {!proposalSuccess && (
-              <div className="px-6 py-4 bg-neutral-950 border-t border-neutral-800 flex items-center justify-between">
-                <span className="text-[11px] font-mono text-neutral-500 flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-amber-500" /> Acuerdos presenciales verificados
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSelectedProposal(null)}
-                    className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs transition"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleSendProposal}
-                    className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-500/10"
-                  >
-                    <Send className="w-3.5 h-3.5" /> Enviar Propuesta P2P
-                  </button>
-                </div>
+            <div className="px-6 py-4 bg-neutral-950 border-t border-neutral-800 flex items-center justify-between">
+              <span className="text-[11px] font-mono text-neutral-500 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-amber-500" /> Encuentros presenciales en LGS
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedProposal(null)}
+                  className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs transition"
+                >
+                  Cerrar
+                </button>
+                <button
+                  onClick={handleCopyProposalDraft}
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-500/10"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copiar Mensaje
+                </button>
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}

@@ -4,6 +4,7 @@
 
 const ACCESS_TOKEN_KEY = 'access_token';
 const USER_DATA_KEY = 'user';
+const DEV_USER_KEY = 'mtg_dev_user';
 
 /**
  * Guarda el token JWT y el perfil del usuario autenticado.
@@ -53,12 +54,14 @@ export const getCurrentUser = () => {
 };
 
 /**
- * Elimina las credenciales de almacenamiento local ante logout o expiración confirmada.
+ * Elimina todas las credenciales y datos de usuario en almacenamiento local
+ * ante logout voluntario o expiración de token confirmada (401).
  */
 export const clearSession = () => {
   try {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(USER_DATA_KEY);
+    localStorage.removeItem(DEV_USER_KEY);
   } catch (error) {
     console.warn('[Session] Error limpiando la sesión de localStorage:', error);
   }

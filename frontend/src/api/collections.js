@@ -45,9 +45,39 @@ export const addCardToCollectionApi = async (collectionId, payload, options = {}
 };
 
 /**
+ * Actualiza atributos físicos o comerciales de una carta en una colección.
+ * @param {string|number} collectionId
+ * @param {string|number} cardId
+ * @param {Object} payload - { quantity?: number, condition?: string, is_foil?: boolean, is_for_trade?: boolean, trade_notes?: string }
+ */
+export const updateCollectionCardApi = async (collectionId, cardId, payload, options = {}) => {
+  const response = await apiClient.patch(`/collections/${collectionId}/cards/${cardId}`, payload, options);
+  return response.data;
+};
+
+/**
  * Elimina una carta física de una colección.
  */
 export const removeCardFromCollectionApi = async (collectionId, cardId, options = {}) => {
   const response = await apiClient.delete(`/collections/${collectionId}/cards/${cardId}`, options);
   return response.data;
+};
+
+/**
+ * Elimina una colección o binder completo.
+ */
+export const deleteCollectionApi = async (collectionId, options = {}) => {
+  const response = await apiClient.delete(`/collections/${collectionId}`, options);
+  return response.data;
+};
+
+export default {
+  getMyCollectionsApi,
+  createMyCollectionApi,
+  getUserCollectionsApi,
+  getCollectionCardsApi,
+  addCardToCollectionApi,
+  updateCollectionCardApi,
+  removeCardFromCollectionApi,
+  deleteCollectionApi
 };

@@ -1,18 +1,12 @@
 // ---------------------------------------------------------
-// PÁGINA: ORQUESTADOR Y EDITOR DE MAZOS (CON MODAL DE CARTA)
+// PÁGINA: ORQUESTADOR Y EDITOR DE MAZOS (REFACTORIZADO)
 // ---------------------------------------------------------
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
-  Plus, 
-  Trash2, 
-  Crown, 
   AlertTriangle, 
   X, 
-  ExternalLink, 
-  DollarSign, 
-  Layers, 
-  CheckCircle2, 
-  Clock 
+  Trash2, 
+  Plus 
 } from 'lucide-react';
 
 import { 
@@ -25,33 +19,55 @@ import {
 import AddCardInline from '@/components/decks/AddCardInline';
 import BulkImportDeckModal from '@/components/decks/BulkImportDeckModal';
 import OpeningHandSimulatorModal from '@/components/decks/OpeningHandSimulatorModal';
-import DeckToolbar from '@/components/decks/DeckToolbar';
 import CardShowcaseSidebar from '@/components/common/CardShowcaseSidebar';
 import DeckHeaderBanner from '@/components/decks/DeckHeaderBanner';
 import DeckAnalyticsSection from '@/components/decks/DeckAnalyticsSection';
 import DeckLibraryPage from '@/pages/DeckLibraryPage';
 import ManaCostSymbols from '@/components/common/ManaCostSymbols';
+import WorkspaceToolbar from '@/components/common/WorkspaceToolbar';
+import CardGridItem from '@/components/common/CardGridItem';
 
 import { useTheme } from '@/context/ThemeContext';
 import { 
   validateDeckLegality, 
   getCommanderColorIdentity, 
   isCardColorIdentityLegal, 
-  canHaveMultipleCopies 
+  canHaveUnlimitedCopies 
 } from '@/utils/deckLegality';
 import { resolveCardType, SECTIONS_CONFIG } from '@/utils/mtgTypeResolver';
+import { 
+  useCardCollectionFilter, 
+  extractCardPriceUsd 
+} from '@/hooks/useCardCollectionFilter';
+import { parseApiError } from '@/utils/apiErrors';
 
 // Modal flotante para inspección detallada de una carta
 function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
   if (!isOpen || !card) return null;
 
-  const imageUrl = card.image_url || card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || '';
-  const oracleText = card.oracle_text || card.card_faces?.[0]?.oracle_text || 'Sin texto de reglas disponible.';
-  const typeLine = card.type_line || card.type || 'Tipo desconocido';
-  const priceUsd = card.prices?.usd ? `$${card.prices.usd}` : (card.price_usd ? `$${card.price_usd}` : 'N/A');
+  const catalog = card.card_catalog || card.scryfall_raw_data || {};
+  const imageUrl = 
+    card.image_url || 
+    catalog.image_url || 
+    card.image_uris?.normal || 
+    catalog.image_uris?.normal || 
+    card.card_faces?.[0]?.image_uris?.normal || 
+    catalog.card_faces?.[0]?.image_uris?.normal || 
+    '';
+
+  const oracleText = 
+    card.oracle_text || 
+    catalog.oracle_text || 
+    card.card_faces?.[0]?.oracle_text || 
+    catalog.card_faces?.[0]?.oracle_text || 
+    'Sin texto de reglas disponible.';
+
+  const typeLine = card.type_line || catalog.type_line || card.type || 'Tipo desconocido';
+  const numericPrice = extractCardPriceUsd(card);
+  const priceDisplay = numericPrice > 0 ? `$${numericPrice.toFixed(2)}` : 'N/A';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm transition-opacity">
       <div 
         className={`relative w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row border transition-colors ${
           isLightMode 
@@ -60,7 +76,6 @@ function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Botón de Cierre */}
         <button
           onClick={onClose}
           className={`absolute top-3 right-3 p-1.5 rounded-full z-10 transition ${
@@ -72,7 +87,6 @@ function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
           <X className="w-4 h-4" />
         </button>
 
-        {/* Lado Izquierdo: Imagen de la Carta */}
         <div className="w-full md:w-1/2 p-6 flex items-center justify-center bg-black/20">
           {imageUrl ? (
             <img 
@@ -87,19 +101,16 @@ function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
           )}
         </div>
 
-        {/* Lado Derecho: Metadatos y Reglas */}
         <div className="w-full md:w-1/2 p-6 flex flex-col justify-between space-y-4">
           <div className="space-y-2">
-            <div className="flex items-start justify-between gap-2 pr-6">
-              <h2 className="text-xl font-black uppercase tracking-tight leading-tight">
-                {card.name}
-              </h2>
-            </div>
+            <h2 className="text-xl font-black uppercase tracking-tight leading-tight pr-6">
+              {card.name}
+            </h2>
 
             <div className="flex items-center gap-2">
-              <ManaCostSymbols manaCost={card.mana_cost || card.manaCost || ''} />
+              <ManaCostSymbols manaCost={card.mana_cost || catalog.mana_cost || card.manaCost || ''} />
               <span className="text-xs font-mono opacity-70">
-                (CMC: {card.cmc ?? card.mana_value ?? 0})
+                (CMC: {card.cmc ?? catalog.cmc ?? card.mana_value ?? catalog.mana_value ?? 0})
               </span>
             </div>
 
@@ -109,7 +120,6 @@ function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
               {typeLine}
             </p>
 
-            {/* Texto de Reglas Oracle */}
             <div className={`p-3 rounded-xl text-xs leading-relaxed max-h-40 overflow-y-auto font-sans whitespace-pre-wrap ${
               isLightMode ? 'bg-[#EAE4D7]/60' : 'bg-neutral-950/60'
             }`}>
@@ -117,9 +127,8 @@ function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
             </div>
           </div>
 
-          {/* Información de Inventario y Precios */}
-          <div className="space-y-2 pt-2 border-t border-neutral-800/40">
-            <div className="flex items-center justify-between text-xs font-mono">
+          <div className="space-y-2 pt-2 border-t border-neutral-800/40 font-mono text-xs">
+            <div className="flex items-center justify-between">
               <span className="opacity-70">Estado Físico:</span>
               <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
                 card.status === 'DISPONIBLE'
@@ -132,18 +141,14 @@ function CardDetailsModal({ card, isOpen, onClose, isLightMode }) {
               </span>
             </div>
 
-            <div className="flex items-center justify-between text-xs font-mono">
+            <div className="flex items-center justify-between">
               <span className="opacity-70">Precio Mercado (USD):</span>
-              <span className="font-bold text-emerald-500 flex items-center gap-0.5">
-                {priceUsd}
-              </span>
+              <span className="font-bold text-emerald-500">{priceDisplay}</span>
             </div>
 
-            <div className="flex items-center justify-between text-xs font-mono">
+            <div className="flex items-center justify-between">
               <span className="opacity-70">Cantidad en este mazo:</span>
-              <span className="font-bold text-amber-500">
-                {card.quantity_needed || 1}x
-              </span>
+              <span className="font-bold text-amber-500">{card.quantity_needed || 1}x</span>
             </div>
           </div>
         </div>
@@ -177,20 +182,32 @@ export default function DecksPage({
   const [selectedCardForModal, setSelectedCardForModal] = useState(null);
   const [isLoadingDecks, setIsLoadingDecks] = useState(false);
   const [isLoadingCards, setIsLoadingCards] = useState(false);
+  const [deckActionError, setDeckActionError] = useState(null);
 
-  // Estados visuales y de filtrado dentro del mazo
-  const [currentTab, setCurrentTab] = useState('main');
+  // Estados visuales del Workspace
   const [viewMode, setViewMode] = useState('text');
   const [cardSize, setCardSize] = useState('md');
-  const [statusFilter, setStatusFilter] = useState(null);
-  const [inDeckFilter, setInDeckFilter] = useState('');
-  const [sortBy, setSortBy] = useState('type');
-
-  // Modales
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
 
-  // 1. Cargar lista general de mazos
+  // 1. Delegación de filtrado y ordenamiento en el custom hook universal
+  const {
+    filterQuery,
+    setFilterQuery,
+    sortBy,
+    setSortBy,
+    activeZone,
+    setActiveZone,
+    statusFilter,
+    setStatusFilter,
+    filteredCards: visibleCards
+  } = useCardCollectionFilter(deckCards, {
+    enableZones: true,
+    defaultZone: 'main',
+    defaultSort: 'type'
+  });
+
+  // 2. Cargar catálogo de mazos del usuario
   useEffect(() => {
     if (!currentUser) {
       setDecks([]);
@@ -209,7 +226,7 @@ export default function DecksPage({
       })
       .catch((err) => {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.warn('[Mazos] Error al consultar mazos:', err);
+          console.warn('[Mazos] Error al consultar mazos:', parseApiError(err));
         }
       })
       .finally(() => setIsLoadingDecks(false));
@@ -217,14 +234,17 @@ export default function DecksPage({
     return () => ctrl.abort();
   }, [currentUser, refreshTrigger, onDeckCountChange]);
 
-  // 2. Cargar cartas del mazo seleccionado
+  // 3. Cargar cartas del mazo seleccionado
   const refreshCurrentDeckCards = useCallback(() => {
     if (!currentSelectedId) return;
 
     setIsLoadingCards(true);
+    setDeckActionError(null);
     getDeckCardsWithStatusApi(currentSelectedId)
       .then((cards) => setDeckCards(Array.isArray(cards) ? cards : []))
-      .catch((err) => console.warn('[Mazos] Error auditando cartas del mazo:', err))
+      .catch((err) => {
+        console.warn('[Mazos] Error auditando cartas del mazo:', parseApiError(err));
+      })
       .finally(() => setIsLoadingCards(false));
   }, [currentSelectedId]);
 
@@ -233,12 +253,16 @@ export default function DecksPage({
   }, [refreshCurrentDeckCards]);
 
   const activeDeck = decks.find((d) => d.id === currentSelectedId);
+  const isCommanderFormat = (activeDeck?.format || 'commander').trim().toLowerCase() === 'commander';
+
   const commanders = useMemo(() => deckCards.filter((c) => c.category === 'commander'), [deckCards]);
   const commanderIdentity = useMemo(() => getCommanderColorIdentity(commanders), [commanders]);
   const displayCard = hoveredCard || commanders[0] || deckCards[0];
-  const legalityReport = useMemo(() => validateDeckLegality(deckCards, activeDeck?.format || 'Commander'), [deckCards, activeDeck]);
+  const legalityReport = useMemo(() => validateDeckLegality(deckCards, activeDeck?.format || 'commander'), [deckCards, activeDeck]);
 
+  // Modificación de copias respetando formato (Singleton en Commander, 4x en Construido)[cite: 15]
   const handleUpdateQuantity = async (card, delta) => {
+    setDeckActionError(null);
     const currentQty = card.quantity_needed || 1;
     const newQty = currentQty + delta;
     
@@ -247,103 +271,54 @@ export default function DecksPage({
       return;
     }
 
-    if (newQty > 1 && !canHaveMultipleCopies(card.name)) {
-      alert(`[Regla MTG 903.5b] El formato Commander permite un máximo de 1 copia para "${card.name}".`);
-      return;
+    const cardName = card.card_catalog?.name || card.name || 'Esta carta';
+
+    if (!canHaveUnlimitedCopies(cardName)) {
+      if (isCommanderFormat && newQty > 1) {
+        setDeckActionError(`En Commander solo se permite 1 copia de "${cardName}" (Regla Singleton 903.5b).`);
+        return;
+      }
+      if (!isCommanderFormat && newQty > 4) {
+        setDeckActionError(`En formato ${activeDeck?.format || 'construido'} el límite es de 4 copias para "${cardName}".`);
+        return;
+      }
     }
 
     try {
       await updateDeckCardApi(currentSelectedId, card.deck_card_id, { quantity: newQty });
       refreshCurrentDeckCards();
     } catch (err) {
-      console.warn('[Mazos] Error actualizando cantidad:', err);
+      setDeckActionError(parseApiError(err, 'Error actualizando cantidad.'));
     }
   };
 
   const handleUpdateCategory = async (card, newCategory) => {
+    setDeckActionError(null);
     try {
       await updateDeckCardApi(currentSelectedId, card.deck_card_id, { category: newCategory });
       refreshCurrentDeckCards();
     } catch (err) {
-      console.warn('[Mazos] Error cambiando zona:', err);
+      setDeckActionError(parseApiError(err, 'Error cambiando zona de la carta.'));
     }
   };
 
   const handleRemoveCard = async (deckCardId) => {
+    setDeckActionError(null);
     try {
       await removeCardFromDeckApi(currentSelectedId, deckCardId);
       refreshCurrentDeckCards();
     } catch (err) {
-      console.warn('[Mazos] Error eliminando carta:', err);
+      setDeckActionError(parseApiError(err, 'Error eliminando carta del mazo.'));
     }
   };
 
   const zoneCounts = useMemo(() => ({
-    main: deckCards.filter((c) => c.category === 'mainboard' || c.category === 'commander' || c.category === 'companion').reduce((a, c) => a + (c.quantity_needed || 1), 0),
+    main: deckCards.filter((c) => c.category === 'mainboard' || c.category === 'commander' || c.category === 'companion' || !c.category).reduce((a, c) => a + (c.quantity_needed || 1), 0),
     sideboard: deckCards.filter((c) => c.category === 'sideboard').reduce((a, c) => a + (c.quantity_needed || 1), 0),
     maybeboard: deckCards.filter((c) => c.category === 'maybeboard').reduce((a, c) => a + (c.quantity_needed || 1), 0)
   }), [deckCards]);
 
-  // FILTRADO INTELIGENTE: POR NOMBRE, TIPO, SÍMBOLOS Y COSTE DE MANÁ (CMC)
-  const visibleCards = useMemo(() => {
-    let pool = currentTab === 'main'
-      ? deckCards.filter((c) => c.category === 'mainboard' || c.category === 'commander' || c.category === 'companion')
-      : deckCards.filter((c) => c.category === currentTab);
-
-    if (statusFilter) {
-      pool = pool.filter((c) => c.status === statusFilter);
-    }
-
-    if (inDeckFilter.trim()) {
-      const rawQuery = inDeckFilter.trim().toLowerCase();
-      const normalizedQuery = rawQuery.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-      const cmcMatch = rawQuery.match(/^(?:cmc|mv|coste|cost)\s*([><=:]+)?\s*(\d+)$/i);
-
-      pool = pool.filter((c) => {
-        const cardCmc = c.cmc !== undefined ? Number(c.cmc) : (c.mana_value !== undefined ? Number(c.mana_value) : 0);
-        
-        if (cmcMatch) {
-          const operator = cmcMatch[1] || ':';
-          const targetValue = Number(cmcMatch[2]);
-
-          if (operator === '>') return cardCmc > targetValue;
-          if (operator === '>=') return cardCmc >= targetValue;
-          if (operator === '<') return cardCmc < targetValue;
-          if (operator === '<=') return cardCmc <= targetValue;
-          return cardCmc === targetValue;
-        }
-
-        const isNumericOnly = !isNaN(Number(rawQuery));
-        if (isNumericOnly && cardCmc === Number(rawQuery)) {
-          return true;
-        }
-
-        const name = (c.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const typeLine = (c.type_line || c.type || c.card_type || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const resolvedType = resolveCardType(c);
-        const section = SECTIONS_CONFIG.find((s) => s.key === resolvedType);
-        const label = (section?.label || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const mana = (c.mana_cost || c.manaCost || '').toLowerCase();
-
-        return (
-          name.includes(normalizedQuery) || 
-          typeLine.includes(normalizedQuery) || 
-          label.includes(normalizedQuery) || 
-          mana.includes(normalizedQuery)
-        );
-      });
-    }
-
-    return pool.sort((a, b) => {
-      if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '');
-      if (sortBy === 'cmc') return (a.cmc ?? 0) - (b.cmc ?? 0);
-      if (sortBy === 'price') return (b.prices?.usd ?? 0) - (a.prices?.usd ?? 0);
-      return 0;
-    });
-  }, [deckCards, currentTab, statusFilter, inDeckFilter, sortBy]);
-
-  // AGRUPACIÓN JERÁRQUICA CANÓNICA CON TOTAL DE COPIAS
+  // Agrupación de cartas según orden canónico de MTG
   const groupedCards = useMemo(() => {
     const groups = {};
     SECTIONS_CONFIG.forEach((s) => { 
@@ -367,15 +342,6 @@ export default function DecksPage({
   const missingCount = deckCards.filter((c) => c.status === 'FALTANTE').length;
   const readinessPct = deckCards.length > 0 ? Math.round((availableCount / deckCards.length) * 100) : 0;
 
-  const getGridCardClass = () => {
-    switch (cardSize) {
-      case 'sm': return 'w-24 sm:w-28';
-      case 'lg': return 'w-44 sm:w-48';
-      default: return 'w-32 sm:w-36';
-    }
-  };
-
-  // Si no hay mazo seleccionado, mostramos la Biblioteca General
   if (!currentSelectedId) {
     return (
       <DeckLibraryPage
@@ -387,7 +353,6 @@ export default function DecksPage({
     );
   }
 
-  // Vista de Workspace y Edición del Mazo
   return (
     <div className={`min-h-screen transition-colors duration-200 ${
       isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0B0B0B] text-neutral-100'
@@ -410,7 +375,6 @@ export default function DecksPage({
 
       {/* 2. ÁREA DE TRABAJO PRINCIPAL */}
       <div className="w-full max-w-[1920px] mx-auto px-6 py-4 space-y-4 pb-24 font-sans">
-        
         {activeDeck && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pt-1">
             
@@ -431,23 +395,38 @@ export default function DecksPage({
               />
             </div>
 
-            {/* PANEL DERECHO: TOOLBAR CONTEXTUAL + LISTADO */}
+            {/* PANEL DERECHO: TOOLBAR MODULAR + LISTADO */}
             <main className="lg:col-span-8 xl:col-span-9 space-y-4 min-w-0">
               
-              <DeckToolbar
-                currentTab={currentTab}
-                onChangeTab={(tab) => { setCurrentTab(tab); setStatusFilter(null); }}
-                zoneCounts={zoneCounts}
+              <WorkspaceToolbar
+                zonesConfig={{
+                  activeZone,
+                  onChangeZone: (zone) => { setActiveZone(zone); setStatusFilter(null); },
+                  counts: zoneCounts
+                }}
                 viewMode={viewMode}
                 onChangeViewMode={setViewMode}
                 cardSize={cardSize}
                 onChangeCardSize={setCardSize}
-                filterQuery={inDeckFilter}
-                onFilterChange={setInDeckFilter}
+                filterQuery={filterQuery}
+                onFilterChange={setFilterQuery}
                 sortBy={sortBy}
                 onSortChange={setSortBy}
+                sortOptions={[
+                  { value: 'type', label: 'Por Tipo' },
+                  { value: 'cmc', label: 'Por Coste (CMC)' },
+                  { value: 'name', label: 'Por Nombre' },
+                  { value: 'price', label: 'Por Precio' }
+                ]}
                 isLightMode={isLightMode}
               />
+
+              {deckActionError && (
+                <div className="p-3 bg-rose-950/40 border border-rose-500/50 rounded-xl text-rose-300 text-xs flex items-center justify-between">
+                  <span>{deckActionError}</span>
+                  <button onClick={() => setDeckActionError(null)} className="text-neutral-400 hover:text-white">✕</button>
+                </div>
+              )}
 
               <AddCardInline 
                 deckId={activeDeck.id} 
@@ -463,7 +442,7 @@ export default function DecksPage({
                 }`}>
                   <div className="flex items-center gap-1.5 font-bold">
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Infracciones de Legalidad de Commander:</span>
+                    <span>Infracciones de Legalidad ({activeDeck.format}):</span>
                   </div>
                   <ul className="list-disc pl-5 space-y-0.5 opacity-90 text-[11px]">
                     {legalityReport.errors.slice(0, 3).map((err, i) => (
@@ -481,13 +460,13 @@ export default function DecksPage({
                 <div className={`py-16 text-center text-xs rounded-xl ${
                   isLightMode ? 'bg-[#EAE4D7] text-neutral-600' : 'bg-neutral-900/40 text-neutral-500'
                 }`}>
-                  {statusFilter || inDeckFilter
+                  {statusFilter || filterQuery
                     ? 'No se encontraron cartas que coincidan con los filtros aplicados.'
                     : 'No hay cartas registradas en esta sección.'}
                 </div>
               ) : viewMode === 'text' ? (
                 
-                /* VISTA TEXTO DESENCAPSULADA A 4 COLUMNAS CON JERARQUÍA OFICIAL */
+                /* VISTA TEXTO DESENCAPSULADA A COLUMNAS CON JERARQUÍA OFICIAL */
                 <div className="columns-1 sm:columns-2 xl:columns-3 2xl:columns-4 gap-6 [column-fill:_balance]">
                   {SECTIONS_CONFIG.map(({ key, label, icon }) => {
                     const group = groupedCards[key];
@@ -495,8 +474,6 @@ export default function DecksPage({
 
                     return (
                       <div key={key} className="break-inside-avoid mb-6">
-                        
-                        {/* Cabecera de la sección con ícono y conteo total */}
                         <div className={`flex items-center justify-between pb-1.5 mb-2 font-mono border-b ${
                           isLightMode ? 'border-[#E0D8C8] text-[#1F1C19]' : 'border-neutral-800 text-neutral-200'
                         }`}>
@@ -507,10 +484,9 @@ export default function DecksPage({
                           </span>
                         </div>
 
-                        {/* Listado de Cartas dentro de la sección */}
                         <div className="space-y-0.5">
                           {group.cards.map((card) => {
-                            const isColorLegal = commanders.length === 0 || isCardColorIdentityLegal(card, commanderIdentity);
+                            const isColorLegal = !isCommanderFormat || commanders.length === 0 || isCardColorIdentityLegal(card, commanderIdentity);
                             const manaCost = card.mana_cost || card.manaCost || '';
 
                             return (
@@ -524,7 +500,6 @@ export default function DecksPage({
                                     : (isLightMode ? 'hover:bg-[#F2EDE2]' : 'hover:bg-neutral-900/60')
                                 }`}
                               >
-                                {/* Izquierda: Cantidad + Punto de Estado + Nombre */}
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   <span className="font-mono text-xs font-bold text-amber-500 w-4 shrink-0 text-left">
                                     {card.quantity_needed || 1}
@@ -554,7 +529,6 @@ export default function DecksPage({
                                   )}
                                 </div>
 
-                                {/* Derecha: Símbolos de Maná + Controles de Hover */}
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   <ManaCostSymbols manaCost={manaCost} />
 
@@ -605,7 +579,7 @@ export default function DecksPage({
 
               ) : (
 
-                /* VISTA GRID VISUAL */
+                /* VISTA GRID VISUAL REUTILIZANDO CardGridItem */
                 <div className="space-y-6">
                   {SECTIONS_CONFIG.map(({ key, label, icon }) => {
                     const group = groupedCards[key];
@@ -625,43 +599,18 @@ export default function DecksPage({
 
                         <div className="flex flex-wrap gap-3">
                           {group.cards.map((card) => (
-                            <div
+                            <CardGridItem
                               key={card.deck_card_id}
-                              onMouseEnter={() => setHoveredCard(card)}
-                              onClick={() => setSelectedCardForModal(card)}
-                              className={`group relative rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-amber-500 transition-all ${
-                                isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-900'
-                              } ${getGridCardClass()}`}
-                            >
-                              <div className="aspect-[2.5/3.5] w-full relative">
-                                {card.image_url ? (
-                                  <img src={card.image_url} alt={card.name} className="w-full h-full object-cover" loading="lazy" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center p-2 text-center text-xs text-neutral-500">
-                                    {card.name}
-                                  </div>
-                                )}
-                                <span className="absolute top-1 right-1 px-1.5 py-0.2 rounded bg-neutral-950/80 text-[10px] font-mono font-bold text-white">
-                                  {card.quantity_needed}x
-                                </span>
-
-                                <div 
-                                  className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <button onClick={() => handleUpdateQuantity(card, 1)} className="p-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white" title="Aumentar">
-                                    <Plus className="w-3 h-3" />
-                                  </button>
-                                  <button onClick={() => handleRemoveCard(card.deck_card_id)} className="p-1 rounded bg-neutral-800 hover:bg-rose-900 text-rose-300" title="Eliminar">
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className={`p-1.5 ${isLightMode ? 'bg-[#FAF7F2]' : 'bg-neutral-950'}`}>
-                                <p className={`text-xs font-semibold truncate ${isLightMode ? 'text-neutral-900' : 'text-white'}`}>{card.name}</p>
-                              </div>
-                            </div>
+                              card={card}
+                              cardSize={cardSize}
+                              isSelected={hoveredCard?.deck_card_id === card.deck_card_id}
+                              isLightMode={isLightMode}
+                              onHover={setHoveredCard}
+                              onClick={setSelectedCardForModal}
+                              onIncrement={() => handleUpdateQuantity(card, 1)}
+                              onRemove={() => handleRemoveCard(card.deck_card_id)}
+                              badgeTopLeft={card.category === 'commander' ? '👑 CMD' : card.status}
+                            />
                           ))}
                         </div>
                       </div>
@@ -672,16 +621,14 @@ export default function DecksPage({
               )}
 
             </main>
-
           </div>
         )}
 
         {/* 3. SECCIÓN INFERIOR DE ESTADÍSTICAS */}
         {activeDeck && <DeckAnalyticsSection cards={deckCards} isLightMode={isLightMode} />}
-
       </div>
 
-      {/* 4. FOOTER */}
+      {/* 4. FOOTER CUMPLIENDO POLÍTICA SCRYFALL / WOTC */}
       <footer className={`fixed bottom-0 left-0 right-0 z-40 px-6 py-2 flex items-center justify-between text-xs font-mono backdrop-blur-md ${
         isLightMode ? 'bg-[#FAF7F2]/95 text-neutral-700 border-t border-[#E0D8C8]' : 'bg-[#0B0B0B]/95 text-neutral-400 border-t border-neutral-900'
       }`}>
@@ -696,7 +643,7 @@ export default function DecksPage({
         </div>
 
         <div className="text-[11px] opacity-60 hidden sm:block">
-          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 11]
+          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 16]
         </div>
       </footer>
 

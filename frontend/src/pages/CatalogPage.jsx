@@ -1,7 +1,7 @@
 // ---------------------------------------------------------
 // PÁGINA PRINCIPAL: CATÁLOGO MTG (LAYOUT FLUIDO Y CINEMATOGRÁFICO)
 // ---------------------------------------------------------
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
   SlidersHorizontal,
@@ -11,7 +11,7 @@ import { useCardSearch } from '../hooks/useCardSearch';
 import { SmartSearchBar } from '../components/search/SmartSearchBar';
 import { FilterSidebar } from '../components/search/FilterSidebar';
 import { CardGrid } from '../components/cards/CardGrid';
-import { CardDetailModal } from '../components/modal/CardDetailModal';
+import { useCardModal } from '@/context/CardModalContext';
 
 export function CatalogPage() {
   const {
@@ -21,6 +21,9 @@ export function CatalogPage() {
     loading,
     error,
   } = useCardSearch();
+
+  // Invocador global del modal de detalle de carta
+  const { openCard } = useCardModal();
 
   // Conmutador de modo
   const [searchMode, setSearchMode] = useState('advanced');
@@ -40,8 +43,6 @@ export function CatalogPage() {
   const [setCode, setSetCode] = useState('');
   const [artist, setArtist] = useState('');
   const [selectedKeywords, setSelectedKeywords] = useState([]);
-
-  const [selectedCard, setSelectedCard] = useState(null);
 
   // ---------------------------------------------------------
   // COMPILADOR DE SINTAXIS SCRYFALL (INTERNO / TRANSPARENTE)
@@ -94,7 +95,7 @@ export function CatalogPage() {
   ]);
 
   // Sincronizar automáticamente en modo avanzado
-  React.useEffect(() => {
+  useEffect(() => {
     if (searchMode === 'advanced') {
       setSearchTerm(compiledAdvancedQuery);
     }
@@ -132,7 +133,7 @@ export function CatalogPage() {
   );
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-neutral-100 px-4 md:px-8 py-6 max-w-7xl mx-auto w-full space-y-6">
+    <main className="min-h-screen bg-neutral-950 text-neutral-100 px-4 md:px-8 py-6 max-w-7xl mx-auto w-full space-y-6 font-sans">
       
       {/* --------------------------------------------------------- */}
       {/* CABECERA ESTILO BANNER CINEMATOGRÁFICO                    */}
@@ -178,7 +179,6 @@ export function CatalogPage() {
           </div>
         </div>
 
-        {/* Resplandor ambiental de fondo */}
         <div className="absolute top-0 right-0 -mr-16 -mt-16 w-80 h-80 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
       </div>
 
@@ -195,7 +195,7 @@ export function CatalogPage() {
           <CardGrid
             cards={results}
             loading={loading}
-            onSelectCard={(card) => setSelectedCard(card)}
+            onSelectCard={(card) => openCard(card)}
           />
         </div>
       ) : (
@@ -231,7 +231,7 @@ export function CatalogPage() {
             </button>
           </div>
 
-          {/* Chips de Filtros Activos (solo se muestran si hay filtros aplicados) */}
+          {/* Chips de Filtros Activos */}
           {hasActiveFilters && (
             <div className="flex flex-wrap items-center gap-1.5 min-h-[32px] pt-1">
               <span className="text-xs text-neutral-500 font-medium mr-1">Filtros activos:</span>
@@ -353,19 +353,11 @@ export function CatalogPage() {
               <CardGrid
                 cards={results}
                 loading={loading}
-                onSelectCard={(card) => setSelectedCard(card)}
+                onSelectCard={(card) => openCard(card)}
               />
             </section>
           </div>
         </div>
-      )}
-
-      {/* Modal de Detalle */}
-      {selectedCard && (
-        <CardDetailModal
-          card={selectedCard}
-          onClose={() => setSelectedCard(null)}
-        />
       )}
     </main>
   );

@@ -1,9 +1,10 @@
 // ---------------------------------------------------------
 // MODAL: ACCIONES RÁPIDAS (MAZOS, COMANDANTE Y COLECCIONES)
 // ---------------------------------------------------------
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Crown, Plus, FolderPlus, Layers, Check, Loader2 } from 'lucide-react';
 import apiClient from '../../api/client';
+import { parseApiError } from '@/utils/apiErrors';
 
 export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess }) {
   const [activeTab, setActiveTab] = useState('deck'); // 'deck' | 'collection'
@@ -34,15 +35,15 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
   const [isFoil, setIsFoil] = useState(false);
   const [isForTrade, setIsForTrade] = useState(false);
 
-  // Detección de Criatura Legendaria según MTG CR 903.1
-  const isLegendaryCreature = React.useMemo(() => {
+  // Detección de Criatura Legendaria según MTG CR 903.3
+  const isLegendaryCreature = useMemo(() => {
     if (!card) return false;
     const typeLine = (card.type_line || card.scryfall_raw_data?.type_line || '').toLowerCase();
     const oracle = (card.oracle_text || card.scryfall_raw_data?.oracle_text || '').toLowerCase();
-    return (typeLine.includes('legendary') && typeLine.includes('creature')) || oracle.includes('can be your commander');
+    return (typeLine.includes('legendary') && (typeLine.includes('creature') || typeLine.includes('vehicle'))) || oracle.includes('can be your commander');
   }, [card]);
 
-  // Cargar mazos y colecciones del usuario al abrir
+  // Cargar mazos y colecciones del usuario llamando a los endpoints correctos (/me)
   useEffect(() => {
     if (!isOpen) return;
     setLoadingResources(true);
@@ -50,21 +51,27 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
     setErrorMsg('');
 
     Promise.all([
-      apiClient.get('/decks').catch(() => ({ data: [] })),
-      apiClient.get('/collections').catch(() => ({ data: [] }))
+      apiClient.get('/decks/me').catch(() => ({ data: [] })),
+      apiClient.get('/collections/me').catch(() => ({ data: [] }))
     ])
       .then(([decksRes, colRes]) => {
-        const userDecks = decksRes.data || [];
-        const userCols = colRes.data || [];
+        const userDecks = Array.isArray(decksRes.data) ? decksRes.data : [];
+        const userCols = Array.isArray(colRes.data) ? colRes.data : [];
+        
         setDecks(userDecks);
         setCollections(userCols);
+        
         if (userDecks.length > 0) setSelectedDeckId(userDecks[0].id);
         if (userCols.length > 0) setSelectedCollectionId(userCols[0].id);
+        
         if (isLegendaryCreature) {
           setNewDeckName(`Mazo de ${card.name}`);
           setNewDeckFormat('commander');
           setAsCommander(true);
         }
+      })
+      .catch((err) => {
+        setErrorMsg(parseApiError(err, 'No fue posible cargar tus mazos o colecciones.'));
       })
       .finally(() => setLoadingResources(false));
   }, [isOpen, card, isLegendaryCreature]);
@@ -83,31 +90,34 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
     try {
       let targetDeckId = selectedDeckId;
 
-      // 1. Si se elige crear nuevo mazo (por ejemplo con esta carta de Comandante)
+      // 1. Crear nuevo mazo si el usuario lo seleccionó
       if (isCreatingDeck) {
         const createRes = await apiClient.post('/decks', {
           name: newDeckName.trim() || `Mazo de ${card.name}`,
           format: isLegendaryCreature ? 'commander' : newDeckFormat,
-          description: isLegendaryCreature ? `Comandante: ${card.name}` : 'Mazo creado desde catálogo',
-          commander_card_id: (isLegendaryCreature && asCommander) ? card.id : null
+          description: isLegendaryCreature ? `Comandante: ${card.name}` : 'Mazo creado desde catálogo'
         });
         targetDeckId = createRes.data.id;
       }
 
-      // 2. Asociar carta al mazo
+      if (!targetDeckId) {
+        throw new Error('Debes seleccionar o crear un mazo primero.');
+      }
+
+      // 2. Asociar carta al mazo con el contrato de backend correcto: category: 'commander' | 'mainboard'
       await apiClient.post(`/decks/${targetDeckId}/cards`, {
         scryfall_card_id: card.id,
         quantity: deckQuantity,
-        is_commander: asCommander
+        category: (isLegendaryCreature && asCommander) ? 'commander' : 'mainboard'
       });
 
       setSuccessMsg(isCreatingDeck ? '¡Mazo creado y carta asignada!' : '¡Carta añadida al mazo!');
       setTimeout(() => {
         onActionSuccess && onActionSuccess();
         onClose();
-      }, 900);
+      }, 800);
     } catch (err) {
-      setErrorMsg(err.response?.data?.detail || 'Error al procesar la acción en el mazo.');
+      setErrorMsg(parseApiError(err, 'Error al procesar la acción en el mazo.'));
     } finally {
       setSubmitting(false);
     }
@@ -134,6 +144,10 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
         targetColId = createRes.data.id;
       }
 
+      if (!targetColId) {
+        throw new Error('Debes seleccionar o crear una colección primero.');
+      }
+
       // 2. Asociar carta a la colección
       await apiClient.post(`/collections/${targetColId}/cards`, {
         scryfall_card_id: card.id,
@@ -147,16 +161,16 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
       setTimeout(() => {
         onActionSuccess && onActionSuccess();
         onClose();
-      }, 900);
+      }, 800);
     } catch (err) {
-      setErrorMsg(err.response?.data?.detail || 'Error al guardar en la colección.');
+      setErrorMsg(parseApiError(err, 'Error al guardar en la colección.'));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/85 backdrop-blur-sm animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/80 backdrop-blur-sm transition-opacity">
       <div className="relative w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden text-neutral-200">
         
         {/* Cabecera del Modal */}
@@ -207,7 +221,7 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
           </button>
         </div>
 
-        {/* Mensajes de Feedback */}
+        {/* Feedback visual */}
         {successMsg && (
           <div className="m-4 p-2.5 bg-emerald-950/40 border border-emerald-500/50 rounded-xl text-emerald-400 text-xs flex items-center gap-2">
             <Check className="w-4 h-4" /> {successMsg}
@@ -263,7 +277,12 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
               </button>
             </div>
 
-            {isCreatingDeck ? (
+            {loadingResources ? (
+              <div className="flex items-center justify-center py-4 text-xs text-neutral-400 gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                <span>Cargando tus mazos...</span>
+              </div>
+            ) : isCreatingDeck ? (
               <div className="space-y-3 bg-neutral-950 p-3 rounded-xl border border-neutral-800">
                 <div>
                   <label className="text-[11px] text-neutral-400 block mb-1">Nombre del mazo</label>
@@ -305,7 +324,7 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
                   >
                     {decks.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.name} ({d.format.toUpperCase()})
+                        {d.name} ({String(d.format).toUpperCase()})
                       </option>
                     ))}
                   </select>
@@ -322,7 +341,7 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
                   min="1"
                   max="4"
                   value={deckQuantity}
-                  onChange={(e) => setDeckQuantity(parseInt(e.target.value) || 1)}
+                  onChange={(e) => setDeckQuantity(parseInt(e.target.value, 10) || 1)}
                   className="w-16 bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-xs text-center text-neutral-100 focus:outline-none"
                 />
               </div>
@@ -378,7 +397,12 @@ export function QuickCardActionModal({ isOpen, onClose, card, onActionSuccess })
               </button>
             </div>
 
-            {isCreatingCollection ? (
+            {loadingResources ? (
+              <div className="flex items-center justify-center py-4 text-xs text-neutral-400 gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                <span>Cargando tus colecciones...</span>
+              </div>
+            ) : isCreatingCollection ? (
               <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 space-y-2">
                 <label className="text-[11px] text-neutral-400 block">Nombre de la colección o binder</label>
                 <input

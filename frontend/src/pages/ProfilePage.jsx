@@ -1,43 +1,43 @@
 // ---------------------------------------------------------
-// PÁGINA: PERFIL DE USUARIO, DASHBOARD COMERCIAL Y DECKS
+// PÁGINA: PERFIL DE USUARIO, DASHBOARD COMERCIAL Y WISHLIST
 // ---------------------------------------------------------
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ProfileHeader from '@/components/profile/ProfileHeader';
 import SecuritySidebar from '@/components/profile/SecuritySidebar';
 import BinderPreviewGrid from '@/components/profile/BinderPreviewGrid';
 import EditProfileModal from '@/components/profile/EditProfileModal';
+import CardGridItem from '@/components/common/CardGridItem';
 import { getMyProfileApi } from '@/api/users.api';
 import { getCollectionCardsApi } from '@/api/collections';
 import { getMyDecksApi } from '@/api/decks.api';
-import { isAuthenticated, getAccessToken } from '@/services/session.service';
+import { getMyWishlistApi, removeCardFromWishlistApi } from '@/api/wishlist';
+import { isAuthenticated } from '@/services/session.service';
+import { useCardModal } from '@/context/CardModalContext';
+import { parseApiError } from '@/utils/apiErrors';
 import { 
   Layers, 
   Sparkles, 
   Repeat, 
   Lock, 
   Search, 
-  Filter, 
   FolderPlus,
   Loader2,
   Shield,
-  ExternalLink
+  ExternalLink,
+  Trash2,
+  Plus
 } from 'lucide-react';
 
 /**
- * Vista del perfil de usuario con métricas consolidadas de binders, inventario y mazos.
- * @param {Object} props
- * @param {Object} [props.user] - Datos del usuario en sesión provistos por el estado global.
- * @param {Function} props.onOpenBinderModal - Navegación/Apertura para crear o gestionar binders.
- * @param {Function} props.onOpenTradeModal - Redirección al Muro de Intercambio P2P.
- * @param {Function} props.onOpenAuthModal - Despliegue del modal de login/registro si la sesión expira.
- * @param {Function} [props.onEditProfileModal] - Apertura del modal de edición de datos de perfil.
+ * Vista del perfil de usuario con métricas consolidadas de binders, inventario, mazos y wishlist.
  */
 export default function ProfilePage({ 
   user, 
   onOpenBinderModal, 
   onOpenTradeModal, 
   onOpenAuthModal,
-  onEditProfileModal 
+  onEditProfileModal,
+  onNavigateToCatalog
 }) {
   const [activeTab, setActiveTab] = useState('binders');
   const [selectedBinderId, setSelectedBinderId] = useState(null);
@@ -46,11 +46,17 @@ export default function ProfilePage({
   const [profileData, setProfileData] = useState(null);
   const [userDecks, setUserDecks] = useState([]);
   const [binderCards, setBinderCards] = useState([]);
+
+  // Estados reactivos para la Wishlist
+  const [wishlistCards, setWishlistCards] = useState([]);
+  const [loadingWishlist, setLoadingWishlist] = useState(false);
+  const [wishlistSearchTerm, setWishlistSearchTerm] = useState('');
   
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [loadingCards, setLoadingCards] = useState(false);
   const [error, setError] = useState(null);
 
+  const { openCard } = useCardModal();
   const hasSession = isAuthenticated();
 
   // 1. Cargar Perfil y Mazos de forma concurrente
@@ -95,7 +101,6 @@ export default function ProfilePage({
   useEffect(() => {
     const ctrl = new AbortController();
     fetchDashboardData(ctrl.signal);
-
     return () => ctrl.abort();
   }, [fetchDashboardData]);
 
@@ -124,7 +129,47 @@ export default function ProfilePage({
     return () => ctrl.abort();
   }, [selectedBinderId]);
 
-  // 3. Manejo de actualización reactiva desde ProfileHeader o EditProfileModal
+  // 3. Cargar cartas de la Wishlist cuando se activa la pestaña
+  const fetchWishlist = useCallback(async () => {
+    if (!hasSession) return;
+    setLoadingWishlist(true);
+    try {
+      const items = await getMyWishlistApi();
+      setWishlistCards(Array.isArray(items) ? items : []);
+    } catch (err) {
+      console.warn('[Perfil] Error cargando wishlist:', parseApiError(err));
+      setWishlistCards([]);
+    } finally {
+      setLoadingWishlist(false);
+    }
+  }, [hasSession]);
+
+  useEffect(() => {
+    if (activeTab === 'wishlist') {
+      fetchWishlist();
+    }
+  }, [activeTab, fetchWishlist]);
+
+  const handleRemoveFromWishlist = async (wishlistId) => {
+    try {
+      await removeCardFromWishlistApi(wishlistId);
+      setWishlistCards((prev) => prev.filter((item) => item.id !== wishlistId));
+      setProfileData((prev) => {
+        if (!prev) return prev;
+        const currentCount = prev.kpis?.wishlist_wants ?? 1;
+        return {
+          ...prev,
+          kpis: {
+            ...prev.kpis,
+            wishlist_wants: Math.max(0, currentCount - 1)
+          }
+        };
+      });
+    } catch (err) {
+      console.error('[Wishlist] Error al eliminar carta:', parseApiError(err));
+    }
+  };
+
   const handleProfileUpdated = (updatedUser) => {
     setProfileData((prev) => ({
       ...prev,
@@ -132,16 +177,32 @@ export default function ProfilePage({
     }));
   };
 
-  // Vista cuando no hay sesión autenticada
+  // Filtrado reactivo de cartas en binder
+  const filteredBinderCards = useMemo(() => {
+    return binderCards.filter((card) => {
+      const cardName = card.card_catalog?.name || card.name || '';
+      return cardName.toLowerCase().includes(binderSearchTerm.toLowerCase());
+    });
+  }, [binderCards, binderSearchTerm]);
+
+  // Filtrado reactivo de cartas en wishlist
+  const filteredWishlistCards = useMemo(() => {
+    return wishlistCards.filter((item) => {
+      const cardName = item.card_catalog?.name || item.name || '';
+      return cardName.toLowerCase().includes(wishlistSearchTerm.toLowerCase());
+    });
+  }, [wishlistCards, wishlistSearchTerm]);
+
+  // Vista no autenticada
   if (!hasSession && !user && !loadingProfile) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4">
+      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 font-sans">
         <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-inner">
           <Lock className="w-6 h-6" />
         </div>
         <h2 className="text-xl font-bold text-white tracking-tight">Inicia sesión para gestionar tu colección</h2>
         <p className="text-xs text-neutral-400 max-w-sm leading-relaxed">
-          Accede con tu número celular verificado mediante OTP para revisar tus binders, trade wall y reputación comercial P2P.
+          Accede con tu número celular verificado mediante OTP para revisar tus binders, wishlist y reputación comercial P2P.
         </p>
         {onOpenAuthModal && (
           <button
@@ -172,16 +233,10 @@ export default function ProfilePage({
     );
   }
 
-  // Filtrado reactivo de cartas en el binder seleccionado
-  const filteredCards = binderCards.filter((card) => {
-    const cardName = card.card_catalog?.name || card.name || '';
-    return cardName.toLowerCase().includes(binderSearchTerm.toLowerCase());
-  });
-
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-6 space-y-6 text-neutral-100 font-sans">
       
-      {/* 1. CABECERA MODULAR */}
+      {/* 1. CABECERA MODULAR CON POLÍTICA DE PRECIOS */}
       <ProfileHeader 
         user={profileData} 
         onProfileUpdated={handleProfileUpdated} 
@@ -223,6 +278,9 @@ export default function ProfilePage({
           }`}
         >
           <Sparkles className="w-4 h-4" /> Wishlist Personal
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-neutral-800 text-rose-400 font-mono border border-neutral-700">
+            {profileData.kpis?.wishlist_wants || wishlistCards.length}
+          </span>
         </button>
 
         <button 
@@ -234,9 +292,6 @@ export default function ProfilePage({
           }`}
         >
           <Repeat className="w-4 h-4" /> Coincidencias P2P
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-neutral-950 font-mono">
-            {profileData.kpis?.wishlist_wants || 0}
-          </span>
         </button>
 
         <button 
@@ -251,7 +306,7 @@ export default function ProfilePage({
         </button>
       </nav>
 
-      {/* 3. CONTENIDO PRINCIPAL POR PESTAÑAS */}
+      {/* 3. CONTENIDO PRINCIPAL */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {/* LADO IZQUIERDO: CONTENIDO DINÁMICO (8 COLUMNAS) */}
@@ -260,7 +315,6 @@ export default function ProfilePage({
           {/* PESTAÑA: BINDERS */}
           {activeTab === 'binders' && (
             <>
-              {/* Carrusel / Grilla de Binders */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {profileData.binders?.map((binder) => (
                   <div 
@@ -311,13 +365,11 @@ export default function ProfilePage({
                 )}
               </div>
 
-              {/* Barra de Filtros del Binder */}
+              {/* Filtros del Binder */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-neutral-900/40 border border-neutral-800 p-3 rounded-xl">
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <span className="text-xs font-bold uppercase tracking-wider text-neutral-300">
-                    Cartas en Carpeta Seleccionada
-                  </span>
-                </div>
+                <span className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                  Cartas en Carpeta Seleccionada
+                </span>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-48">
@@ -336,21 +388,17 @@ export default function ProfilePage({
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-xs font-bold text-neutral-950 transition"
                   >
                     <FolderPlus className="w-3.5 h-3.5" /> Nueva Carpeta
-                    <span className="font-mono text-[10px] opacity-80">
-                      ({profileData.binders?.length || 0}/10)
-                    </span>
                   </button>
                 </div>
               </div>
 
-              {/* Grid de Cartas Físicas */}
               {loadingCards ? (
                 <div className="flex items-center justify-center py-16 text-neutral-500 text-xs font-mono gap-2">
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
                   <span>Sincronizando inventario de cartas...</span>
                 </div>
               ) : (
-                <BinderPreviewGrid cards={filteredCards} />
+                <BinderPreviewGrid cards={filteredBinderCards} />
               )}
             </>
           )}
@@ -410,14 +458,112 @@ export default function ProfilePage({
             </div>
           )}
 
-          {/* PESTAÑA: WISHLIST */}
+          {/* PESTAÑA: WISHLIST PERSONAL (CONECTADA Y REACTIVA) */}
           {activeTab === 'wishlist' && (
-            <div className="bg-neutral-900/30 border border-dashed border-neutral-800 rounded-2xl p-12 text-center space-y-3">
-              <Sparkles className="w-8 h-8 text-amber-500 mx-auto" />
-              <h3 className="text-sm font-bold text-white">Lista de Deseos Comercial</h3>
-              <p className="text-xs text-neutral-400 max-w-md mx-auto">
-                Las cartas marcadas como deseadas en el catálogo se auditan contra los binders públicos de otros jugadores.
-              </p>
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-neutral-900/40 border border-neutral-800 p-4 rounded-xl">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    Lista de Deseos Comercial ({wishlistCards.length})
+                  </h3>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Cartas que buscas activamente para cruzar automáticamente en el Muro de Trade.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder="Filtrar deseos..."
+                      value={wishlistSearchTerm}
+                      onChange={(e) => setWishlistSearchTerm(e.target.value)}
+                      className="bg-neutral-950 border border-neutral-800 rounded-lg pl-8 pr-3 py-1 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 w-44"
+                    />
+                  </div>
+                  {onNavigateToCatalog && (
+                    <button
+                      onClick={onNavigateToCatalog}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-lg transition flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Explorar Catálogo
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {loadingWishlist ? (
+                <div className="py-20 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                  <span>Sincronizando tu lista de deseos...</span>
+                </div>
+              ) : filteredWishlistCards.length === 0 ? (
+                <div className="bg-neutral-900/20 border border-dashed border-neutral-800 rounded-2xl p-12 text-center space-y-3">
+                  <Sparkles className="w-8 h-8 text-neutral-600 mx-auto" />
+                  <h4 className="text-sm font-bold text-neutral-300">
+                    {wishlistSearchTerm ? 'No hay cartas que coincidan con tu búsqueda.' : 'Tu Wishlist está vacía'}
+                  </h4>
+                  <p className="text-xs text-neutral-500 max-w-md mx-auto">
+                    Busca cartas en el Catálogo y haz clic en "Añadir a mi Wishlist" para alimentar el algoritmo de matchmaking P2P.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
+                  {filteredWishlistCards.map((item) => (
+                    <div 
+                      key={item.id}
+                      className="group bg-neutral-900/60 border border-neutral-800 hover:border-neutral-700 rounded-xl p-3 flex flex-col justify-between transition relative overflow-hidden"
+                    >
+                      <div 
+                        className="cursor-pointer"
+                        onClick={() => openCard(item.card_catalog || item)}
+                      >
+                        <div className="aspect-[2.5/3.5] w-full rounded-lg overflow-hidden bg-neutral-950 relative mb-2">
+                          {item.card_catalog?.image_url || item.image_url ? (
+                            <img 
+                              src={item.card_catalog?.image_url || item.image_url} 
+                              alt={item.card_catalog?.name || item.name} 
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-neutral-600 text-xs">Sin Imagen</div>
+                          )}
+                          {item.preferred_finish === 'foil' && (
+                            <span className="absolute top-1.5 right-1.5 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-400 to-pink-500 text-black">
+                              FOIL
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-bold text-white truncate" title={item.card_catalog?.name || item.name}>
+                            {item.card_catalog?.name || item.name}
+                          </h4>
+                          <p className="text-[10px] text-neutral-400 font-mono">
+                            {item.card_catalog?.set_code?.toUpperCase() || 'MTG'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 mt-2 border-t border-neutral-800/60 flex items-center justify-between">
+                        <span className="text-[10px] font-mono text-emerald-400">
+                          {item.card_catalog?.price_usd ? `$${item.card_catalog.price_usd}` : 'Ref. Mercado'}
+                        </span>
+                        <button
+                          onClick={() => handleRemoveFromWishlist(item.id)}
+                          className="p-1 text-neutral-500 hover:text-rose-400 rounded transition"
+                          title="Eliminar de Wishlist"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -469,8 +615,8 @@ export default function ProfilePage({
 
       {/* FOOTER LEGAL CUMPLIENDO POLÍTICA DE WOTC Y SCRYFALL */}
       <div className="pt-6 border-t border-neutral-900 text-center text-[10px] text-neutral-600 space-y-1">
-        <p>Portions of card imagery and literal data are copyright Wizards of the Coast LLC[cite: 16].</p>
-        <p>This software is unofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy[cite: 16].</p>
+        <p>Portions of card imagery and literal data are copyright Wizards of the Coast LLC .</p>
+        <p>This software is unofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy .</p>
       </div>
 
     </div>

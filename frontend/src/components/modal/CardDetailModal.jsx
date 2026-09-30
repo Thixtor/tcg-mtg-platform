@@ -1,406 +1,155 @@
 // ---------------------------------------------------------
-// MODAL: DETALLE, MERCADO, REGLAS Y ASIGNACIÓN RÁPIDA
+// MODAL: VISTA PREVIA DETALLADA DE CARTA MTG (ORACLE & ART)
 // ---------------------------------------------------------
-import React, { useState, useEffect, useMemo } from 'react';
-import { Crown, FolderPlus } from 'lucide-react';
-import { getCurrentPricesApi, getPriceHistoryApi } from '../../api/prices';
-import { PriceChart } from './PriceChart';
-import { QuickCardActionModal } from '../cards/QuickCardActionModal';
-import { ManaCost, renderOracleWithMana } from '../cards/ManaCost';
+import React, { useState } from 'react';
+import { X, Check, Loader2, Heart } from 'lucide-react';
+import { addCardToWishlistApi } from '@/api/wishlist';
+import { isAuthenticated } from '@/services/session.service';
+import { parseApiError } from '@/utils/apiErrors';
 
-const TRACKED_FORMATS = [
-  { key: 'commander', label: 'Commander' },
-  { key: 'modern', label: 'Modern' },
-  { key: 'pioneer', label: 'Pioneer' },
-  { key: 'standard', label: 'Standard' },
-  { key: 'legacy', label: 'Legacy' },
-  { key: 'pauper', label: 'Pauper' },
-];
+/**
+ * Modal flotante de inspección visual, texto de reglas y adición a Wishlist.
+ * @param {Object} props
+ * @param {boolean} props.isOpen
+ * @param {Function} props.onClose
+ * @param {Object} props.card - Objeto con datos de la carta (Scryfall / BD local)
+ * @param {Function} [props.onWishlistUpdated] - Notificación tras mutar la Wishlist
+ */
+export function CardDetailModal({ isOpen, onClose, card, onWishlistUpdated }) {
+  const [addingToWishlist, setAddingToWishlist] = useState(false);
+  const [wishlistSuccess, setWishlistSuccess] = useState(false);
+  const [actionError, setActionError] = useState(null);
 
-export function CardDetailModal({ card, onClose }) {
-  const [activeTab, setActiveTab] = useState('market');
-  const [isQuickActionOpen, setIsQuickActionOpen] = useState(false);
+  if (!isOpen || !card) return null;
 
-  const [currentPrices, setCurrentPrices] = useState(null);
-  const [historyPoints, setHistoryPoints] = useState([]);
-  const [store, setStore] = useState('cardkingdom');
-  const [finish, setFinish] = useState('normal');
-  const [days, setDays] = useState(90);
-  const [loadingPrices, setLoadingPrices] = useState(false);
+  const hasSession = isAuthenticated();
 
-  const raw = card?.scryfall_raw_data || {};
-  const imageUrl =
-    card?.image_url ||
-    raw.image_uris?.normal ||
-    raw.image_uris?.large ||
-    raw.card_faces?.[0]?.image_uris?.normal ||
-    null;
+  const handleToggleWishlist = async () => {
+    if (!hasSession) {
+      setActionError('Debes iniciar sesión para guardar cartas en tu Wishlist.');
+      return;
+    }
 
-  const cardName = card?.name || 'Carta sin nombre';
-  const manaCost = raw.mana_cost || card?.mana_cost || '';
-  const typeLine = card?.type_line || raw.type_line || 'Tipo desconocido';
-  const oracleText = raw.oracle_text || card?.oracle_text || 'Sin texto de reglas registrado.';
-  const flavorText = raw.flavor_text || null;
-  const powerToughness = raw.power && raw.toughness ? `${raw.power}/${raw.toughness}` : null;
-  const loyalty = raw.loyalty ? `Lealtad: ${raw.loyalty}` : null;
-  const legalities = raw.legalities || {};
-  const artist = raw.artist || 'Artista no especificado';
-  const setCode = (card?.set || raw.set || '').toUpperCase();
-  const collectorNum = raw.collector_number || 'N/A';
+    setAddingToWishlist(true);
+    setActionError(null);
 
-  const isLegendaryCreature = useMemo(() => {
-    const tl = typeLine.toLowerCase();
-    const ot = oracleText.toLowerCase();
-    return (tl.includes('legendary') && tl.includes('creature')) || ot.includes('can be your commander');
-  }, [typeLine, oracleText]);
-
-  useEffect(() => {
-    if (!card?.id) return;
-    getCurrentPricesApi(card.id)
-      .then(setCurrentPrices)
-      .catch((err) => console.error('Error al cargar cotizaciones vigentes:', err));
-  }, [card?.id]);
-
-  useEffect(() => {
-    if (!card?.id) return;
-    setLoadingPrices(true);
-    getPriceHistoryApi(card.id, store, finish, days)
-      .then((data) => setHistoryPoints(data.puntos || []))
-      .catch((err) => {
-        console.error('Error al cargar serie histórica:', err);
-        setHistoryPoints([]);
-      })
-      .finally(() => setLoadingPrices(false));
-  }, [card?.id, store, finish, days]);
-
-  const ckPrice = currentPrices?.cardkingdom_usd;
-  const tcgPrice = currentPrices?.tcgplayer_usd;
-  const priceSpread =
-    ckPrice && tcgPrice
-      ? {
-          diff: Math.abs(ckPrice - tcgPrice).toFixed(2),
-          cheaper: ckPrice < tcgPrice ? 'Card Kingdom' : ckPrice > tcgPrice ? 'TCGplayer' : 'Igual',
-        }
-      : null;
-
-  if (!card) return null;
+    try {
+      await addCardToWishlistApi({
+        scryfall_card_id: card.id,
+        preferred_finish: card.is_foil ? 'foil' : 'nonfoil',
+      });
+      setWishlistSuccess(true);
+      if (onWishlistUpdated) onWishlistUpdated();
+      setTimeout(() => setWishlistSuccess(false), 2500);
+    } catch (err) {
+      setActionError(parseApiError(err, 'No fue posible agregar la carta a tu Wishlist.'));
+    } finally {
+      setAddingToWishlist(false);
+    }
+  };
 
   return (
-    <>
-      <div className="fixed inset-0 z-40 flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-sm animate-fadeIn">
-        <div className="relative w-full max-w-4xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[92vh]">
-          {/* Botón de cierre */}
-          <button
-            onClick={onClose}
-            className="absolute top-3.5 right-3.5 z-20 w-8 h-8 flex items-center justify-center bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white rounded-full transition-colors focus:outline-none"
-            aria-label="Cerrar modal"
-          >
-            ✕
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm transition-opacity">
+      <div className="relative bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col md:flex-row">
+        
+        {/* Botón Cerrar */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 p-1.5 rounded-lg bg-neutral-950/80 text-neutral-400 hover:text-white border border-neutral-800 z-10 transition"
+        >
+          <X className="w-4 h-4" />
+        </button>
 
-          {/* Columna Izquierda: Imagen */}
-          <div className="w-full md:w-5/12 bg-neutral-950 p-5 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-neutral-800">
-            <div
-              className="w-full max-w-[260px] relative rounded-xl overflow-hidden shadow-2xl flex items-center justify-center bg-neutral-900"
-              style={{ aspectRatio: '2.5 / 3.5' }}
-            >
-              {imageUrl ? (
-                <img
-                  src={imageUrl}
-                  alt={cardName}
-                  className="w-full h-full object-contain select-none"
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center p-4 text-center text-neutral-500">
-                  <span className="text-4xl mb-2">🃏</span>
-                  <span className="text-xs">Sin vista previa oficial</span>
-                </div>
-              )}
+        {/* Imagen de la Carta */}
+        <div className="w-full md:w-1/2 bg-neutral-950 p-6 flex items-center justify-center">
+          {card.image_url ? (
+            <img
+              src={card.image_url}
+              alt={card.name}
+              className="w-full max-w-[260px] rounded-xl shadow-xl border border-neutral-800 object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-56 aspect-[2.5/3.5] rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-center text-xs text-neutral-500 font-mono">
+              Sin imagen disponible
             </div>
+          )}
+        </div>
 
-            <div className="text-center mt-3 space-y-0.5">
-              <p className="text-[11px] text-neutral-400 font-medium">Ilus. {artist}</p>
-              <p className="text-[10px] text-neutral-600">
-                © Wizards of the Coast LLC · Scryfall API[cite: 8]
-              </p>
+        {/* Metadatos y Reglas */}
+        <div className="w-full md:w-1/2 p-6 flex flex-col justify-between space-y-4">
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-2 pr-6">
+              <h3 className="text-lg font-bold text-white tracking-tight leading-snug">
+                {card.name}
+              </h3>
             </div>
-          </div>
+            
+            <p className="text-xs font-mono text-amber-500">
+              {(card.set_code || '---').toUpperCase()} · {card.category ? card.category.toUpperCase() : 'CATÁLOGO'}
+            </p>
 
-          {/* Columna Derecha: Tabs y Contenido */}
-          <div className="w-full md:w-7/12 p-5 md:p-6 flex flex-col justify-between overflow-y-auto">
-            <div>
-              {/* Header con indicadores */}
-              <div className="flex items-center justify-between gap-2 mb-1 pr-8">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 bg-neutral-800 text-neutral-300 font-mono text-xs rounded uppercase font-bold">
-                    {setCode}
-                  </span>
-                  <span className="text-xs text-neutral-400 font-mono">#{collectorNum}</span>
-                </div>
-                
-                {/* Coste de Maná con Mana Font en la cabecera */}
-                {manaCost && (
-                  <div className="bg-neutral-950 px-2.5 py-1 rounded-xl border border-neutral-800 flex items-center shadow-xs">
-                    <ManaCost manaCost={manaCost} size="sm" />
-                  </div>
-                )}
+            {/* Mensajes de Feedback */}
+            {actionError && (
+              <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-800 text-[11px] text-rose-300">
+                {actionError}
               </div>
+            )}
 
-              <h2 className="text-xl md:text-2xl font-extrabold text-neutral-100 leading-tight">
-                {cardName}
-              </h2>
-              <p className="text-xs text-neutral-400 mb-4 font-medium">{typeLine}</p>
-
-              {/* Selector de pestañas */}
-              <div className="flex border-b border-neutral-800 mb-4 gap-4 text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('market')}
-                  className={`pb-2 transition-colors relative ${
-                    activeTab === 'market'
-                      ? 'text-amber-400 border-b-2 border-amber-500'
-                      : 'text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  📊 Mercado
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('rules')}
-                  className={`pb-2 transition-colors relative ${
-                    activeTab === 'rules'
-                      ? 'text-amber-400 border-b-2 border-amber-500'
-                      : 'text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  📜 Reglas & Formatos
-                </button>
+            {wishlistSuccess && (
+              <div className="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-800 text-[11px] text-emerald-300 flex items-center gap-1.5 font-mono">
+                <Check className="w-3.5 h-3.5" /> ¡Añadida a tu Wishlist comercial!
               </div>
+            )}
 
-              {/* Pestaña 1: Mercado */}
-              {activeTab === 'market' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3">
-                      <span className="text-xs text-neutral-400 block font-medium">Card Kingdom</span>
-                      <div className="flex items-baseline gap-2 mt-1">
-                        <span className="text-lg font-bold text-emerald-400">
-                          {ckPrice ? `$${ckPrice.toFixed(2)}` : 'N/A'}
-                        </span>
-                        {currentPrices?.cardkingdom_foil_usd && (
-                          <span className="text-[11px] text-amber-400 font-medium">
-                            Foil: ${currentPrices.cardkingdom_foil_usd.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3">
-                      <span className="text-xs text-neutral-400 block font-medium">TCGplayer</span>
-                      <div className="flex items-baseline gap-2 mt-1">
-                        <span className="text-lg font-bold text-sky-400">
-                          {tcgPrice ? `$${tcgPrice.toFixed(2)}` : 'N/A'}
-                        </span>
-                        {currentPrices?.tcgplayer_foil_usd && (
-                          <span className="text-[11px] text-amber-400 font-medium">
-                            Foil: ${currentPrices.tcgplayer_foil_usd.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {priceSpread && (
-                    <div className="px-3 py-1.5 bg-neutral-950/60 border border-neutral-800/80 rounded-lg flex items-center justify-between text-[11px]">
-                      <span className="text-neutral-400">
-                        Spread de mercado:{' '}
-                        <strong className="text-neutral-200">${priceSpread.diff} USD</strong>
-                      </span>
-                      <span className="text-emerald-400 font-medium">
-                        Más bajo en: {priceSpread.cheaper}
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 bg-neutral-950/70 p-2 rounded-xl border border-neutral-800/60 text-xs">
-                    <div className="flex rounded-lg overflow-hidden border border-neutral-800 text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => setStore('cardkingdom')}
-                        className={`px-2.5 py-1 ${
-                          store === 'cardkingdom'
-                            ? 'bg-amber-600 text-white font-semibold'
-                            : 'bg-neutral-900 text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        CK
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setStore('tcgplayer')}
-                        className={`px-2.5 py-1 ${
-                          store === 'tcgplayer'
-                            ? 'bg-amber-600 text-white font-semibold'
-                            : 'bg-neutral-900 text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        TCG
-                      </button>
-                    </div>
-
-                    <div className="flex rounded-lg overflow-hidden border border-neutral-800 text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => setFinish('normal')}
-                        className={`px-2.5 py-1 ${
-                          finish === 'normal'
-                            ? 'bg-neutral-700 text-white font-semibold'
-                            : 'bg-neutral-900 text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        Normal
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFinish('foil')}
-                        className={`px-2.5 py-1 ${
-                          finish === 'foil'
-                            ? 'bg-neutral-700 text-amber-300 font-semibold'
-                            : 'bg-neutral-900 text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        ✨ Foil
-                      </button>
-                    </div>
-
-                    <div className="flex rounded-lg overflow-hidden border border-neutral-800 text-[11px]">
-                      {[30, 90, 180].map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => setDays(d)}
-                          className={`px-2 py-1 ${
-                            days === d
-                              ? 'bg-neutral-700 text-white font-semibold'
-                              : 'bg-neutral-900 text-neutral-400 hover:text-white'
-                          }`}
-                        >
-                          {d}d
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="w-full h-40 bg-neutral-950 border border-neutral-800 rounded-xl p-2 relative flex items-center justify-center">
-                    {loadingPrices ? (
-                      <span className="text-xs text-neutral-500 animate-pulse">
-                        Cargando serie temporal...
-                      </span>
-                    ) : historyPoints.length > 0 ? (
-                      <PriceChart data={historyPoints} />
-                    ) : (
-                      <span className="text-xs text-neutral-500 text-center px-4">
-                        Sin cotizaciones registradas para {store.toUpperCase()} ({finish}) en {days} días.
-                      </span>
-                    )}
-                  </div>
-                </div>
+            {/* Estado de disponibilidad física en inventario */}
+            <div className="space-y-1.5">
+              {card.status === 'DISPONIBLE' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-emerald-950/60 border border-emerald-800 text-emerald-400">
+                  ● Copia disponible en inventario
+                </span>
               )}
-
-              {/* Pestaña 2: Reglas e Iconos de Maná */}
-              {activeTab === 'rules' && (
-                <div className="space-y-4">
-                  <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3.5 space-y-2">
-                    {/* Texto del Oráculo con iconos visuales de {T}, {W}, {U}, etc. */}
-                    <div className="text-xs text-neutral-200 leading-relaxed whitespace-pre-line font-serif">
-                      {renderOracleWithMana(oracleText)}
-                    </div>
-                    {flavorText && (
-                      <p className="text-[11px] text-neutral-500 italic pt-2 border-t border-neutral-900 font-serif">
-                        "{flavorText}"
-                      </p>
-                    )}
-                    {(powerToughness || loyalty) && (
-                      <div className="pt-2 flex justify-end font-bold text-xs text-amber-400 font-mono">
-                        {powerToughness || loyalty}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-2">
-                      Legalidad de Formatos
-                    </h4>
-                    <div className="grid grid-cols-3 gap-2">
-                      {TRACKED_FORMATS.map(({ key, label }) => {
-                        const status = legalities[key] || 'not_legal';
-                        const isLegal = status === 'legal';
-                        const isRestricted = status === 'restricted';
-
-                        return (
-                          <div
-                            key={key}
-                            className="flex items-center justify-between px-2.5 py-1.5 bg-neutral-950 border border-neutral-800/80 rounded-lg text-xs"
-                          >
-                            <span className="text-neutral-300 font-medium">{label}</span>
-                            <span
-                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                isLegal
-                                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/50'
-                                  : isRestricted
-                                  ? 'bg-amber-950 text-amber-400 border border-amber-800/50'
-                                  : 'bg-neutral-900 text-neutral-500'
-                              }`}
-                            >
-                              {isLegal ? 'Legal' : isRestricted ? 'Restringida' : 'No Legal'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
+              {card.status === 'EN_OTRO_MAZO' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-amber-950/60 border border-amber-800 text-amber-400">
+                  ▲ Asignada a: {Array.isArray(card.assigned_other_decks) ? card.assigned_other_decks.join(', ') : 'Otro mazo'}
+                </span>
+              )}
+              {card.status === 'FALTANTE' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-rose-950/60 border border-rose-800 text-rose-400">
+                  ✕ Faltante para completar mazo físico
+                </span>
               )}
             </div>
 
-            {/* Footer con Acción Rápida */}
-            <div className="mt-5 pt-3 border-t border-neutral-800 flex items-center justify-between gap-2">
-              {isLegendaryCreature ? (
-                <div className="flex items-center gap-1.5 text-xs text-amber-400">
-                  <Crown className="w-4 h-4" />
-                  <span className="font-semibold">Criatura Legendaria</span>
-                </div>
-              ) : (
-                <div />
-              )}
-
+            {/* Botón de acción para Wishlist */}
+            <div className="pt-2">
               <button
                 type="button"
-                onClick={() => setIsQuickActionOpen(true)}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 rounded-xl transition-all shadow-md active:scale-98"
+                onClick={handleToggleWishlist}
+                disabled={addingToWishlist}
+                className="w-full py-2 px-3 rounded-xl bg-neutral-950 border border-neutral-700 hover:border-amber-500 text-neutral-200 hover:text-amber-400 text-xs font-mono font-bold transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
               >
-                {isLegendaryCreature ? (
-                  <>
-                    <Crown className="w-4 h-4" />
-                    <span>Crear Mazo / Asignar</span>
-                  </>
+                {addingToWishlist ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
                 ) : (
-                  <>
-                    <FolderPlus className="w-4 h-4" />
-                    <span>Añadir a Mazo / Colección</span>
-                  </>
+                  <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400/20" />
                 )}
+                <span>Añadir a mi Wishlist</span>
               </button>
             </div>
           </div>
-        </div>
-      </div>
 
-      <QuickCardActionModal
-        isOpen={isQuickActionOpen}
-        onClose={() => setIsQuickActionOpen(false)}
-        card={card}
-      />
-    </>
+          {/* Atribución Legal de WotC */}
+          <div className="pt-4 border-t border-neutral-800/80 text-[10px] text-neutral-500 space-y-1">
+            {card.artist && <p>Ilustración: {card.artist}</p>}
+            <p>© Wizards of the Coast LLC · Magic: The Gathering</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
   );
 }
+
+// Export default para compatibilidad con CardModalContext
+export default CardDetailModal;

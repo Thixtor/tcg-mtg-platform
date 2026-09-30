@@ -26,6 +26,7 @@ import EditProfileModal from './components/profile/EditProfileModal';
 import CreateDeckModal from './components/decks/CreateDeckModal';
 
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
+import { CardModalProvider } from '@/context/CardModalContext';
 import { getCurrentUser, saveSession, clearSession, getAccessToken } from '@/services/session.service';
 
 function AppContent() {
@@ -35,7 +36,7 @@ function AppContent() {
   const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
 
   const [deckCount, setDeckCount] = useState(0);
-  const [selectedDeckId, setSelectedDeckId] = useState(null); // Controla la biblioteca vs editor de mazo
+  const [selectedDeckId, setSelectedDeckId] = useState(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
@@ -156,7 +157,7 @@ function AppContent() {
             <button
               onClick={() => {
                 setActiveTab('decks');
-                setSelectedDeckId(null); // Regresa a la biblioteca de mazos al hacer clic en el navbar
+                setSelectedDeckId(null);
               }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'decks'
@@ -195,8 +196,6 @@ function AppContent() {
 
           {/* Menú de Usuario / Sesión + Selector Global de Tema */}
           <div className="flex items-center gap-2.5">
-            
-            {/* Botón de Cambio de Tema Global */}
             <button
               onClick={toggleTheme}
               className={`px-2.5 py-1.5 rounded-xl transition flex items-center gap-1.5 text-xs font-medium ${
@@ -232,7 +231,7 @@ function AppContent() {
                 </button>
 
                 {isUserDropdownOpen && (
-                  <div className={`absolute right-0 mt-2 w-52 rounded-xl shadow-2xl py-1.5 z-50 text-xs animate-fadeIn ${
+                  <div className={`absolute right-0 mt-2 w-52 rounded-xl shadow-2xl py-1.5 z-50 text-xs transition-opacity ${
                     isLightMode 
                       ? 'bg-[#FAF7F2] text-[#24211E] shadow-neutral-400/20' 
                       : 'bg-neutral-900 text-neutral-200 shadow-black'
@@ -388,7 +387,7 @@ function AppContent() {
         )}
       </div>
 
-      {/* 3. MODALES */}
+      {/* 3. MODALES GLOBALES */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
@@ -414,7 +413,7 @@ function AppContent() {
         }}
       />
 
-      {/* 4. FOOTER */}
+      {/* 4. FOOTER CUMPLIENDO POLÍTICA FAN CONTENT */}
       <footer className={`py-6 text-center text-xs px-4 transition-colors duration-200 border-t ${
         isLightMode 
           ? 'bg-[#FAF7F2] border-[#E8E2D5] text-neutral-600' 
@@ -423,8 +422,8 @@ function AppContent() {
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] opacity-70 max-w-2xl mx-auto">
-            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 14]. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 14].
+            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC . 
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast .
           </p>
         </div>
       </footer>
@@ -436,7 +435,9 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <CardModalProvider>
+        <AppContent />
+      </CardModalProvider>
     </ThemeProvider>
   );
 }

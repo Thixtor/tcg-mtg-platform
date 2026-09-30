@@ -18,18 +18,25 @@ import {
   Store,
   DollarSign
 } from 'lucide-react';
-import { updateMyProfileApi } from '../../api/users.api';
+import { updateMyProfileApi } from '@/api/users.api';
+import { saveSession } from '@/services/session.service';
+import { parseApiError } from '@/utils/apiErrors';
 
 const STORES = ['Card Kingdom', 'TCGPlayer', 'Cardmarket'];
 
 export default function ProfileHeader({ user, onProfileUpdated }) {
   if (!user) return null;
 
-  // Estados interactivos para modalidades de entrega
-  const [allowsMeetup, setAllowsMeetup] = useState(user.allows_meetup !== false);
-  const [allowsShipping, setAllowsShipping] = useState(user.allows_shipping === true);
+  // Sincronización con los campos exactos del esquema backend:
+  // allows_local_meetup y allows_nationwide_shipping
+  const [allowsLocalMeetup, setAllowsLocalMeetup] = useState(
+    user.allows_local_meetup ?? user.allows_meetup ?? true
+  );
+  const [allowsNationwideShipping, setAllowsNationwideShipping] = useState(
+    user.allows_nationwide_shipping ?? user.allows_shipping ?? true
+  );
 
-  // Estados interactivos para la política de precios de referencia
+  // Política de precios y tasa de conversión pactada
   const [selectedStore, setSelectedStore] = useState(() => {
     return localStorage.getItem('mtg_trade_store') || 'Card Kingdom';
   });
@@ -43,8 +50,8 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    setAllowsMeetup(user.allows_meetup !== false);
-    setAllowsShipping(user.allows_shipping === true);
+    setAllowsLocalMeetup(user.allows_local_meetup ?? user.allows_meetup ?? true);
+    setAllowsNationwideShipping(user.allows_nationwide_shipping ?? user.allows_shipping ?? true);
   }, [user]);
 
   const username = user.username || 'Trader';
@@ -56,21 +63,22 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
   const bio = user.bio || 'Coleccionista y jugador activo de MTG.';
   const isPhoneVerified = user.is_phone_verified ?? false;
 
-  // Métricas comerciales
+  // Métricas de confianza comercial
   const reputationScore = user.reputation_score ?? 100;
   const rating = user.rating ?? 5.0;
   const positiveRate = user.positive_rate ?? 100;
   const disputes = user.disputes_count ?? user.disputes ?? 0;
   const completedTrades = user.completed_trades ?? 0;
 
-  // KPIs dinámicos
+  // KPIs dinámicos corregidos según respuesta real del backend
   const kpis = user.kpis || {};
   const activeBinders = kpis.active_binders ?? (user.binders?.length || 0);
   const maxBinders = kpis.max_binders ?? 10;
-  const totalCards = kpis.total_cards ?? 0;
+  // total_cards_in_collection es el nombre devuelto por FastAPI
+  const totalCards = kpis.total_cards_in_collection ?? kpis.total_cards ?? 0;
   const tradeCards = kpis.cards_for_trade ?? 0;
   const wishlistWants = kpis.wishlist_wants ?? 0;
-  const binderCapacityPercent = Math.round((activeBinders / maxBinders) * 100);
+  const binderCapacityPercent = Math.min(Math.round((activeBinders / maxBinders) * 100), 100);
 
   // Guardar política de precios
   const savePricingPolicy = async (newStore, newRate) => {
@@ -81,7 +89,6 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
     const pricingStr = `${newStore} @ $${Number(newRate).toLocaleString('es-CO')}`;
 
     try {
-      // Backend safe: 'COP' para evitar 422 en schemas con Enum/longitud
       await updateMyProfileApi({
         preferred_currency: 'COP',
         location: user.location,
@@ -95,12 +102,10 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
         pricing_policy: pricingStr
       };
 
-      localStorage.setItem('user', JSON.stringify(updated));
-      localStorage.setItem('mtg_dev_user', JSON.stringify(updated));
-
+      saveSession({ user: updated });
       if (onProfileUpdated) onProfileUpdated(updated);
     } catch (e) {
-      console.warn('Aviso guardando política de precio:', e);
+      console.warn('Aviso guardando política de precio:', parseApiError(e));
     } finally {
       setIsSaving(false);
     }
@@ -119,43 +124,38 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
     savePricingPolicy(selectedStore, cleanRate);
   };
 
-  // Conmutador interactivo de modalidades de entrega
+  // Conmutador interactivo con nombres correctos de backend
   const toggleDeliveryMode = async (type) => {
     if (isSaving) return;
 
-    const nextMeetup = type === 'meetup' ? !allowsMeetup : allowsMeetup;
-    const nextShipping = type === 'shipping' ? !allowsShipping : allowsShipping;
+    const nextMeetup = type === 'meetup' ? !allowsLocalMeetup : allowsLocalMeetup;
+    const nextShipping = type === 'shipping' ? !allowsNationwideShipping : allowsNationwideShipping;
 
     if (!nextMeetup && !nextShipping) return;
 
-    setAllowsMeetup(nextMeetup);
-    setAllowsShipping(nextShipping);
+    setAllowsLocalMeetup(nextMeetup);
+    setAllowsNationwideShipping(nextShipping);
     setIsSaving(true);
 
     try {
-      try {
-        await updateMyProfileApi({
-          allows_meetup: nextMeetup,
-          allows_shipping: nextShipping
-        });
-      } catch (err) {
-        if (err.response?.status !== 422) throw err;
-      }
+      await updateMyProfileApi({
+        allows_local_meetup: nextMeetup,
+        allows_nationwide_shipping: nextShipping
+      });
 
       const updated = {
         ...user,
-        allows_meetup: nextMeetup,
-        allows_shipping: nextShipping
+        allows_local_meetup: nextMeetup,
+        allows_nationwide_shipping: nextShipping
       };
 
-      localStorage.setItem('user', JSON.stringify(updated));
-      localStorage.setItem('mtg_dev_user', JSON.stringify(updated));
-
+      saveSession({ user: updated });
       if (onProfileUpdated) onProfileUpdated(updated);
     } catch (e) {
-      console.error('Error guardando modalidad:', e);
-      setAllowsMeetup(user.allows_meetup !== false);
-      setAllowsShipping(user.allows_shipping === true);
+      console.error('Error guardando modalidad de entrega:', parseApiError(e));
+      // Revertir estado si el backend rechaza la mutación
+      setAllowsLocalMeetup(user.allows_local_meetup ?? user.allows_meetup ?? true);
+      setAllowsNationwideShipping(user.allows_nationwide_shipping ?? user.allows_shipping ?? true);
     } finally {
       setIsSaving(false);
     }
@@ -207,7 +207,7 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
                 {bio}
               </p>
 
-              {/* Controles de Comercio y Preferencias de la Comunidad */}
+              {/* Controles de Comercio y Preferencias de Entrega */}
               <div className="flex flex-wrap items-center gap-2 pt-1.5">
                 
                 {/* 1. Selector de Tienda de Referencia */}
@@ -232,7 +232,7 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
                   ))}
                 </div>
 
-                {/* 2. Cotización del Dólar Local (Dólar CK / TCG) */}
+                {/* 2. Cotización del Dólar Local */}
                 <div className="flex items-center bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-0.5 text-[11px] font-mono">
                   <span className="text-neutral-500 text-[10px] mr-1.5">DÓLAR:</span>
                   {isEditingRate ? (
@@ -270,14 +270,14 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
                   disabled={isSaving}
                   title="Clic para activar/desactivar encuentros presenciales"
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer border ${
-                    allowsMeetup 
+                    allowsLocalMeetup 
                       ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300 hover:border-emerald-500' 
                       : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:border-neutral-700 opacity-60'
                   }`}
                 >
                   <Users className="w-3.5 h-3.5" />
                   <span>Encuentro Local</span>
-                  {allowsMeetup && <Check className="w-3 h-3 stroke-[2.5]" />}
+                  {allowsLocalMeetup && <Check className="w-3 h-3 stroke-[2.5]" />}
                 </button>
 
                 {/* 4. Modalidad: Envíos Nacionales */}
@@ -287,14 +287,14 @@ export default function ProfileHeader({ user, onProfileUpdated }) {
                   disabled={isSaving}
                   title="Clic para activar/desactivar envíos nacionales"
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer border ${
-                    allowsShipping 
+                    allowsNationwideShipping 
                       ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300 hover:border-emerald-500' 
                       : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:border-neutral-700 opacity-60'
                   }`}
                 >
                   <Truck className="w-3.5 h-3.5" />
                   <span>Envíos Nacionales</span>
-                  {allowsShipping && <Check className="w-3 h-3 stroke-[2.5]" />}
+                  {allowsNationwideShipping && <Check className="w-3 h-3 stroke-[2.5]" />}
                 </button>
 
               </div>

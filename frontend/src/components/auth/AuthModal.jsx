@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { requestOtpApi, verifyOtpApi, registerUserApi } from '@/api/users.api';
 import { saveSession } from '@/services/session.service';
+import { parseApiError } from '@/utils/apiErrors';
 
 export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
   const [tab, setTab] = useState('login'); // 'login' | 'register'
@@ -39,7 +40,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
       setOtpSent(true);
       setInfoMsg('Código de verificación enviado. Revisa tu consola o SMS.');
     } catch (err) {
-      setErrorMsg(err.response?.data?.detail || 'Error solicitando el código de acceso.');
+      setErrorMsg(parseApiError(err, 'Error solicitando el código de acceso.'));
     } finally {
       setLoading(false);
     }
@@ -60,7 +61,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
       onClose();
       window.location.reload();
     } catch (err) {
-      setErrorMsg(err.response?.data?.detail || 'Código inválido o expirado.');
+      setErrorMsg(parseApiError(err, 'Código inválido o expirado.'));
     } finally {
       setLoading(false);
     }
@@ -77,7 +78,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
       setTab('login');
       setOtpSent(false);
     } catch (err) {
-      setErrorMsg(err.response?.data?.detail || 'Error creando la cuenta.');
+      setErrorMsg(parseApiError(err, 'Error creando la cuenta. Verifica los datos ingresados.'));
     } finally {
       setLoading(false);
     }
