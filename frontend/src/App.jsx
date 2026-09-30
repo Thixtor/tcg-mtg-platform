@@ -3,6 +3,7 @@
 // ---------------------------------------------------------
 import React, { useState, useRef, useEffect } from 'react';
 import { 
+  Home as HomeIcon,
   Search, 
   Layers, 
   Shield, 
@@ -16,6 +17,7 @@ import {
   Moon
 } from 'lucide-react';
 
+import HomePage from './pages/HomePage';
 import { CatalogPage } from './pages/CatalogPage';
 import BindersPage from './pages/BindersPage';
 import DecksPage from './pages/DecksPage';
@@ -33,13 +35,13 @@ import { getCurrentUser, saveSession, clearSession, getAccessToken } from '@/ser
 function AppContent() {
   const { isLightMode, toggleTheme } = useTheme();
 
-  const [activeTab, setActiveTab] = useState('catalog');
+  const [activeTab, setActiveTab] = useState('home');
   const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
 
   const [deckCount, setDeckCount] = useState(0);
   const [selectedDeckId, setSelectedDeckId] = useState(null);
   const [viewingUserId, setViewingUserId] = useState(null);
-  const [previousTab, setPreviousTab] = useState('catalog');
+  const [previousTab, setPreviousTab] = useState('home');
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
@@ -54,7 +56,7 @@ function AppContent() {
     const handleGlobalLogout = () => {
       setCurrentUser(null);
       setIsUserDropdownOpen(false);
-      setActiveTab('catalog');
+      setActiveTab('home');
       setSelectedDeckId(null);
       setViewingUserId(null);
     };
@@ -88,7 +90,7 @@ function AppContent() {
     clearSession();
     setCurrentUser(null);
     setIsUserDropdownOpen(false);
-    setActiveTab('catalog');
+    setActiveTab('home');
     setSelectedDeckId(null);
     setViewingUserId(null);
   };
@@ -103,7 +105,6 @@ function AppContent() {
 
   const handleNavigateToPublicProfile = (targetUserId) => {
     if (!targetUserId) return;
-    // Si el usuario target es el mismo logueado, lo dirigimos a su propio perfil
     if (currentUser?.id && String(currentUser.id) === String(targetUserId)) {
       setActiveTab('profile');
       setViewingUserId(null);
@@ -129,7 +130,7 @@ function AppContent() {
           
           {/* Logo y Marca */}
           <div 
-            onClick={() => { setActiveTab('catalog'); setSelectedDeckId(null); setViewingUserId(null); }} 
+            onClick={() => { setActiveTab('home'); setSelectedDeckId(null); setViewingUserId(null); }} 
             className="flex items-center gap-3 cursor-pointer select-none"
           >
             <span className="text-2xl">🧙‍♂️</span>
@@ -149,6 +150,18 @@ function AppContent() {
           <nav className={`flex items-center gap-1.5 p-1 rounded-xl transition ${
             isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-900/90'
           }`}>
+            <button
+              onClick={() => { setActiveTab('home'); setSelectedDeckId(null); setViewingUserId(null); }}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                activeTab === 'home'
+                  ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
+                  : (isLightMode ? 'text-neutral-600 hover:text-neutral-950 hover:bg-[#DDD5C5]' : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60')
+              }`}
+            >
+              <HomeIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Inicio</span>
+            </button>
+
             <button
               onClick={() => { setActiveTab('catalog'); setSelectedDeckId(null); setViewingUserId(null); }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
@@ -347,8 +360,23 @@ function AppContent() {
         </div>
       </header>
 
-      {/* 2. CONTENIDO PRINCIPAL CON GUARDS MODULARES */}
+      {/* 2. CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col">
+        {activeTab === 'home' && (
+          <HomePage 
+            currentUser={currentUser}
+            onNavigateToCatalog={() => setActiveTab('catalog')}
+            onNavigateToTradeWall={() => setActiveTab('tradewall')}
+            onSelectDeck={(deckId) => {
+              setSelectedDeckId(deckId);
+              setActiveTab('decks');
+            }}
+            onNavigateToUserProfile={handleNavigateToPublicProfile}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onOpenCreateDeckModal={() => setIsCreateDeckModalOpen(true)}
+          />
+        )}
+
         {activeTab === 'catalog' && <CatalogPage />}
         
         {activeTab === 'binders' && (
@@ -397,7 +425,7 @@ function AppContent() {
             userId={viewingUserId}
             currentUserId={currentUser?.id}
             onBack={() => {
-              setActiveTab(previousTab || 'tradewall');
+              setActiveTab(previousTab || 'home');
               setViewingUserId(null);
             }}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
@@ -445,8 +473,8 @@ function AppContent() {
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] opacity-70 max-w-2xl mx-auto">
-            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC . 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast .
+            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 13, 15]. 
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 15].
           </p>
         </div>
       </footer>
