@@ -87,3 +87,38 @@ export const updateMyProfileApi = async (profileData, options = {}) => {
   const response = await apiClient.put('/users/me/profile', profileData, options);
   return response.data;
 };
+
+/**
+ * Alterna el estado de seguimiento de un usuario (Follow / Unfollow).
+ * @param {string|number} userId - ID del usuario destino.
+ * @param {import('axios').AxiosRequestConfig} [options]
+ * @returns {Promise<{ is_following: boolean, followers_count: number }>}
+ */
+export const followUserApi = async (userId, options = {}) => {
+  const response = await apiClient.post(`/users/${userId}/follow`, {}, options);
+  return response.data;
+};
+
+/**
+ * Consulta la lista de seguidores de un usuario.
+ * @param {string|number} userId
+ * @param {Object} [params]
+ * @param {import('axios').AxiosRequestConfig} [options]
+ * @returns {Promise<Array<Object>>}
+ */
+export const getUserFollowersApi = async (userId, params = {}, options = {}) => {
+  const response = await apiClient.get(`/users/${userId}/followers`, { params, ...options });
+  return response.data;
+};
+
+/**
+ * Consulta los usuarios que sigue un usuario determinado.
+ * @param {string|number} userId
+ * @param {Object} [params]
+ * @param {import('axios').AxiosRequestConfig} [options]
+ * @returns {Promise<Array<Object>>}
+ */
+export const getUserFollowingApi = async (userId, params = {}, options = {}) => {
+  const response = await apiClient.get(`/users/${userId}/following`, { params, ...options });
+  return response.data;
+};
