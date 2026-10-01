@@ -40,12 +40,14 @@ function AppContent() {
 
   const [deckCount, setDeckCount] = useState(0);
   const [selectedDeckId, setSelectedDeckId] = useState(null);
+  const [selectedBinderId, setSelectedBinderId] = useState(null);
   const [viewingUserId, setViewingUserId] = useState(null);
   const [previousTab, setPreviousTab] = useState('home');
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
+  const [openBinderModalTrigger, setOpenBinderModalTrigger] = useState(0);
   const [refreshDecksTrigger, setRefreshDecksTrigger] = useState(0);
 
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
@@ -58,7 +60,9 @@ function AppContent() {
       setIsUserDropdownOpen(false);
       setActiveTab('home');
       setSelectedDeckId(null);
+      setSelectedBinderId(null);
       setViewingUserId(null);
+      setOpenBinderModalTrigger(0);
     };
 
     window.addEventListener('mtg:logout', handleGlobalLogout);
@@ -92,7 +96,9 @@ function AppContent() {
     setIsUserDropdownOpen(false);
     setActiveTab('home');
     setSelectedDeckId(null);
+    setSelectedBinderId(null);
     setViewingUserId(null);
+    setOpenBinderModalTrigger(0);
   };
 
   const handleProfileUpdated = (updatedFields) => {
@@ -115,6 +121,22 @@ function AppContent() {
     setActiveTab('public-profile');
   };
 
+  // Redirección inmediata al crear un mazo: abre el mazo en el visor
+  const handleDeckCreated = (createdDeck) => {
+    setRefreshDecksTrigger((prev) => prev + 1);
+    if (createdDeck?.id) {
+      setSelectedDeckId(createdDeck.id);
+      setActiveTab('decks');
+    }
+  };
+
+  // Disparar creación de colección conscientemente desde el Hero de HomePage
+  const handleTriggerCreateCollection = () => {
+    setSelectedBinderId(null);
+    setActiveTab('binders');
+    setOpenBinderModalTrigger((prev) => prev + 1);
+  };
+
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 selection:bg-amber-500 selection:text-neutral-950 ${
       isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0B0B0B] text-neutral-100'
@@ -130,7 +152,13 @@ function AppContent() {
           
           {/* Logo y Marca */}
           <div 
-            onClick={() => { setActiveTab('home'); setSelectedDeckId(null); setViewingUserId(null); }} 
+            onClick={() => { 
+              setActiveTab('home'); 
+              setSelectedDeckId(null); 
+              setSelectedBinderId(null);
+              setViewingUserId(null); 
+              setOpenBinderModalTrigger(0);
+            }} 
             className="flex items-center gap-3 cursor-pointer select-none"
           >
             <span className="text-2xl">🧙‍♂️</span>
@@ -151,7 +179,13 @@ function AppContent() {
             isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-900/90'
           }`}>
             <button
-              onClick={() => { setActiveTab('home'); setSelectedDeckId(null); setViewingUserId(null); }}
+              onClick={() => { 
+                setActiveTab('home'); 
+                setSelectedDeckId(null); 
+                setSelectedBinderId(null);
+                setViewingUserId(null); 
+                setOpenBinderModalTrigger(0);
+              }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'home'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -163,7 +197,13 @@ function AppContent() {
             </button>
 
             <button
-              onClick={() => { setActiveTab('catalog'); setSelectedDeckId(null); setViewingUserId(null); }}
+              onClick={() => { 
+                setActiveTab('catalog'); 
+                setSelectedDeckId(null); 
+                setSelectedBinderId(null);
+                setViewingUserId(null); 
+                setOpenBinderModalTrigger(0);
+              }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'catalog'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -174,8 +214,15 @@ function AppContent() {
               <span className="hidden sm:inline">Catálogo</span>
             </button>
 
+            {/* Pestaña Colecciones: Limpia siempre el trigger para ir directo a la biblioteca */}
             <button
-              onClick={() => { setActiveTab('binders'); setSelectedDeckId(null); setViewingUserId(null); }}
+              onClick={() => { 
+                setActiveTab('binders'); 
+                setSelectedDeckId(null); 
+                setSelectedBinderId(null);
+                setViewingUserId(null); 
+                setOpenBinderModalTrigger(0);
+              }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'binders'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -190,7 +237,9 @@ function AppContent() {
               onClick={() => {
                 setActiveTab('decks');
                 setSelectedDeckId(null);
+                setSelectedBinderId(null);
                 setViewingUserId(null);
+                setOpenBinderModalTrigger(0);
               }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'decks'
@@ -203,7 +252,13 @@ function AppContent() {
             </button>
 
             <button
-              onClick={() => { setActiveTab('tradewall'); setSelectedDeckId(null); setViewingUserId(null); }}
+              onClick={() => { 
+                setActiveTab('tradewall'); 
+                setSelectedDeckId(null); 
+                setSelectedBinderId(null);
+                setViewingUserId(null); 
+                setOpenBinderModalTrigger(0);
+              }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'tradewall'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -215,7 +270,13 @@ function AppContent() {
             </button>
 
             <button
-              onClick={() => { setActiveTab('profile'); setSelectedDeckId(null); setViewingUserId(null); }}
+              onClick={() => { 
+                setActiveTab('profile'); 
+                setSelectedDeckId(null); 
+                setSelectedBinderId(null);
+                setViewingUserId(null); 
+                setOpenBinderModalTrigger(0);
+              }}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 activeTab === 'profile'
                   ? 'bg-amber-500 text-neutral-950 font-bold shadow-xs'
@@ -285,7 +346,9 @@ function AppContent() {
                         setIsUserDropdownOpen(false);
                         setActiveTab('profile');
                         setSelectedDeckId(null);
+                        setSelectedBinderId(null);
                         setViewingUserId(null);
+                        setOpenBinderModalTrigger(0);
                       }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 transition ${
                         isLightMode ? 'hover:bg-[#EAE4D7]' : 'hover:bg-neutral-800/70 hover:text-white'
@@ -313,7 +376,9 @@ function AppContent() {
                         setIsUserDropdownOpen(false);
                         setActiveTab('tradewall');
                         setSelectedDeckId(null);
+                        setSelectedBinderId(null);
                         setViewingUserId(null);
+                        setOpenBinderModalTrigger(0);
                       }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 transition ${
                         isLightMode ? 'hover:bg-[#EAE4D7]' : 'hover:bg-neutral-800/70 hover:text-white'
@@ -374,6 +439,7 @@ function AppContent() {
             onNavigateToUserProfile={handleNavigateToPublicProfile}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onOpenCreateDeckModal={() => setIsCreateDeckModalOpen(true)}
+            onOpenCreateCollectionModal={handleTriggerCreateCollection}
           />
         )}
 
@@ -382,6 +448,9 @@ function AppContent() {
         {activeTab === 'binders' && (
           <BindersPage 
             userId={currentUser?.id} 
+            selectedBinderId={selectedBinderId}
+            onSelectBinderId={setSelectedBinderId}
+            openCreateTrigger={openBinderModalTrigger}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onNavigateToTradeWall={() => setActiveTab('tradewall')} 
           />
@@ -455,13 +524,12 @@ function AppContent() {
         onProfileUpdated={handleProfileUpdated}
       />
 
+      {/* Modal de Mazo con Redirección Inmediata */}
       <CreateDeckModal
         isOpen={isCreateDeckModalOpen}
         onClose={() => setIsCreateDeckModalOpen(false)}
         currentDeckCount={deckCount}
-        onDeckCreated={() => {
-          setRefreshDecksTrigger((prev) => prev + 1);
-        }}
+        onDeckCreated={handleDeckCreated}
       />
 
       {/* 4. FOOTER CUMPLIENDO DIRECTIVA SCRYFALL Y WOTC */}
@@ -473,8 +541,8 @@ function AppContent() {
         <div className="max-w-7xl mx-auto space-y-2">
           <p>Plataforma de intercambio local y consulta analítica de Magic: The Gathering.</p>
           <p className="text-[11px] opacity-70 max-w-2xl mx-auto">
-            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 13, 15]. 
-            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 15].
+            La información literal y gráfica relacionada con Magic: The Gathering es copyright de Wizards of the Coast LLC[cite: 9, 10, 11]. 
+            Esta aplicación es software no oficial y no está producida ni respaldada por Scryfall ni Wizards of the Coast[cite: 10, 11].
           </p>
         </div>
       </footer>

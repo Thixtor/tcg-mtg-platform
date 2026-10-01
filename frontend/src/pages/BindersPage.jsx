@@ -1,7 +1,7 @@
 // ---------------------------------------------------------
-// VISTA: GESTIÓN DE BINDERS Y COLECCIONES P2P (MODULARIZADO)
+// VISTA: GESTIÓN DE CARPETAS Y COLECCIONES DE CARTAS (MTG)
 // ---------------------------------------------------------
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   FolderPlus, 
   Folder, 
@@ -10,7 +10,10 @@ import {
   Loader2, 
   RefreshCw, 
   Sparkles, 
-  ArrowUpDown 
+  ArrowUpDown,
+  Globe,
+  Lock,
+  Plus
 } from 'lucide-react';
 
 import { 
@@ -35,7 +38,14 @@ import {
   extractCardPriceUsd 
 } from '@/hooks/useCardCollectionFilter';
 
-export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTradeWall }) {
+export default function BindersPage({ 
+  userId, 
+  selectedBinderId,
+  onSelectBinderId,
+  openCreateTrigger = 0,
+  onOpenAuthModal, 
+  onNavigateToTradeWall 
+}) {
   const { isLightMode } = useTheme();
   const { openCard } = useCardModal();
   const hasSession = isAuthenticated();
@@ -54,7 +64,16 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
   const [errorMsg, setErrorMsg] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // 1. Delegación de filtrado y ordenamiento en el hook universal
+  // Control estricto del disparador para abrir el modal SOLO cuando se incremente conscientemente
+  const lastTriggerRef = useRef(openCreateTrigger);
+  useEffect(() => {
+    if (openCreateTrigger > 0 && openCreateTrigger !== lastTriggerRef.current) {
+      setIsCreateModalOpen(true);
+      lastTriggerRef.current = openCreateTrigger;
+    }
+  }, [openCreateTrigger]);
+
+  // Delegación de filtrado y ordenamiento en el hook universal
   const {
     filterQuery,
     setFilterQuery,
@@ -78,7 +97,7 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
       }`}>
         <GuestStateBanner
           title="Carpetas y Gestión de Inventario Físico"
-          description="Organiza tus cartas de Magic en Binders digitales, controla tus copias disponibles y publica listas para intercambio local en el Muro de Trade."
+          description="Organiza tus cartas de Magic en carpetas digitales, audita tus copias físicas disponibles y publica listas para intercambio local en el Muro de Trade."
           icon={Layers}
           onOpenAuthModal={onOpenAuthModal}
         />
@@ -86,7 +105,7 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
     );
   }
 
-  // 2. Cargar listado de binders (autenticado o por perfil público)
+  // 1. Cargar listado de carpetas
   const fetchCollections = useCallback(async (signal) => {
     if (!userId && !hasSession) {
       setLoadingCollections(false);
@@ -99,16 +118,25 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
       const data = userId 
         ? await getUserCollectionsApi(userId, { signal }) 
         : await getMyCollectionsApi({ signal });
-      setCollections(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setCollections(list);
+
+      // Si viene un ID preseleccionado desde fuera
+      if (selectedBinderId) {
+        const found = list.find((c) => String(c.id) === String(selectedBinderId));
+        if (found) {
+          setSelectedCollection(found);
+        }
+      }
     } catch (err) {
       if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-        console.warn('[Binders] Error al cargar colecciones:', err);
-        setErrorMsg(parseApiError(err, 'Error al cargar las colecciones del usuario.'));
+        console.warn('[Carpetas] Error al cargar colecciones:', err);
+        setErrorMsg(parseApiError(err, 'Error al cargar las carpetas del usuario.'));
       }
     } finally {
       setLoadingCollections(false);
     }
-  }, [userId, hasSession]);
+  }, [userId, hasSession, selectedBinderId]);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -116,7 +144,7 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
     return () => ctrl.abort();
   }, [fetchCollections]);
 
-  // 3. Sincronizar cartas de la colección seleccionada
+  // 2. Sincronizar cartas de la carpeta seleccionada
   const refreshCollectionCards = useCallback(async (collectionId) => {
     if (!collectionId) return;
     try {
@@ -129,8 +157,8 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
         setHoveredCard(cardList[0]);
       }
     } catch (err) {
-      console.warn('[Binders] Error al cargar cartas:', err);
-      setErrorMsg(parseApiError(err, 'No fue posible cargar las cartas de este binder.'));
+      console.warn('[Carpetas] Error al cargar cartas:', err);
+      setErrorMsg(parseApiError(err, 'No fue posible cargar las cartas de esta carpeta.'));
       setCollectionCards([]);
     } finally {
       setLoadingCards(false);
@@ -139,11 +167,14 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
 
   const handleSelectCollection = (col) => {
     setSelectedCollection(col);
+    onSelectBinderId?.(col?.id || null);
     setHoveredCard(null);
-    refreshCollectionCards(col.id);
+    if (col?.id) {
+      refreshCollectionCards(col.id);
+    }
   };
 
-  // 4. Crear nuevo binder
+  // 3. Crear nueva carpeta y abrirla de inmediato
   const handleCreateCollection = async (payload) => {
     try {
       const newCollection = await createMyCollectionApi(payload);
@@ -151,11 +182,10 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
       setIsCreateModalOpen(false);
       handleSelectCollection(newCollection);
     } catch (err) {
-      setErrorMsg(parseApiError(err, 'No se pudo crear el binder.'));
+      setErrorMsg(parseApiError(err, 'No se pudo crear la carpeta.'));
     }
   };
 
-  // 5. Control de inventario físico
   const handleUpdateQuantity = async (cardItem, delta) => {
     const newQty = (cardItem.quantity || 1) + delta;
     if (newQty <= 0) {
@@ -189,7 +219,7 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
       await removeCardFromCollectionApi(selectedCollection.id, cardId);
       refreshCollectionCards(selectedCollection.id);
     } catch (err) {
-      setErrorMsg(parseApiError(err, 'Error al remover la carta del binder.'));
+      setErrorMsg(parseApiError(err, 'Error al remover la carta de la carpeta.'));
     }
   };
 
@@ -209,7 +239,6 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
     }`}>
       <div className="w-full max-w-[1920px] mx-auto px-6 py-6 space-y-6">
 
-        {/* FEEDBACK DE ERROR */}
         {errorMsg && (
           <div className="p-3 bg-rose-950/40 border border-rose-500/50 rounded-xl text-xs text-rose-300 flex items-center justify-between">
             <span>{errorMsg}</span>
@@ -218,61 +247,79 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
         )}
 
         {/* ------------------------------------------------------------- */}
-        {/* VISTA 1: ESPACIO DE TRABAJO DEL BINDER SELECCIONADO           */}
+        {/* VISTA 1: ESPACIO DE TRABAJO DE LA CARPETA SELECCIONADA         */}
         {/* ------------------------------------------------------------- */}
         {selectedCollection ? (
           <div className="space-y-6">
             
-            {/* Header del Binder */}
-            <div className={`p-6 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
-              isLightMode ? 'bg-white border-[#E8E2D5]' : 'bg-neutral-900/60 border-neutral-800'
+            {/* Header de la Carpeta Cinematográfico */}
+            <div className={`p-6 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative overflow-hidden ${
+              isLightMode ? 'bg-white border-[#E8E2D5]' : 'bg-[#111113] border-neutral-800'
             }`}>
-              <div className="space-y-1">
+              {selectedCollection.art_url && (
+                <div 
+                  className="absolute right-0 top-0 bottom-0 w-3/4 sm:w-2/3 bg-cover bg-center pointer-events-none opacity-30"
+                  style={{
+                    backgroundImage: `url(${selectedCollection.art_url})`,
+                    maskImage: 'linear-gradient(to left, rgba(0,0,0,1) 35%, rgba(0,0,0,0) 100%)',
+                    WebkitMaskImage: 'linear-gradient(to left, rgba(0,0,0,1) 35%, rgba(0,0,0,0) 100%)'
+                  }}
+                />
+              )}
+
+              <div className="space-y-1.5 relative z-10">
                 <button
-                  onClick={() => { setSelectedCollection(null); setHoveredCard(null); }}
-                  className="flex items-center gap-1.5 text-xs text-amber-500 hover:underline mb-1 font-mono"
+                  onClick={() => handleSelectCollection(null)}
+                  className={`inline-flex items-center gap-1.5 text-xs font-mono font-bold transition rounded-lg px-2.5 py-1 mb-1 ${
+                    isLightMode 
+                      ? 'bg-[#DDD5C5]/70 hover:bg-[#DDD5C5] text-neutral-800' 
+                      : 'bg-neutral-900/80 hover:bg-neutral-900 text-neutral-300 hover:text-amber-400'
+                  }`}
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" /> Volver a mis colecciones
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Mis Carpetas</span>
                 </button>
+
                 <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
+                  <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white flex items-center gap-2">
                     <Folder className="w-6 h-6 text-amber-500" />
-                    {selectedCollection.name}
+                    <span>{selectedCollection.name}</span>
                   </h1>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold flex items-center gap-1 ${
                     selectedCollection.is_public_trade 
-                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
-                      : 'bg-neutral-800 text-neutral-400'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                      : 'bg-neutral-800 text-neutral-400 border border-neutral-700'
                   }`}>
-                    {selectedCollection.is_public_trade ? 'Trade Público' : 'Privado'}
+                    {selectedCollection.is_public_trade ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                    <span>{selectedCollection.is_public_trade ? 'Pública para Trade' : 'Privada'}</span>
                   </span>
                 </div>
-                {selectedCollection.description && (
-                  <p className="text-xs text-neutral-400 max-w-xl">{selectedCollection.description}</p>
-                )}
+
+                <p className="text-xs text-neutral-400 max-w-xl font-mono">
+                  {selectedCollection.description || 'Carpeta física de colección e inventario.'}
+                </p>
               </div>
 
-              {/* Métricas del Binder */}
-              <div className="flex items-center gap-4 text-xs font-mono">
-                <div className={`p-3 rounded-xl border text-center ${
-                  isLightMode ? 'bg-[#FAF7F2] border-[#E8E2D5]' : 'bg-neutral-950 border-neutral-800'
+              {/* Métricas de la Carpeta */}
+              <div className="flex items-center gap-4 text-xs font-mono relative z-10">
+                <div className={`p-3.5 rounded-xl border text-center ${
+                  isLightMode ? 'bg-[#FAF7F2] border-[#E8E2D5]' : 'bg-neutral-950/80 border-neutral-800 backdrop-blur-md'
                 }`}>
-                  <span className="text-[10px] text-neutral-500 block">TOTAL CARTAS</span>
-                  <span className="text-lg font-black text-amber-500">{totalCardsCount}</span>
+                  <span className="text-[10px] text-neutral-500 block font-semibold">TOTAL CARTAS</span>
+                  <span className="text-xl font-black text-amber-500">{totalCardsCount}</span>
                 </div>
-                <div className={`p-3 rounded-xl border text-center ${
-                  isLightMode ? 'bg-[#FAF7F2] border-[#E8E2D5]' : 'bg-neutral-950 border-neutral-800'
+                <div className={`p-3.5 rounded-xl border text-center ${
+                  isLightMode ? 'bg-[#FAF7F2] border-[#E8E2D5]' : 'bg-neutral-950/80 border-neutral-800 backdrop-blur-md'
                 }`}>
-                  <span className="text-[10px] text-neutral-500 block">VALOR ESTIMADO</span>
-                  <span className="text-lg font-black text-emerald-400">${totalMarketValue.toFixed(2)} USD</span>
+                  <span className="text-[10px] text-neutral-500 block font-semibold">VALOR ESTIMADO</span>
+                  <span className="text-xl font-black text-emerald-400">${totalMarketValue.toFixed(2)} USD</span>
                 </div>
               </div>
             </div>
 
-            {/* Layout de Dos Columnas: Inspección Lateral + Catálogo */}
+            {/* Layout: Inspección Fija + Listado */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               
-              {/* Panel Izquierdo: Inspección Fija */}
               <aside className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-6 self-start space-y-4">
                 <div className={`rounded-2xl border p-5 space-y-4 ${
                   isLightMode ? 'bg-white border-[#E8E2D5]' : 'bg-neutral-900/60 border-neutral-800'
@@ -327,7 +374,7 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-xs font-mono">
-                          <span className="text-neutral-500">En este binder:</span>
+                          <span className="text-neutral-500">En esta carpeta:</span>
                           <span className="font-bold text-white">x{activeDisplayCard.quantity || 1}</span>
                         </div>
                       </div>
@@ -345,14 +392,13 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
                       </button>
                     </div>
                   ) : (
-                    <div className="py-16 text-center text-xs text-neutral-500">
+                    <div className="py-16 text-center text-xs text-neutral-500 font-mono">
                       Pasa el cursor sobre una carta para inspeccionar sus características.
                     </div>
                   )}
                 </div>
               </aside>
 
-              {/* Panel Derecho: Toolbar Compartida + Grid Reutilizable */}
               <main className="lg:col-span-8 xl:col-span-9 space-y-4">
                 
                 <WorkspaceToolbar
@@ -388,8 +434,8 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
                     isLightMode ? 'bg-[#EAE4D7] border-[#D9D0BE] text-neutral-600' : 'bg-neutral-900/40 border-neutral-800 text-neutral-500'
                   }`}>
                     {filterQuery || onlyTrade || onlyFoils
-                      ? 'No hay cartas que coincidan con los filtros aplicados en este binder.'
-                      : 'Este binder está vacío. Añade cartas desde el Catálogo o las opciones de carga rápida.'}
+                      ? 'No hay cartas que coincidan con los filtros aplicados en esta carpeta.'
+                      : 'Esta carpeta está vacía. Añade cartas desde el Catálogo.'}
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
@@ -417,17 +463,17 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
           </div>
         ) : (
           /* ------------------------------------------------------------- */
-          /* VISTA 2: BIBLIOTECA GENERAL DE BINDERS (GALERÍA)              */
+          /* VISTA 2: BIBLIOTECA GENERAL CON BOTÓN GRANDE ESTILO DECKS     */
           /* ------------------------------------------------------------- */
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
               <div>
                 <h1 className="text-2xl font-black text-white flex items-center gap-2">
                   <Layers className="w-6 h-6 text-amber-500" />
-                  Mis Colecciones & Binders
+                  <span>Mis Carpetas & Colecciones</span>
                 </h1>
-                <p className="text-neutral-400 text-xs mt-0.5">
-                  Gestiona tus carpetas físicas, copias de colección y ofertas para el Muro de Trade.
+                <p className="text-neutral-400 text-xs mt-0.5 font-mono">
+                  Organiza tus carpetas físicas, audita tus copias físicas y publica para el Muro de Trade.
                 </p>
               </div>
 
@@ -435,17 +481,9 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
                 <button
                   onClick={() => fetchCollections()}
                   className="p-2 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-900 border border-neutral-800 transition"
-                  title="Refrescar colecciones"
+                  title="Refrescar carpetas"
                 >
                   <RefreshCw className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setIsCreateModalOpen(true)}
-                  disabled={collections.length >= 10}
-                  className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition shadow-md"
-                >
-                  <FolderPlus className="w-4 h-4" />
-                  <span>Nueva Carpeta ({collections.length}/10)</span>
                 </button>
               </div>
             </div>
@@ -453,58 +491,94 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
             {loadingCollections ? (
               <div className="flex flex-col items-center justify-center py-24 text-neutral-500 text-xs font-mono gap-2">
                 <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
-                <span>Cargando carpetas del usuario...</span>
-              </div>
-            ) : collections.length === 0 ? (
-              <div className="text-center py-20 bg-neutral-900/30 border border-dashed border-neutral-800 rounded-2xl space-y-3">
-                <FolderPlus className="w-10 h-10 text-neutral-600 mx-auto" />
-                <h3 className="text-base font-bold text-neutral-200">Aún no tienes colecciones</h3>
-                <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-                  Crea una carpeta para catalogar tus cartas físicas, definir qué tienes para intercambio y auditar tu colección.
-                </p>
-                <button
-                  onClick={() => setIsCreateModalOpen(true)}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl transition"
-                >
-                  Crear mi primer Binder
-                </button>
+                <span>Cargando tus carpetas...</span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5">
+                
+                {/* BOTÓN GRANDE PRINCIPAL "CREAR NUEVA CARPETA" (ESTILO DECK LIBRARY) */}
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(true)}
+                  disabled={collections.length >= 10}
+                  className={`min-h-[220px] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-3 transition group cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isLightMode 
+                      ? 'border-[#D9D0BE] hover:border-amber-600 bg-white/50 hover:bg-white' 
+                      : 'border-neutral-800 hover:border-amber-500 bg-neutral-900/30 hover:bg-neutral-900/60'
+                  }`}
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center group-hover:scale-110 transition duration-300 shadow-lg shadow-amber-500/5">
+                    <Plus className="w-7 h-7 stroke-[2.5]" />
+                  </div>
+                  <div className="text-center space-y-1">
+                    <span className="text-sm font-bold text-white block group-hover:text-amber-400 transition">
+                      Nueva Carpeta
+                    </span>
+                    <span className="text-[11px] text-neutral-500 font-mono block">
+                      {collections.length} de 10 carpetas creadas
+                    </span>
+                  </div>
+                </button>
+
+                {/* TARJETAS DE CARPETAS EXISTENTES */}
                 {collections.map((col) => (
                   <div
                     key={col.id}
                     onClick={() => handleSelectCollection(col)}
-                    className="group bg-neutral-900/80 hover:bg-neutral-800/90 border border-neutral-800 hover:border-amber-500/50 rounded-2xl p-5 cursor-pointer transition shadow-md flex flex-col justify-between space-y-4"
+                    className={`min-h-[220px] rounded-2xl border cursor-pointer transition flex flex-col justify-between p-5 group relative overflow-hidden shadow-lg hover:scale-[1.01] ${
+                      isLightMode 
+                        ? 'bg-white border-[#E8E2D5] hover:border-amber-500/80 hover:bg-[#FAF7F2]' 
+                        : 'bg-neutral-900/70 border-neutral-800 hover:border-amber-500/60'
+                    }`}
                   >
-                    <div className="space-y-2">
+                    {/* Arte Panorámico de Scryfall de Fondo */}
+                    {col.art_url && (
+                      <div 
+                        className="absolute right-0 top-0 bottom-0 w-3/5 bg-cover bg-center pointer-events-none opacity-25 group-hover:opacity-40 transition-opacity"
+                        style={{
+                          backgroundImage: `url(${col.art_url})`,
+                          maskImage: 'linear-gradient(to left, rgba(0,0,0,1) 20%, rgba(0,0,0,0) 100%)',
+                          WebkitMaskImage: 'linear-gradient(to left, rgba(0,0,0,1) 20%, rgba(0,0,0,0) 100%)'
+                        }}
+                      />
+                    )}
+
+                    <div className="space-y-3 relative z-10">
                       <div className="flex items-center justify-between">
-                        <div className="p-2.5 bg-neutral-800 group-hover:bg-amber-500/10 rounded-xl text-neutral-300 group-hover:text-amber-500 transition">
-                          <Folder className="w-6 h-6" />
+                        <div className="p-2.5 bg-neutral-800/90 group-hover:bg-amber-500/20 rounded-xl text-neutral-300 group-hover:text-amber-400 transition border border-neutral-700/40">
+                          <Folder className="w-5 h-5" />
                         </div>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                        
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold flex items-center gap-1 ${
                           col.is_public_trade 
-                            ? 'bg-emerald-950/60 border border-emerald-800/60 text-emerald-400' 
-                            : 'bg-neutral-950 border border-neutral-800 text-neutral-500'
+                            ? 'bg-emerald-950/70 border border-emerald-800/60 text-emerald-400' 
+                            : 'bg-neutral-950/80 border border-neutral-800 text-neutral-500'
                         }`}>
-                          {col.is_public_trade ? 'Trade Público' : 'Privado'}
+                          {col.is_public_trade ? <Globe className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5" />}
+                          <span>{col.is_public_trade ? 'Pública' : 'Privada'}</span>
                         </span>
                       </div>
 
-                      <h3 className="font-bold text-base text-white group-hover:text-amber-400 transition truncate">
-                        {col.name}
-                      </h3>
-                      <p className="text-xs text-neutral-400 line-clamp-2">
-                        {col.description || 'Sin notas descriptivas.'}
-                      </p>
+                      <div>
+                        <h3 className="font-black text-base text-white group-hover:text-amber-400 transition truncate">
+                          {col.name}
+                        </h3>
+                        <p className="text-xs text-neutral-400 line-clamp-2 mt-1">
+                          {col.description || 'Sin notas descriptivas en la carpeta.'}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="pt-3 border-t border-neutral-800/60 flex items-center justify-between text-xs text-neutral-500 font-mono">
-                      <span>{col.card_count ?? 0} cartas</span>
-                      <span className="text-amber-400 group-hover:translate-x-0.5 transition">Abrir &rarr;</span>
+                    <div className="pt-3 border-t border-neutral-800/80 flex items-center justify-between text-xs font-mono relative z-10">
+                      <span className="text-neutral-500">{col.card_count ?? 0} cartas</span>
+                      <span className="text-amber-400 font-bold group-hover:translate-x-1 transition flex items-center gap-1">
+                        <span>Abrir</span>
+                        <span>&rarr;</span>
+                      </span>
                     </div>
                   </div>
                 ))}
+
               </div>
             )}
           </div>
@@ -512,7 +586,6 @@ export default function BindersPage({ userId, onOpenAuthModal, onNavigateToTrade
 
       </div>
 
-      {/* Modal de Creación de Binder */}
       <CreateCollectionModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
