@@ -21,6 +21,7 @@ class DeckResponse(BaseModel):
     name: str
     format: str
     description: Optional[str] = None
+    featured_card_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
@@ -74,11 +75,24 @@ class DeckCardDetailResponse(BaseModel):
     set_code: Optional[str] = None
     type_line: Optional[str] = None
     mana_cost: Optional[str] = None
-    cmc: Optional[float] = 0.0
+    cmc: float = 0.0
     image_url: Optional[str] = None
     quantity_needed: int = 1
     category: Optional[str] = "mainboard"
     status: str = "DISPONIBLE"
     assigned_other_decks: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
+
+
+# ---------------------------------------------------------
+# 4. AUDITORÍA DE LEGALIDAD Y MÉTRICAS DE DOMINIO MTG
+# ---------------------------------------------------------
+class DeckLegalityResponse(BaseModel):
+    is_legal: bool
+    issues: List[str] = Field(default_factory=list)
+    format: str
+    total_cards: int
+    average_cmc: float
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)

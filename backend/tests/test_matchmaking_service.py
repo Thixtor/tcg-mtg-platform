@@ -48,6 +48,7 @@ def test_matchmaking_mutual_match():
     cat_card_b.image_url = "http://img2.png"
 
     wl_item = MagicMock()
+    wl_item.user_id = "user-contraparte"  # Asignación explícita para el cruce determinista
     wl_item.scryfall_card_id = "card-B"
     wl_item.card_catalog = cat_card_b
 

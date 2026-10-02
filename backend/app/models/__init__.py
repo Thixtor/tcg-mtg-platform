@@ -1,3 +1,4 @@
+# app/models/__init__.py
 # ---------------------------------------------------------
 # EXPORTACIÓN CENTRALIZADA DE MODELOS ORM
 # ---------------------------------------------------------
@@ -8,6 +9,7 @@ from app.models.collection import Collection, UserCard
 from app.models.deck import Deck, DeckCard
 from app.models.wishlist import WishlistItem
 from app.models.price import HistoricoPrecio
+from app.models.trade_proposal import TradeProposal, TradeProposalItem
 
 __all__ = [
     "Base",
@@ -19,4 +21,6 @@ __all__ = [
     "DeckCard",
     "WishlistItem",
     "HistoricoPrecio",
+    "TradeProposal",
+    "TradeProposalItem",
 ]

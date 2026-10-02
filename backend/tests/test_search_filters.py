@@ -1,4 +1,5 @@
-from app.crud.crud_cards import extract_oracle_text, get_mechanic_ids
+# tests/test_search_filters.py
+from app.repositories.card_repository import extract_oracle_text, get_mechanic_ids
 
 
 def test_extract_oracle_text_single_face():
@@ -21,6 +22,6 @@ def test_extract_oracle_text_double_faced():
 def test_mechanic_detection():
     counter_text = "Counter target noncreature spell."
     wipe_text = "Destroy all creatures. They can't be regenerated."
-    
+
     assert "counterspell" in get_mechanic_ids(counter_text)
     assert "board_wipe" in get_mechanic_ids(wipe_text)

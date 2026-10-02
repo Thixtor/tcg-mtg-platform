@@ -1,4 +1,7 @@
 # app/core/security.py
+# ---------------------------------------------------------
+# CORE DE SEGURIDAD: CRIPTOGRAFÍA, JWT Y CONTROL DE SESIÓN
+# ---------------------------------------------------------
 import secrets
 import hmac
 import hashlib
@@ -36,39 +39,6 @@ def hash_otp(code: str, user_id: str) -> str:
     return hmac.new(settings.SECRET_KEY.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
-def verify_otp_digest(user: User, code: str) -> bool:
-    """
-    Verifica el código contra el hash almacenado, controlando expiración e intentos.
-    Incrementa de forma atómica user.otp_attempts (debe ejecutarse con la fila bloqueada FOR UPDATE).
-    Si se superan los 5 intentos, invalida el código de inmediato.
-    """
-    now = datetime.now(timezone.utc)
-    user_expires = user.otp_expires_at
-
-    # Normalizar timestamps naive provenientes de la base de datos
-    if user_expires and user_expires.tzinfo is None:
-        user_expires = user_expires.replace(tzinfo=timezone.utc)
-
-    # Si ya superó el umbral o expiró, rechazar
-    if not user.otp_hash or not user_expires or user_expires < now or (user.otp_attempts or 0) >= 5:
-        # Invalidar hash expirado/agotado para mitigar reutilizaciones
-        user.otp_hash = None
-        user.otp_expires_at = None
-        return False
-
-    user.otp_attempts = (user.otp_attempts or 0) + 1
-
-    expected_hash = hash_otp(code, str(user.id))
-    is_valid = hmac.compare_digest(user.otp_hash, expected_hash)
-
-    # Si se agotan los 5 intentos en este fallo, se destruye el hash activo
-    if not is_valid and user.otp_attempts >= 5:
-        user.otp_hash = None
-        user.otp_expires_at = None
-
-    return is_valid
-
-
 # ---------------------------------------------------------
 # 2. LÓGICA DE JWT Y AUTENTICACIÓN
 # ---------------------------------------------------------
@@ -102,9 +72,7 @@ def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     db: Session = Depends(get_db)
 ) -> User:
-    """
-    Dependencia de FastAPI para autenticación Bearer JWT obligatoria.
-    """
+    """Dependencia de FastAPI para autenticación Bearer JWT obligatoria."""
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -144,9 +112,8 @@ def get_current_user_optional(
     db: Session = Depends(get_db)
 ) -> Optional[User]:
     """
-    Dependencia unificada para endpoints con acceso público/privado opcional (ej: colecciones).
-    Retorna None si no hay token o es inválido. 
-    Los errores de conexión de base de datos se propagan normalmente (sin disfrazar).
+    Dependencia unificada para endpoints con acceso público/privado opcional.
+    Retorna None si no hay token o es inválido.
     """
     if not credentials:
         return None

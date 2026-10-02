@@ -1,88 +1,149 @@
 # app/routers/trade.py
 # ---------------------------------------------------------
-# ROUTER: MERCADO DE INTERCAMBIO Y MATCHMAKING P2P (MTG)
+# ROUTER: PROPUESTAS Y NEGOCIACIONES DE INTERCAMBIO (TRADE)
 # ---------------------------------------------------------
 from typing import List
-from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.orm import Session, joinedload, contains_eager, defer
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_current_user
-from app.models import User, UserCard, Collection, CartaScryfall
-from app.schemas.trade import TradeMarketItemResponse, TradeMatchUserResponse
-from app.services.matchmaking_service import find_trade_matches_for_user
+from app.models.user import User
+from app.schemas.trade_proposal import (
+    CreateTradeProposalPayload,
+    TradeProposalResponse
+)
+from app.services.trade_proposal_service import TradeProposalService
 
 router = APIRouter(
     prefix="/trade",
-    tags=["Mercado de Intercambio y Matchmaking"]
+    tags=["Intercambios y Propuestas (Trade)"]
 )
 
 
-# ---------------------------------------------------------
-# 1. MERCADO PÚBLICO DE CARTAS EN TRADE
-# ---------------------------------------------------------
-@router.get(
-    "/market",
-    response_model=List[TradeMarketItemResponse],
-    summary="Listar cartas para intercambio de binders públicos"
+@router.post(
+    "/proposals",
+    response_model=TradeProposalResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear y enviar una nueva propuesta de intercambio"
 )
-def get_trade_market(
-    limit: int = Query(24, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
-):
-    query = (
-        db.query(UserCard)
-        .join(UserCard.collection)
-        .join(Collection.owner)
-        .options(
-            joinedload(UserCard.card_catalog).defer(CartaScryfall.scryfall_raw_data),
-            contains_eager(UserCard.collection).contains_eager(Collection.owner)
-        )
-        .filter(
-            UserCard.is_for_trade.is_(True),
-            Collection.is_public_trade.is_(True)
-        )
-    )
-
-    # Orden determinista cronológico si existe created_at, o id por defecto
-    if hasattr(UserCard, "created_at"):
-        query = query.order_by(UserCard.created_at.desc())
-    else:
-        query = query.order_by(UserCard.id.desc())
-
-    items_trade = query.offset(offset).limit(limit).all()
-
-    respuesta = []
-    for item in items_trade:
-        respuesta.append(
-            TradeMarketItemResponse(
-                user_card_id=str(item.id),
-                card_name=item.card_catalog.name if item.card_catalog else "Carta",
-                set_code=item.card_catalog.set if item.card_catalog else None,
-                image_url=item.card_catalog.image_url if item.card_catalog else None,
-                condition=item.condition,
-                language=item.language,
-                is_foil=item.is_foil,
-                trade_notes=item.trade_notes,
-                owner_username=item.collection.owner.username,
-                owner_reputation=item.collection.owner.reputation_score or 100
-            )
-        )
-    return respuesta
-
-
-# ---------------------------------------------------------
-# 2. MOTOR DE COINCIDENCIAS (MATCHMAKING INTELIGENTE)
-# ---------------------------------------------------------
-@router.get(
-    "/matches",
-    response_model=List[TradeMatchUserResponse],
-    summary="Obtener usuarios coincidentes para intercambio (Wishlist vs Trade)"
-)
-def get_my_trade_matches(
-    limit: int = Query(20, ge=1, le=50),
+def create_proposal(
+    payload: CreateTradeProposalPayload,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return find_trade_matches_for_user(db, user_id=str(current_user.id), limit=limit)
+    """
+    Inicia una propuesta P2P. Valida que el proponente posea las cartas ofrecidas
+    y que la contraparte posea las cartas solicitadas.
+    """
+    proposal = TradeProposalService.create_proposal(
+        db=db,
+        proposer=current_user,
+        payload=payload
+    )
+    return TradeProposalService.build_response_dto(proposal, requester_id=str(current_user.id))
+
+
+@router.get(
+    "/proposals/me",
+    response_model=List[TradeProposalResponse],
+    summary="Listar mis propuestas de intercambio activas e históricas"
+)
+def get_my_proposals(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retorna todas las propuestas donde el usuario es proponente o receptor."""
+    proposals = TradeProposalService.get_user_proposals(
+        db=db,
+        user_id=str(current_user.id)
+    )
+    return [
+        TradeProposalService.build_response_dto(p, requester_id=str(current_user.id))
+        for p in proposals
+    ]
+
+
+@router.get(
+    "/proposals/{proposal_id}",
+    response_model=TradeProposalResponse,
+    summary="Consultar el detalle de una propuesta"
+)
+def get_proposal_detail(
+    proposal_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna el estado de la propuesta.
+    Si el estado es ACCEPTED, expone el contacto directo para coordinar la entrega.
+    """
+    proposal = TradeProposalService.get_proposal_by_id_or_fail(
+        db=db,
+        proposal_id=proposal_id,
+        user_id=str(current_user.id)
+    )
+    return TradeProposalService.build_response_dto(proposal, requester_id=str(current_user.id))
+
+
+@router.post(
+    "/proposals/{proposal_id}/accept",
+    response_model=TradeProposalResponse,
+    summary="Aceptar una propuesta de intercambio"
+)
+def accept_proposal(
+    proposal_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Permite al receptor aceptar la propuesta.
+    Cambia el estado a ACCEPTED y habilita el intercambio de contactos.
+    """
+    proposal = TradeProposalService.accept_proposal(
+        db=db,
+        proposal_id=proposal_id,
+        user_id=str(current_user.id)
+    )
+    return TradeProposalService.build_response_dto(proposal, requester_id=str(current_user.id))
+
+
+@router.post(
+    "/proposals/{proposal_id}/reject",
+    response_model=TradeProposalResponse,
+    summary="Rechazar una propuesta de intercambio"
+)
+def reject_proposal(
+    proposal_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Cancela o rechaza la propuesta."""
+    proposal = TradeProposalService.reject_proposal(
+        db=db,
+        proposal_id=proposal_id,
+        user_id=str(current_user.id)
+    )
+    return TradeProposalService.build_response_dto(proposal, requester_id=str(current_user.id))
+
+
+@router.post(
+    "/proposals/{proposal_id}/complete",
+    response_model=TradeProposalResponse,
+    summary="Confirmar entrega y cerrar el intercambio"
+)
+def complete_proposal(
+    proposal_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Marca el intercambio como COMPLETED, ejecuta el impacto en inventarios
+    y premia la reputación de ambos participantes.
+    """
+    proposal = TradeProposalService.complete_trade(
+        db=db,
+        proposal_id=proposal_id,
+        user_id=str(current_user.id)
+    )
+    return TradeProposalService.build_response_dto(proposal, requester_id=str(current_user.id))

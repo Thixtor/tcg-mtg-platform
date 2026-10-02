@@ -11,15 +11,16 @@ from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 # 1. ESQUEMAS BASE Y REGISTRO (ANTI-HOMOGLIFOS Y LOWERCASE)
 # ---------------------------------------------------------
 class UserBase(BaseModel):
-    # Regex ASCII estricta para mitigar suplantación por caracteres Unicode similares
     username: str = Field(
         min_length=3, 
         max_length=30, 
         pattern=r"^[a-zA-Z0-9_.-]+$",
-        description="Nombre de usuario alfanumérico ASCII sin espacios ni caracteres especiales complejos"
+        description="Nombre de usuario alfanumérico ASCII sin espacios ni caracteres especiales"
     )
     email: EmailStr
-    phone_number: str = Field(
+    # Teléfono opcional en registro; protegido hasta aceptación de un trade
+    phone_number: Optional[str] = Field(
+        None,
         pattern=r"^\+[1-9]\d{7,14}$",
         description="Formato internacional E.164 (ej: +573001234567)"
     )
@@ -87,6 +88,7 @@ class UserProfileUpdate(BaseModel):
     bio: Optional[str] = Field(None, max_length=500)
     location: Optional[str] = Field(None, max_length=100)
     avatar_url: Optional[HttpUrl] = None
+    phone_number: Optional[str] = Field(None, pattern=r"^\+[1-9]\d{7,14}$")
     preferred_currency: Optional[str] = Field(None, pattern=r"^(COP|USD)$")
     allows_local_meetup: Optional[bool] = None
     allows_nationwide_shipping: Optional[bool] = None
@@ -119,31 +121,41 @@ class UserPublicProfileResponse(BaseModel):
 
 
 # ---------------------------------------------------------
-# 7. PERFIL PRIVADO (Solo devuelto en /users/me/profile)
+# 7. PERFIL PRIVADO (Solo devuelto en /users/me/profile al propio dueño)
 # ---------------------------------------------------------
 class UserPrivateProfileResponse(UserPublicProfileResponse):
     email: EmailStr
-    phone_number: str
+    phone_number: Optional[str] = None
     is_phone_verified: bool
 
 
 # ---------------------------------------------------------
-# 8. ESQUEMAS OTP Y TOKEN
+# 8. ESQUEMAS OTP Y TOKEN POR CORREO ELECTRÓNICO
 # ---------------------------------------------------------
 class RequestCodePayload(BaseModel):
-    phone_number: str = Field(pattern=r"^\+[1-9]\d{7,14}$")
+    email: EmailStr
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.strip().lower()
 
 
 class VerifyCodePayload(BaseModel):
-    phone_number: str = Field(pattern=r"^\+[1-9]\d{7,14}$")
+    email: EmailStr
     code: str = Field(min_length=6, max_length=6)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.strip().lower()
 
 
 class UserResponse(BaseModel):
     id: str
     username: str
     email: EmailStr
-    phone_number: str
+    phone_number: Optional[str] = None
     is_phone_verified: bool
     reputation_score: int
     rating: float

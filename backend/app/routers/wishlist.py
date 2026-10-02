@@ -1,15 +1,20 @@
+# app/routers/wishlist.py
+# ---------------------------------------------------------
+# ROUTER: WISHLIST Y MOTOR DE MATCHMAKING (POO / DDD)
+# ---------------------------------------------------------
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_current_user
-from app.models import User, WishlistItem, CartaScryfall
+from app.models.user import User
 from app.schemas import (
     WishlistAddPayload,
     WishlistItemResponse,
     TradeMatchUserResponse
 )
+from app.services.wishlist_service import WishlistService
 from app.services.matchmaking_service import find_trade_matches_for_user
 
 router = APIRouter(
@@ -31,23 +36,11 @@ def add_to_wishlist(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    carta = db.query(CartaScryfall).filter(CartaScryfall.id == payload.scryfall_card_id).first()
-    if not carta:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="La carta no existe en el catálogo."
-        )
-
-    item = WishlistItem(
-        user_id=current_user.id,
-        scryfall_card_id=payload.scryfall_card_id,
-        quantity=payload.quantity,
-        priority=payload.priority
+    return WishlistService.add_card_to_wishlist(
+        db=db,
+        user_id=str(current_user.id),
+        payload=payload
     )
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    return item
 
 
 @router.get(
@@ -59,12 +52,7 @@ def get_my_wishlist(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return (
-        db.query(WishlistItem)
-        .options(joinedload(WishlistItem.card_catalog))
-        .filter(WishlistItem.user_id == current_user.id)
-        .all()
-    )
+    return WishlistService.get_user_wishlist(db=db, user_id=str(current_user.id))
 
 
 @router.delete(
@@ -77,19 +65,11 @@ def remove_from_wishlist(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Verificación de propiedad (Ownership) para evitar IDOR
-    item = db.query(WishlistItem).filter(
-        WishlistItem.id == item_id,
-        WishlistItem.user_id == current_user.id
-    ).first()
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Ítem de wishlist no encontrado o no autorizado."
-        )
-
-    db.delete(item)
-    db.commit()
+    WishlistService.remove_card_from_wishlist(
+        db=db,
+        user_id=str(current_user.id),
+        item_id=item_id
+    )
     return None
 
 
@@ -105,4 +85,4 @@ def get_trade_matches(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return find_trade_matches_for_user(db, current_user.id)
+    return find_trade_matches_for_user(db=db, user_id=str(current_user.id))

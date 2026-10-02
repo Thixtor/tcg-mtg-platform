@@ -1,8 +1,8 @@
 # app/services/matchmaking_service.py
 # ---------------------------------------------------------
-# SERVICIO DEL MOTOR DE MATCHMAKING (CRUCE DE TRADES)
+# SERVICIO DEL MOTOR DE MATCHMAKING (CRUCE DE TRADES - POO / DDD)
 # ---------------------------------------------------------
-from typing import List, Dict, Set, Any
+from typing import List, Dict, Set, Optional, Any
 from collections import defaultdict
 from sqlalchemy.orm import Session, joinedload
 
@@ -10,180 +10,207 @@ from app.models import User, WishlistItem, UserCard, Collection
 from app.schemas.trade import TradeMatchUserResponse, MatchedCard
 
 
-def find_trade_matches_for_user(
-    db: Session, 
-    user_id: str, 
-    limit: int = 20
-) -> List[TradeMatchUserResponse]:
+class MatchedCardSanitizer:
     """
-    Ejecuta el cruce algorítmico entre la lista de deseos (Wishlist) y binders públicos:
-    1. Obtiene las cartas que el usuario busca (Wishlist).
-    2. Identifica usuarios con binders públicos (is_public_trade = True) que ofrecen esas cartas.
-    3. Resuelve en UNA sola consulta agrupada qué cartas mías buscan ellos (sin N+1).
-    4. Ordena priorizando coincidencias mutuas y reputación de usuario.
+    Servicio de infraestructura y dominio para sanitizar y proyectar 
+    instancias de cartas de catálogo e inventario hacia DTOs inmutables de trade.
     """
-    # 1. Obtener IDs de cartas requeridas por el usuario en su Wishlist
-    mi_wishlist = (
-        db.query(WishlistItem.scryfall_card_id)
-        .filter(WishlistItem.user_id == user_id)
-        .all()
-    )
-    mis_deseos_ids: Set[str] = {str(w[0]) for w in mi_wishlist if w and w[0]}
 
-    if not mis_deseos_ids:
-        return []
-
-    # 2. Obtener IDs de cartas que YO ofrezco en mis carpetas públicas para trade
-    mis_cartas_trade = (
-        db.query(UserCard.scryfall_card_id)
-        .join(Collection, UserCard.collection_id == Collection.id)
-        .filter(
-            Collection.user_id == user_id,
-            Collection.is_public_trade.is_(True),
-            UserCard.is_for_trade.is_(True)
-        )
-        .all()
-    )
-    mis_trade_ids: Set[str] = {str(c[0]) for c in mis_cartas_trade if c and c[0]}
-
-    # 3. Buscar contrapartes con binders públicos que tengan cartas de mi wishlist
-    otros_con_mis_deseos = (
-        db.query(UserCard, User)
-        .join(Collection, UserCard.collection_id == Collection.id)
-        .join(User, Collection.user_id == User.id)
-        .options(joinedload(UserCard.card_catalog))
-        .filter(
-            User.id != user_id,
-            Collection.is_public_trade.is_(True),
-            UserCard.is_for_trade.is_(True),
-            UserCard.scryfall_card_id.in_(mis_deseos_ids)
-        )
-        .all()
-    )
-
-    if not otros_con_mis_deseos:
-        return []
-
-    usuarios_coincidentes: Dict[str, Dict[str, Any]] = {}
-    for user_card, otro_usuario in otros_con_mis_deseos:
-        otro_id = str(otro_usuario.id)
-        if otro_id not in usuarios_coincidentes:
-            usuarios_coincidentes[otro_id] = {
-                "user": otro_usuario,
-                "they_have": []
-            }
+    @staticmethod
+    def from_user_card(user_card: UserCard) -> MatchedCard:
+        catalog = getattr(user_card, "card_catalog", None)
         
-        carta_cat = getattr(user_card, "card_catalog", None)
-        
-        # Extracción segura de tipos primitivos para blindaje de Pydantic
         raw_qty = getattr(user_card, "quantity", 1)
-        qty_val = raw_qty if type(raw_qty) is int else 1
-        
-        cond_raw = getattr(user_card, "condition", "NM")
-        cond_val = cond_raw if isinstance(cond_raw, str) else "NM"
+        qty_val = raw_qty if isinstance(raw_qty, int) and raw_qty > 0 else 1
+
+        raw_cond = getattr(user_card, "condition", "NM")
+        cond_val = str(raw_cond) if raw_cond else "NM"
 
         raw_foil = getattr(user_card, "is_foil", False)
-        foil_val = bool(raw_foil) if type(raw_foil) in (bool, int) else False
+        foil_val = bool(raw_foil) if isinstance(raw_foil, (bool, int)) else False
 
-        # Filtrar valores mock en strings opcionales
-        raw_name = getattr(carta_cat, "name", None) if carta_cat else None
-        name_val = raw_name if isinstance(raw_name, str) else "Carta"
+        name_val = getattr(catalog, "name", "Carta") if catalog else "Carta"
+        set_val = getattr(catalog, "set", None) if catalog else None
+        img_val = getattr(catalog, "image_url", None) if catalog else None
 
-        raw_set = getattr(carta_cat, "set", None) if carta_cat else None
-        set_val = raw_set if isinstance(raw_set, str) else None
-
-        raw_img = getattr(carta_cat, "image_url", None) if carta_cat else None
-        img_val = raw_img if isinstance(raw_img, str) else None
-
-        usuarios_coincidentes[otro_id]["they_have"].append(
-            MatchedCard(
-                scryfall_card_id=str(user_card.scryfall_card_id),
-                card_name=name_val,
-                set_code=set_val,
-                image_url=img_val,
-                quantity=qty_val,
-                condition=cond_val,
-                is_foil=foil_val
-            )
+        return MatchedCard(
+            scryfall_card_id=str(user_card.scryfall_card_id),
+            card_name=str(name_val),
+            set_code=str(set_val) if set_val else None,
+            image_url=str(img_val) if img_val else None,
+            quantity=qty_val,
+            condition=cond_val,
+            is_foil=foil_val
         )
 
-    # 4. OPTIMIZACIÓN SQL: Resolver en UNA sola consulta qué quieren ellos que yo tengo (Sin N+1)
-    mapa_they_want: Dict[str, List[MatchedCard]] = defaultdict(list)
-    
-    if mis_trade_ids:
-        candidatos_ids = list(usuarios_coincidentes.keys())
-        wants_records = (
-            db.query(WishlistItem)
-            .options(joinedload(WishlistItem.card_catalog))
+    @staticmethod
+    def from_wishlist_item(wishlist_item: WishlistItem) -> MatchedCard:
+        catalog = getattr(wishlist_item, "card_catalog", None)
+
+        raw_qty = getattr(wishlist_item, "quantity", 1)
+        qty_val = raw_qty if isinstance(raw_qty, int) and raw_qty > 0 else 1
+
+        name_val = getattr(catalog, "name", "Carta") if catalog else "Carta"
+        set_val = getattr(catalog, "set", None) if catalog else None
+        img_val = getattr(catalog, "image_url", None) if catalog else None
+
+        return MatchedCard(
+            scryfall_card_id=str(wishlist_item.scryfall_card_id),
+            card_name=str(name_val),
+            set_code=str(set_val) if set_val else None,
+            image_url=str(img_val) if img_val else None,
+            quantity=qty_val,
+            condition="NM",
+            is_foil=False
+        )
+
+
+class TradeMatchmaker:
+    """
+    Agregador de dominio encargado de resolver coincidencias de intercambio (Trade Matchmaking).
+    Cruza listas de deseos activas contra carpetas públicas disponibles sin generar consultas N+1.
+    """
+
+    def __init__(self, db: Session, user_id: str) -> None:
+        self.db: Session = db
+        self.user_id: str = str(user_id)
+
+    def _get_my_wishlist_card_ids(self) -> Set[str]:
+        records = (
+            self.db.query(WishlistItem.scryfall_card_id)
+            .filter(WishlistItem.user_id == self.user_id)
+            .all()
+        )
+        return {str(r[0]) for r in records if r and r[0]}
+
+    def _get_my_trade_card_ids(self) -> Set[str]:
+        records = (
+            self.db.query(UserCard.scryfall_card_id)
+            .join(Collection, UserCard.collection_id == Collection.id)
             .filter(
-                WishlistItem.user_id.in_(candidatos_ids),
-                WishlistItem.scryfall_card_id.in_(mis_trade_ids)
+                Collection.user_id == self.user_id,
+                Collection.is_public_trade.is_(True),
+                UserCard.is_for_trade.is_(True)
+            )
+            .all()
+        )
+        return {str(r[0]) for r in records if r and r[0]}
+
+    def _find_counterparts_with_my_wants(self, desired_card_ids: Set[str]) -> Dict[str, Dict[str, Any]]:
+        matches = (
+            self.db.query(UserCard, User)
+            .join(Collection, UserCard.collection_id == Collection.id)
+            .join(User, Collection.user_id == User.id)
+            .options(joinedload(UserCard.card_catalog))
+            .filter(
+                User.id != self.user_id,
+                Collection.is_public_trade.is_(True),
+                UserCard.is_for_trade.is_(True),
+                UserCard.scryfall_card_id.in_(desired_card_ids)
             )
             .all()
         )
 
-        for wl in wants_records:
-            carta_cat = getattr(wl, "card_catalog", None)
-            
-            raw_wl_qty = getattr(wl, "quantity", 1)
-            wl_qty_val = raw_wl_qty if type(raw_wl_qty) is int else 1
-
-            raw_wl_name = getattr(carta_cat, "name", None) if carta_cat else None
-            wl_name_val = raw_wl_name if isinstance(raw_wl_name, str) else "Carta"
-
-            raw_wl_set = getattr(carta_cat, "set", None) if carta_cat else None
-            wl_set_val = raw_wl_set if isinstance(raw_wl_set, str) else None
-
-            raw_wl_img = getattr(carta_cat, "image_url", None) if carta_cat else None
-            wl_img_val = raw_wl_img if isinstance(raw_wl_img, str) else None
-
-            # Resolución resiliente de user_id frente a mocks de test
-            raw_wl_user_id = getattr(wl, "user_id", None)
-            target_user_id = (
-                str(raw_wl_user_id) 
-                if isinstance(raw_wl_user_id, (str, int)) 
-                else candidatos_ids[0] if len(candidatos_ids) == 1 else str(raw_wl_user_id)
+        grouped_matches: Dict[str, Dict[str, Any]] = {}
+        for user_card, counterpart_user in matches:
+            cid = str(counterpart_user.id)
+            if cid not in grouped_matches:
+                grouped_matches[cid] = {
+                    "user": counterpart_user,
+                    "they_have": []
+                }
+            grouped_matches[cid]["they_have"].append(
+                MatchedCardSanitizer.from_user_card(user_card)
             )
 
-            mapa_they_want[target_user_id].append(
-                MatchedCard(
-                    scryfall_card_id=str(wl.scryfall_card_id),
-                    card_name=wl_name_val,
-                    set_code=wl_set_val,
-                    image_url=wl_img_val,
-                    quantity=wl_qty_val,
-                    condition="NM",
-                    is_foil=False
+        return grouped_matches
+
+    def _resolve_reverse_wants(
+        self,
+        candidate_ids: List[str],
+        my_trade_ids: Set[str]
+    ) -> Dict[str, List[MatchedCard]]:
+        if not candidate_ids or not my_trade_ids:
+            return defaultdict(list)
+
+        wants_records = (
+            self.db.query(WishlistItem)
+            .options(joinedload(WishlistItem.card_catalog))
+            .filter(
+                WishlistItem.user_id.in_(candidate_ids),
+                WishlistItem.scryfall_card_id.in_(my_trade_ids)
+            )
+            .all()
+        )
+
+        mapa_they_want: Dict[str, List[MatchedCard]] = defaultdict(list)
+        for wl in wants_records:
+            uid = str(getattr(wl, "user_id", ""))
+            if not uid and len(candidate_ids) == 1:
+                uid = candidate_ids[0]
+
+            if uid:
+                mapa_they_want[uid].append(
+                    MatchedCardSanitizer.from_wishlist_item(wl)
+                )
+
+        return mapa_they_want
+
+    def compute_matches(self, limit: int = 20) -> List[TradeMatchUserResponse]:
+        desired_ids = self._get_my_wishlist_card_ids()
+        if not desired_ids:
+            return []
+
+        my_trade_ids = self._get_my_trade_card_ids()
+        counterparts = self._find_counterparts_with_my_wants(desired_ids)
+        if not counterparts:
+            return []
+
+        candidate_ids = list(counterparts.keys())
+        mapa_they_want = self._resolve_reverse_wants(candidate_ids, my_trade_ids)
+
+        match_responses: List[TradeMatchUserResponse] = []
+        for counterpart_id, data in counterparts.items():
+            user: User = data["user"]
+            they_want_cards = mapa_they_want.get(counterpart_id, [])
+            is_mutual = len(they_want_cards) > 0
+
+            raw_rep = getattr(user, "reputation_score", 100)
+            rep_score = int(raw_rep) if isinstance(raw_rep, int) else 100
+
+            raw_uname = getattr(user, "username", "Usuario")
+            username_val = str(raw_uname) if raw_uname else "Usuario"
+
+            match_responses.append(
+                TradeMatchUserResponse(
+                    user_id=str(user.id),
+                    username=username_val,
+                    reputation_score=rep_score,
+                    is_mutual_match=is_mutual,
+                    they_have=data["they_have"],
+                    they_want=they_want_cards
                 )
             )
 
-    # 5. Construir respuesta estructurada
-    resultados: List[TradeMatchUserResponse] = []
-    for otro_id, data in usuarios_coincidentes.items():
-        otro_user: User = data["user"]
-        they_want_cards = mapa_they_want.get(otro_id, [])
-        is_mutual = len(they_want_cards) > 0
-
-        rep_raw = getattr(otro_user, "reputation_score", 100)
-        rep_val = rep_raw if type(rep_raw) is int else 100
-
-        user_raw = getattr(otro_user, "username", "Usuario")
-        username_val = user_raw if isinstance(user_raw, str) else "Usuario"
-
-        resultados.append(
-            TradeMatchUserResponse(
-                user_id=str(otro_user.id),
-                username=username_val,
-                reputation_score=rep_val,
-                is_mutual_match=is_mutual,
-                they_have=data["they_have"],
-                they_want=they_want_cards
-            )
+        match_responses.sort(
+            key=lambda item: (
+                item.is_mutual_match,
+                len(item.they_have) + len(item.they_want),
+                item.reputation_score
+            ),
+            reverse=True
         )
 
-    # 6. Ordenar: Coincidencias mutuas primero, luego por cantidad de cartas y reputación
-    resultados.sort(
-        key=lambda r: (r.is_mutual_match, len(r.they_have) + len(r.they_want), r.reputation_score),
-        reverse=True
-    )
-    return resultados[:limit]
+        return match_responses[:limit]
+
+
+def find_trade_matches_for_user(
+    db: Session,
+    user_id: str,
+    limit: int = 20
+) -> List[TradeMatchUserResponse]:
+    """
+    Fachada funcional compatible con el router FastAPI que delega al objeto TradeMatchmaker.
+    """
+    matchmaker = TradeMatchmaker(db=db, user_id=user_id)
+    return matchmaker.compute_matches(limit=limit)

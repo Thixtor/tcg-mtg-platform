@@ -13,7 +13,7 @@ import { FilterSidebar } from '../components/search/FilterSidebar';
 import { CardGrid } from '../components/cards/CardGrid';
 import { useCardModal } from '@/context/CardModalContext';
 
-export function CatalogPage() {
+export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
   const {
     searchTerm,
     setSearchTerm,
@@ -25,8 +25,8 @@ export function CatalogPage() {
   // Invocador global del modal de detalle de carta
   const { openCard } = useCardModal();
 
-  // Conmutador de modo
-  const [searchMode, setSearchMode] = useState('advanced');
+  // Conmutador de modo (por defecto 'advanced', a menos que venga una búsqueda rápida inicial)
+  const [searchMode, setSearchMode] = useState(initialSearch ? 'quick' : 'advanced');
 
   // Estados de filtros avanzados
   const [inputQuery, setInputQuery] = useState('');
@@ -43,6 +43,15 @@ export function CatalogPage() {
   const [setCode, setSetCode] = useState('');
   const [artist, setArtist] = useState('');
   const [selectedKeywords, setSelectedKeywords] = useState([]);
+
+  // Recepción y ejecución automática de búsqueda rápida enviada desde HomePage
+  useEffect(() => {
+    if (initialSearch && initialSearch.trim()) {
+      setSearchMode('quick');
+      setSearchTerm(initialSearch.trim());
+      onClearInitialSearch?.();
+    }
+  }, [initialSearch, setSearchTerm, onClearInitialSearch]);
 
   // ---------------------------------------------------------
   // COMPILADOR DE SINTAXIS SCRYFALL (INTERNO / TRANSPARENTE)
@@ -94,7 +103,7 @@ export function CatalogPage() {
     selectedKeywords,
   ]);
 
-  // Sincronizar automáticamente en modo avanzado
+  // Sincronizar automáticamente solo cuando el usuario está explícitamente en modo avanzado
   useEffect(() => {
     if (searchMode === 'advanced') {
       setSearchTerm(compiledAdvancedQuery);

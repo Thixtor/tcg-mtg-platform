@@ -1,14 +1,8 @@
 // ---------------------------------------------------------
-// PÁGINA: ORQUESTADOR Y EDITOR DE MAZOS (CON SOPORTE PÚBLICO Y FORK)
+// PÁGINA: ORQUESTADOR Y EDITOR DE MAZOS (MODULAR)
 // ---------------------------------------------------------
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  AlertTriangle, 
-  Trash2, 
-  Plus,
-  Shield,
-  Loader2
-} from 'lucide-react';
+import { Shield, Loader2 } from 'lucide-react';
 
 import { 
   getMyDecksApi, 
@@ -26,10 +20,13 @@ import CardShowcaseSidebar from '@/components/common/CardShowcaseSidebar';
 import DeckHeaderBanner from '@/components/decks/DeckHeaderBanner';
 import DeckAnalyticsSection from '@/components/decks/DeckAnalyticsSection';
 import DeckLibraryPage from '@/pages/DeckLibraryPage';
-import ManaCostSymbols from '@/components/common/ManaCostSymbols';
 import WorkspaceToolbar from '@/components/common/WorkspaceToolbar';
-import CardGridItem from '@/components/common/CardGridItem';
 import GuestStateBanner from '@/components/common/GuestStateBanner';
+
+import DeckTextView from '@/components/decks/workspace/DeckTextView';
+import DeckGridView from '@/components/decks/workspace/DeckGridView';
+import DeckLegalityAlert from '@/components/decks/workspace/DeckLegalityAlert';
+import DeckStatusBarFooter from '@/components/decks/workspace/DeckStatusBarFooter';
 
 import { useTheme } from '@/context/ThemeContext';
 import { useCardModal } from '@/context/CardModalContext';
@@ -37,7 +34,6 @@ import { isAuthenticated } from '@/services/session.service';
 import { 
   validateDeckLegality, 
   getCommanderColorIdentity, 
-  isCardColorIdentityLegal, 
   canHaveUnlimitedCopies 
 } from '@/utils/deckLegality';
 import { resolveCardType, SECTIONS_CONFIG } from '@/utils/mtgTypeResolver';
@@ -80,7 +76,7 @@ export default function DecksPage({
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
 
-  // 1. Delegación de filtrado y ordenamiento en el custom hook universal
+  // Filtros y ordenamiento
   const {
     filterQuery,
     setFilterQuery,
@@ -97,7 +93,7 @@ export default function DecksPage({
     defaultSort: 'type'
   });
 
-  // Guard para visitantes no autenticados en vista de biblioteca propia
+  // Guard para visitantes no autenticados
   if (!hasSession && !currentUser && !currentSelectedId) {
     return (
       <main className={`min-h-screen px-4 py-12 transition-colors duration-200 ${
@@ -113,7 +109,7 @@ export default function DecksPage({
     );
   }
 
-  // 2. Cargar catálogo de mazos propios
+  // 1. Cargar catálogo de mazos propios
   useEffect(() => {
     if (!currentUser && !hasSession) {
       setDecks([]);
@@ -140,7 +136,7 @@ export default function DecksPage({
     return () => ctrl.abort();
   }, [currentUser, hasSession, refreshTrigger, onDeckCountChange]);
 
-  // Identificar el mazo activo (propio o foráneo)
+  // Identificar el mazo activo
   const activeDeck = useMemo(() => {
     if (!currentSelectedId) return null;
     const own = decks.find((d) => d.id === currentSelectedId);
@@ -152,14 +148,13 @@ export default function DecksPage({
     (!activeDeck.user_id || (currentUser?.id && String(currentUser.id) === String(activeDeck.user_id)))
   );
 
-  // 3. Cargar cartas y metadatos del mazo activo
+  // 2. Cargar cartas del mazo
   const refreshCurrentDeckCards = useCallback(() => {
     if (!currentSelectedId) return;
 
     setIsLoadingCards(true);
     setDeckActionError(null);
 
-    // Si es un mazo propio, auditar contra binders
     const isLocalDeck = decks.some((d) => d.id === currentSelectedId);
 
     if (isLocalDeck) {
@@ -171,7 +166,6 @@ export default function DecksPage({
         })
         .finally(() => setIsLoadingCards(false));
     } else {
-      // Si es un mazo externo (abierto desde un perfil público)
       getPublicDeckDetailApi(currentSelectedId)
         .then((detail) => {
           if (detail) {
@@ -181,7 +175,6 @@ export default function DecksPage({
         })
         .catch((err) => {
           console.warn('[Mazos] Error consultando mazo comunitario:', parseApiError(err));
-          // Fallback al endpoint de cartas estándar si aplica
           getDeckCardsWithStatusApi(currentSelectedId)
             .then((cards) => setDeckCards(Array.isArray(cards) ? cards : []))
             .catch(() => setDeckCards([]));
@@ -194,16 +187,14 @@ export default function DecksPage({
     refreshCurrentDeckCards();
   }, [refreshCurrentDeckCards]);
 
-  // 4. Acción de Clonación (Fork de Mazo)
+  // 3. Clonar mazo (Fork)
   const handleForkDeck = async (deckId) => {
     setDeckActionError(null);
     try {
       const clonedDeck = await forkDeckApi(deckId);
       if (clonedDeck?.id) {
-        // Actualizar lista local de mazos
         setDecks((prev) => [clonedDeck, ...prev]);
         onDeckCountChange?.(decks.length + 1);
-        // Abrir inmediatamente la copia propia del usuario
         setDeckSelection(clonedDeck.id);
       }
     } catch (err) {
@@ -217,7 +208,7 @@ export default function DecksPage({
   const displayCard = hoveredCard || commanders[0] || deckCards[0];
   const legalityReport = useMemo(() => validateDeckLegality(deckCards, activeDeck?.format || 'commander'), [deckCards, activeDeck]);
 
-  // Modificación de copias (solo permitido para el dueño)
+  // Operaciones sobre cartas
   const handleUpdateQuantity = async (card, delta) => {
     if (!isOwner) return;
     setDeckActionError(null);
@@ -317,7 +308,7 @@ export default function DecksPage({
       isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0B0B0B] text-neutral-100'
     }`}>
       
-      {/* 1. BANNER CON RETORNO, PRIVACIDAD Y CLONACIÓN */}
+      {/* 1. Header Banner */}
       {activeDeck && (
         <DeckHeaderBanner
           activeDeck={activeDeck}
@@ -339,12 +330,12 @@ export default function DecksPage({
         />
       )}
 
-      {/* 2. ÁREA DE TRABAJO PRINCIPAL */}
+      {/* 2. Área de Trabajo Principal */}
       <div className="w-full max-w-[1920px] mx-auto px-6 py-4 space-y-4 pb-24 font-sans">
         {activeDeck && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pt-1">
             
-            {/* PANEL IZQUIERDO: INSPECCIÓN DE CARTA FIJA */}
+            {/* Panel de Inspección Fija */}
             <div className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-4 self-start">
               <CardShowcaseSidebar
                 displayCard={displayCard}
@@ -361,9 +352,8 @@ export default function DecksPage({
               />
             </div>
 
-            {/* PANEL DERECHO: TOOLBAR MODULAR + LISTADO */}
+            {/* Toolbar + Vistas */}
             <main className="lg:col-span-8 xl:col-span-9 space-y-4 min-w-0">
-              
               <WorkspaceToolbar
                 zonesConfig={{
                   activeZone,
@@ -394,7 +384,6 @@ export default function DecksPage({
                 </div>
               )}
 
-              {/* Formulario de adición rápida (solo disponible para el dueño) */}
               {isOwner && (
                 <AddCardInline 
                   deckId={activeDeck.id} 
@@ -403,23 +392,11 @@ export default function DecksPage({
                 />
               )}
 
-              {!legalityReport.isLegal && legalityReport.errors.length > 0 && (
-                <div className={`p-3 rounded-xl border text-xs font-mono space-y-1 ${
-                  isLightMode 
-                    ? 'bg-amber-50 border-amber-300 text-amber-900' 
-                    : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-                }`}>
-                  <div className="flex items-center gap-1.5 font-bold">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Infracciones de Legalidad ({activeDeck.format}):</span>
-                  </div>
-                  <ul className="list-disc pl-5 space-y-0.5 opacity-90 text-[11px]">
-                    {legalityReport.errors.slice(0, 3).map((err, i) => (
-                      <li key={i}>{err}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <DeckLegalityAlert
+                legalityReport={legalityReport}
+                format={activeDeck.format}
+                isLightMode={isLightMode}
+              />
 
               {isLoadingCards ? (
                 <div className="py-24 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
@@ -435,192 +412,50 @@ export default function DecksPage({
                     : 'No hay cartas registradas en esta sección.'}
                 </div>
               ) : viewMode === 'text' ? (
-                
-                /* VISTA TEXTO DESENCAPSULADA A COLUMNAS CON JERARQUÍA OFICIAL */
-                <div className="columns-1 sm:columns-2 xl:columns-3 2xl:columns-4 gap-6 [column-fill:_balance]">
-                  {SECTIONS_CONFIG.map(({ key, label, icon }) => {
-                    const group = groupedCards[key];
-                    if (!group || group.cards.length === 0) return null;
-
-                    return (
-                      <div key={key} className="break-inside-avoid mb-6">
-                        <div className={`flex items-center justify-between pb-1.5 mb-2 font-mono border-b ${
-                          isLightMode ? 'border-[#E0D8C8] text-[#1F1C19]' : 'border-neutral-800 text-neutral-200'
-                        }`}>
-                          <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider">
-                            <span>{icon}</span>
-                            <span>{label}</span>
-                            <span className="opacity-70 font-semibold">({group.totalQty})</span>
-                          </span>
-                        </div>
-
-                        <div className="space-y-0.5">
-                          {group.cards.map((card) => {
-                            const isColorLegal = !isCommanderFormat || commanders.length === 0 || isCardColorIdentityLegal(card, commanderIdentity);
-                            const manaCost = card.mana_cost || card.manaCost || '';
-
-                            return (
-                              <div
-                                key={card.deck_card_id || card.id}
-                                onMouseEnter={() => setHoveredCard(card)}
-                                onClick={() => openCard(card.card_catalog || card)}
-                                className={`py-1 px-2 rounded-lg flex items-center justify-between gap-1.5 transition group cursor-pointer ${
-                                  hoveredCard?.deck_card_id === card.deck_card_id
-                                    ? (isLightMode ? 'bg-[#EAE4D7]' : 'bg-neutral-800/80')
-                                    : (isLightMode ? 'hover:bg-[#F2EDE2]' : 'hover:bg-neutral-900/60')
-                                }`}
-                              >
-                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                  <span className="font-mono text-xs font-bold text-amber-500 w-4 shrink-0 text-left">
-                                    {card.quantity_needed || card.quantity || 1}
-                                  </span>
-
-                                  <span
-                                    className={`w-2 h-2 rounded-full shrink-0 ${
-                                      card.status === 'DISPONIBLE'
-                                        ? 'bg-emerald-500 shadow-[0_0_4px_#10b981]'
-                                        : card.status === 'EN_OTRO_MAZO'
-                                        ? 'bg-amber-500'
-                                        : 'bg-rose-500'
-                                    }`}
-                                    title={card.status || 'Estado'}
-                                  />
-
-                                  <span className={`truncate text-sm font-medium transition ${
-                                    isLightMode ? 'text-[#1F1C19] group-hover:text-amber-700' : 'text-neutral-100 group-hover:text-amber-400'
-                                  }`}>
-                                    {card.name}
-                                  </span>
-
-                                  {!isColorLegal && (
-                                    <span title="Fuera de la identidad de color del Comandante">
-                                      <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                                    </span>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <ManaCostSymbols manaCost={manaCost} />
-
-                                  {/* Acciones de edición (solo si es el propietario) */}
-                                  {isOwner && (
-                                    <div 
-                                      className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition"
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      <select
-                                        value={card.category}
-                                        onChange={(e) => handleUpdateCategory(card, e.target.value)}
-                                        className={`text-[10px] rounded px-1 py-0.5 outline-none cursor-pointer ${
-                                          isLightMode
-                                            ? 'bg-white text-neutral-800 hover:border-amber-500'
-                                            : 'bg-neutral-950 text-neutral-200 hover:border-amber-500'
-                                        }`}
-                                      >
-                                        <option value="mainboard">Main</option>
-                                        <option value="commander">👑 Cmd</option>
-                                        <option value="companion">🧭 Comp</option>
-                                        <option value="sideboard">Side</option>
-                                        <option value="maybeboard">Maybe</option>
-                                      </select>
-
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(card, 1); }} 
-                                        className="p-0.5 text-neutral-400 hover:text-amber-500" 
-                                        title="Añadir copia"
-                                      >
-                                        <Plus className="w-2.5 h-2.5" />
-                                      </button>
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); handleRemoveCard(card.deck_card_id); }} 
-                                        className="p-0.5 text-neutral-400 hover:text-rose-500" 
-                                        title="Eliminar"
-                                      >
-                                        <Trash2 className="w-2.5 h-2.5" />
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
+                <DeckTextView
+                  groupedCards={groupedCards}
+                  hoveredCard={hoveredCard}
+                  commanders={commanders}
+                  commanderIdentity={commanderIdentity}
+                  isCommanderFormat={isCommanderFormat}
+                  isOwner={isOwner}
+                  isLightMode={isLightMode}
+                  onHoverCard={setHoveredCard}
+                  onOpenCard={openCard}
+                  onUpdateCategory={handleUpdateCategory}
+                  onUpdateQuantity={handleUpdateQuantity}
+                  onRemoveCard={handleRemoveCard}
+                />
               ) : (
-
-                /* VISTA GRID VISUAL REUTILIZANDO CardGridItem */
-                <div className="space-y-6">
-                  {SECTIONS_CONFIG.map(({ key, label, icon }) => {
-                    const group = groupedCards[key];
-                    if (!group || group.cards.length === 0) return null;
-
-                    return (
-                      <div key={key} className="space-y-2">
-                        <div className={`flex items-center justify-between pb-1 text-xs font-mono uppercase tracking-wider border-b ${
-                          isLightMode ? 'border-[#E0D8C8] text-neutral-700' : 'border-neutral-800 text-neutral-300'
-                        }`}>
-                          <span className="font-bold flex items-center gap-1.5">
-                            <span>{icon}</span>
-                            <span>{label}</span>
-                          </span>
-                          <span className="text-amber-500 font-bold">{group.totalQty} cartas</span>
-                        </div>
-
-                        <div className="flex flex-wrap gap-3">
-                          {group.cards.map((card) => (
-                            <CardGridItem
-                              key={card.deck_card_id || card.id}
-                              card={card}
-                              cardSize={cardSize}
-                              isSelected={hoveredCard?.deck_card_id === card.deck_card_id}
-                              isLightMode={isLightMode}
-                              onHover={setHoveredCard}
-                              onClick={() => openCard(card.card_catalog || card)}
-                              onIncrement={isOwner ? () => handleUpdateQuantity(card, 1) : undefined}
-                              onRemove={isOwner ? () => handleRemoveCard(card.deck_card_id) : undefined}
-                              badgeTopLeft={card.category === 'commander' ? '👑 CMD' : card.status}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
+                <DeckGridView
+                  groupedCards={groupedCards}
+                  cardSize={cardSize}
+                  hoveredCard={hoveredCard}
+                  isOwner={isOwner}
+                  isLightMode={isLightMode}
+                  onHoverCard={setHoveredCard}
+                  onOpenCard={openCard}
+                  onUpdateQuantity={handleUpdateQuantity}
+                  onRemoveCard={handleRemoveCard}
+                />
               )}
-
             </main>
           </div>
         )}
 
-        {/* 3. SECCIÓN INFERIOR DE ESTADÍSTICAS */}
+        {/* 3. Sección de Analíticas */}
         {activeDeck && <DeckAnalyticsSection cards={deckCards} isLightMode={isLightMode} />}
       </div>
 
-      {/* 4. FOOTER CUMPLIENDO POLÍTICA SCRYFALL / WOTC[cite: 14, 15] */}
-      <footer className={`fixed bottom-0 left-0 right-0 z-40 px-6 py-2 flex items-center justify-between text-xs font-mono backdrop-blur-md ${
-        isLightMode ? 'bg-[#FAF7F2]/95 text-neutral-700 border-t border-[#E0D8C8]' : 'bg-[#0B0B0B]/95 text-neutral-400 border-t border-neutral-900'
-      }`}>
-        <div className="flex items-center gap-4">
-          <span className={`font-bold ${isLightMode ? 'text-neutral-900' : 'text-white'}`}>{zoneCounts.main} Cartas en Baraja</span>
-          <span>·</span>
-          <span className={legalityReport.isLegal ? 'text-emerald-500 font-semibold' : 'text-rose-500 font-semibold'}>
-            {legalityReport.isLegal ? 'Mazo Legal' : 'Revisar Legalidad'}
-          </span>
-          <span>·</span>
-          <span>{activeDeck?.format}</span>
-        </div>
+      {/* 4. Barra de Estado Inferior */}
+      <DeckStatusBarFooter
+        mainboardCount={zoneCounts.main}
+        isLegal={legalityReport.isLegal}
+        format={activeDeck?.format}
+        isLightMode={isLightMode}
+      />
 
-        <div className="text-[11px] opacity-60 hidden sm:block">
-          Portions © Wizards of the Coast LLC · Scryfall compliant[cite: 14, 15]
-        </div>
-      </footer>
-
-      {/* 5. MODALES AUXILIARES (SOLO PROPIETARIO) */}
+      {/* 5. Modales Auxiliares */}
       {activeDeck && isOwner && (
         <BulkImportDeckModal
           isOpen={isBulkModalOpen}

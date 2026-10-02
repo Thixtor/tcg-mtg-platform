@@ -2,7 +2,14 @@
 # ---------------------------------------------------------
 # PUNTO DE ENTRADA PRINCIPAL: FASTAPI APP
 # ---------------------------------------------------------
+"""
+Módulo de arranque e inicialización de la aplicación FastAPI.
+Configura middlewares CORS, rate limiting distribuido, health checks
+y el manejo estructurado de excepciones de integridad relacional (PostgreSQL).
+"""
 import logging
+import re
+from typing import Optional
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,16 +44,64 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+def _extract_pgcode(exc: IntegrityError) -> Optional[str]:
+    """Extrae el SQLSTATE de PostgreSQL desde el driver subyacente si está disponible."""
+    orig = getattr(exc, "orig", None)
+    if orig is not None:
+        return getattr(orig, "pgcode", None)
+    return None
+
+
 @app.exception_handler(IntegrityError)
 async def global_integrity_error_handler(request: Request, exc: IntegrityError):
     """
-    Captura violaciones de unicidad y concurrencia SQL devolviendo 409 Conflict.
-    Previene caídas 500 por doble submit en la interfaz.
+    Captura y clasifica violaciones de integridad relacional según su SQLSTATE:
+      - 23505: unique_violation -> 409 Conflict
+      - 23503: foreign_key_violation -> 400 Bad Request
+      - 23502: not_null_violation -> 422 Unprocessable Entity
+      - Otros / Desconocidos -> 500 Internal Server Error seguro
     """
-    logger.warning(f"Conflicto de integridad SQL en {request.method} {request.url.path}: {exc.orig}")
+    pgcode = _extract_pgcode(exc)
+    raw_message = str(getattr(exc, "orig", exc))
+    logger.warning(
+        f"Violación de integridad SQL en {request.method} {request.url.path} "
+        f"[SQLSTATE={pgcode}]: {raw_message}"
+    )
+
+    # 1. Unicidad duplicada
+    if pgcode == "23505" or "unique constraint" in raw_message.lower():
+        # Extracción segura de la clave si viene en el formato estándar de postgres
+        match = re.search(r"Key \((.*?)\)=\((.*?)\) already exists", raw_message)
+        detail_msg = (
+            f"El valor para el campo '{match.group(1)}' ya existe."
+            if match else
+            "El recurso o registro enviado ya se encuentra registrado."
+        )
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": detail_msg}
+        )
+
+    # 2. Violación de clave foránea (recurso referenciado no existe)
+    if pgcode == "23503" or "foreign key constraint" in raw_message.lower():
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"detail": "Uno de los identificadores referenciados no existe en el sistema."}
+        )
+
+    # 3. Violación de valor nulo no permitido
+    if pgcode == "23502" or "not-null constraint" in raw_message.lower():
+        match = re.search(r"column \"(.*?)\"", raw_message)
+        col_name = match.group(1) if match else "obligatorio"
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": f"El campo '{col_name}' no puede ser nulo."}
+        )
+
+    # 4. Cualquier otra restricción no clasificada (ej: CHECK constraint)
     return JSONResponse(
-        status_code=status.HTTP_409_CONFLICT,
-        content={"detail": "La operación entra en conflicto con un registro existente o una restricción de integridad."}
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Error de consistencia de datos en la base de datos."}
     )
 
 
@@ -93,7 +148,7 @@ def health_liveness():
 
 
 @app.get("/health/ready", tags=["Health Check"], summary="Readiness probe")
-def health_readiness():
+def health_ready():
     """
     Comprueba conectividad real con la base de datos PostgreSQL.
     Retorna 200 si la BD responde 'SELECT 1', de lo contrario 503 Service Unavailable.

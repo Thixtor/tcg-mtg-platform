@@ -7,7 +7,7 @@ from typing import List, Any
 from sqlalchemy import or_, and_, cast, Integer
 
 from app.models.card import CartaScryfall
-from app.crud.crud_cards import escape_like
+from app.repositories.card_repository import escape_like
 
 TOKEN_REGEX = re.compile(
     r'(?P<key>[a-zA-Z]+)(?P<op>[:=<>!]+)(?:"(?P<quoted_val>[^"]+)"|(?P<raw_val>[^\s]+))'
@@ -19,14 +19,12 @@ def _build_safe_stat_filter(stat_field: str, op: str, val_str: str):
     valores no enteros de MTG (*, 1+*, X, ?) que rompen CAST() en PostgreSQL.
     """
     col_as_text = CartaScryfall.scryfall_raw_data[stat_field].astext
-    
-    # Si el valor buscado es puramente numérico (ej. pow>=4)
+
     if re.match(r"^-?\d+$", val_str):
         int_val = int(val_str)
-        # Validación regex en base de datos: solo aplicar cast si el campo en la fila es un entero
         is_numeric = col_as_text.op("~")(r"^-?[0-9]+$")
         casted_col = cast(col_as_text, Integer)
-        
+
         if op in (":", "="):
             return and_(is_numeric, casted_col == int_val)
         elif op == "<=":
@@ -39,8 +37,7 @@ def _build_safe_stat_filter(stat_field: str, op: str, val_str: str):
             return and_(is_numeric, casted_col > int_val)
         elif op == "!=":
             return or_(~is_numeric, casted_col != int_val)
-            
-    # Si buscan valores simbólicos como pow:* o tou:X, comparar como cadena literal
+
     return col_as_text == val_str
 
 
@@ -90,7 +87,7 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
             except ValueError:
                 pass
 
-        # 4. Estadísticas de Combate (Fuerza y Resistencia Seguras)
+        # 4. Estadísticas de Combate
         elif key in ("pow", "power"):
             condition = _build_safe_stat_filter("power", op, val)
             if condition is not None:
@@ -109,7 +106,7 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
         elif key in ("s", "set", "e", "edition"):
             filters.append(CartaScryfall.set.ilike(escape_like(val.lower()), escape="\\"))
 
-        # 7. Reglas (Oracle Text) y Palabras Clave (Keywords)
+        # 7. Reglas (Oracle Text) y Palabras Clave
         elif key in ("o", "oracle"):
             filters.append(CartaScryfall.oracle_text.ilike(f"%{escape_like(val)}%", escape="\\"))
 
@@ -147,7 +144,6 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
 
         remaining_text = remaining_text.replace(match.group(0), "")
 
-    # Búsqueda por nombre en términos restantes
     clean_name = remaining_text.strip()
     if clean_name:
         filters.append(CartaScryfall.name.ilike(f"%{escape_like(clean_name)}%", escape="\\"))
