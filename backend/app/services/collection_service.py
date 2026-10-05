@@ -1,5 +1,10 @@
-from typing import List, Optional
+# app/services/collection_service.py
+# ---------------------------------------------------------
+# SERVICIO DE DOMINIO: COLECCIONES, BINDERS E INVENTARIO
+# ---------------------------------------------------------
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session, joinedload, defer
+from sqlalchemy import or_
 from fastapi import HTTPException, status
 
 from app.models.collection import Collection, UserCard
@@ -10,7 +15,7 @@ from app.schemas import CollectionCreate, AddCardToCollectionPayload
 class CollectionService:
     """
     Servicio de Dominio para orquestar carpetas físicas/binders y ejemplares de usuario.
-    Maneja cuotas máximas, control de privacidad y persistencia atómica.
+    Maneja cuotas máximas, control de privacidad, persistencia atómica y búsqueda facetada.
     """
 
     MAX_COLLECTIONS_PER_USER: int = 10
@@ -131,3 +136,90 @@ class CollectionService:
             query = query.order_by(UserCard.id.desc())
 
         return query.offset(offset).limit(page_size).all()
+
+    @classmethod
+    def search_user_cards(
+        cls,
+        db: Session,
+        user_id: str,
+        query_text: Optional[str] = None,
+        color_filter: Optional[str] = None,
+        type_filter: Optional[str] = None,
+        only_for_trade: Optional[bool] = None,
+        is_foil: Optional[bool] = None,
+        condition: Optional[str] = None,
+        collection_id: Optional[str] = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        Búsqueda facetada en el inventario/binders del usuario autenticado.
+        Combina datos físicos de UserCard con atributos canónicos de CartaScryfall.
+        """
+        base_query = (
+            db.query(
+                UserCard.id.label("id"),
+                UserCard.collection_id.label("collection_id"),
+                Collection.name.label("collection_name"),
+                UserCard.quantity.label("quantity"),
+                UserCard.condition.label("condition"),
+                UserCard.language.label("language"),
+                UserCard.is_foil.label("is_foil"),
+                UserCard.is_for_trade.label("is_for_trade"),
+                UserCard.trade_notes.label("trade_notes"),
+                UserCard.scryfall_card_id.label("scryfall_card_id"),
+                CartaScryfall.name.label("card_name"),
+                CartaScryfall.type_line.label("type_line"),
+                CartaScryfall.color_identity.label("color_identity"),
+                CartaScryfall.cmc.label("cmc"),
+            )
+            .join(Collection, UserCard.collection_id == Collection.id)
+            .join(CartaScryfall, UserCard.scryfall_card_id == CartaScryfall.id)
+            .filter(Collection.user_id == user_id)
+        )
+
+        if collection_id:
+            base_query = base_query.filter(UserCard.collection_id == collection_id)
+
+        if query_text:
+            cleaned = f"%{query_text.strip()}%"
+            base_query = base_query.filter(
+                or_(
+                    CartaScryfall.name.ilike(cleaned),
+                    CartaScryfall.type_line.ilike(cleaned)
+                )
+            )
+
+        if color_filter:
+            colors = [c.strip().upper() for c in color_filter.split(",") if c.strip()]
+            for color in colors:
+                base_query = base_query.filter(CartaScryfall.color_identity.ilike(f"%{color}%"))
+
+        if type_filter:
+            base_query = base_query.filter(CartaScryfall.type_line.ilike(f"%{type_filter.strip()}%"))
+
+        if only_for_trade is not None:
+            base_query = base_query.filter(UserCard.is_for_trade == only_for_trade)
+
+        if is_foil is not None:
+            base_query = base_query.filter(UserCard.is_foil == is_foil)
+
+        if condition:
+            base_query = base_query.filter(UserCard.condition == condition.upper())
+
+        total_items = base_query.count()
+        offset = max(0, (page - 1) * limit)
+        results = (
+            base_query
+            .order_by(CartaScryfall.name.asc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        return {
+            "total": total_items,
+            "page": page,
+            "limit": limit,
+            "items": results
+        }

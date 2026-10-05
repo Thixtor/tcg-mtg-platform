@@ -1,49 +1,92 @@
+# tests/conftest.py
+# -----------------------------------------------------------------------------
+# CONFIGURACIÓN GLOBAL DE TESTING (PYTEST + FASTAPI + POSTGRESQL/SQLITE DUAL)
+# -----------------------------------------------------------------------------
 import os
 import pytest
 from typing import Generator
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import StaticPool, NullPool
 
-# 1. Variables de entorno seguras para testing antes de importar la app
+# 1. Variables de entorno seguras para testing
 os.environ["ENVIRONMENT"] = "testing"
-os.environ["SECRET_KEY"] = "clave_de_pruebas_super_secreta_y_segura_de_mas_de_32_caracteres"
+os.environ["SECRET_KEY"] = os.getenv(
+    "SECRET_KEY", 
+    "clave_de_pruebas_super_secreta_y_segura_de_mas_de_32_caracteres"
+)
 os.environ["EXPOSE_DEV_OTP"] = "False"
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
+# URL de base de datos para tests
+raw_test_db_url = os.getenv("TEST_DATABASE_URL", "sqlite:///:memory:")
+
+# Normalizar esquema a psycopg2 si se pasa postgresql:// genérico
+if raw_test_db_url.startswith("postgresql://"):
+    raw_test_db_url = raw_test_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+TEST_DB_URL = raw_test_db_url
+os.environ["DATABASE_URL"] = TEST_DB_URL
 
 from app.database import Base, get_db
 from app.main import app
 from app.models import User, Collection, CartaScryfall
 from app.core.security import create_access_token
 
-# 2. Base de datos SQLite en memoria para tests
-engine = create_engine(
-    "sqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
+# 2. Configuración del motor según dialecto
+is_sqlite = TEST_DB_URL.startswith("sqlite")
+
+if is_sqlite:
+    engine = create_engine(
+        TEST_DB_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+else:
+    # PostgreSQL testing: NullPool evita retener conexiones entre hilos de test
+    engine = create_engine(
+        TEST_DB_URL,
+        poolclass=NullPool,
+    )
+
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
+    """Inicializa el esquema si es SQLite en memoria."""
+    if is_sqlite:
+        Base.metadata.create_all(bind=engine)
+        yield
+        Base.metadata.drop_all(bind=engine)
+    else:
+        # En PostgreSQL preservamos el esquema gestionado por Alembic
+        yield
 
 
 @pytest.fixture
 def db_session() -> Generator[Session, None, None]:
+    """
+    Entrega una sesión aislada por test con rollback transaccional automático.
+    """
     connection = engine.connect()
     transaction = connection.begin()
     session = TestingSessionLocal(bind=connection)
 
-    yield session
+    nested = connection.begin_nested()
 
-    session.close()
-    transaction.rollback()
-    connection.close()
+    @event.listens_for(session, "after_transaction_end")
+    def restart_savepoint(db_sess, trans):
+        nonlocal nested
+        if trans.nested and not trans._parent.nested:
+            nested = connection.begin_nested()
+
+    try:
+        yield session
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
 
 
 @pytest.fixture

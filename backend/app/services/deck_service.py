@@ -3,7 +3,7 @@
 # SERVICIO DE DOMINIO: GESTIÓN Y CICLO DE VIDA DE MAZOS
 # -----------------------------------------------------------------------------
 from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload, joinedload
 from fastapi import HTTPException, status
 
 from app.models.deck import Deck, DeckCard
@@ -14,18 +14,31 @@ from app.schemas.deck import DeckCreate, AddCardToDeckPayload
 class DeckService:
     """
     Servicio de Dominio encargado de la orquestación y ciclo de vida de los Mazos.
-    Asegura los invariantes del agregado Deck y cuotas de usuario.
+    Asegura los invariantes del agregado Deck, precarga eficiente y cuotas de usuario.
     """
 
     MAX_DECKS_PER_USER: int = 10
 
     @classmethod
     def get_user_decks(cls, db: Session, user_id: str) -> List[Deck]:
-        return db.query(Deck).filter(Deck.user_id == user_id).all()
+        return (
+            db.query(Deck)
+            .options(
+                selectinload(Deck.cards).joinedload(DeckCard.card_catalog).defer(CartaScryfall.scryfall_raw_data)
+            )
+            .filter(Deck.user_id == user_id)
+            .all()
+        )
 
     @classmethod
     def get_deck_or_fail(cls, db: Session, deck_id: str, user_id: Optional[str] = None) -> Deck:
-        query = db.query(Deck).filter(Deck.id == deck_id)
+        query = (
+            db.query(Deck)
+            .options(
+                selectinload(Deck.cards).joinedload(DeckCard.card_catalog).defer(CartaScryfall.scryfall_raw_data)
+            )
+            .filter(Deck.id == deck_id)
+        )
         if user_id is not None:
             query = query.filter(Deck.user_id == user_id)
         
@@ -102,11 +115,11 @@ class DeckService:
 
     @classmethod
     def bulk_add_cards(cls, db: Session, deck_id: str, user_id: str, cards_data: List[Any]) -> Dict[str, Any]:
+        """Añade cartas por lote optimizando consultas mediante un único SELECT ... IN (...)."""
         deck = cls.get_deck_or_fail(db, deck_id=deck_id, user_id=user_id)
 
-        added_count: int = 0
-        failed_card_ids: List[str] = []
-
+        # 1. Extraer identificadores únicos a consultar
+        incoming_items = []
         for item in cards_data:
             scryfall_id = getattr(item, "scryfall_card_id", None) or getattr(item, "card_id", None)
             if not scryfall_id and isinstance(item, dict):
@@ -115,10 +128,27 @@ class DeckService:
             quantity = getattr(item, "quantity", 1) if not isinstance(item, dict) else item.get("quantity", 1)
             category = getattr(item, "category", "mainboard") if not isinstance(item, dict) else item.get("category", "mainboard")
 
-            if not scryfall_id:
-                continue
+            if scryfall_id:
+                incoming_items.append((scryfall_id, quantity, category))
 
-            card_catalog = db.query(CartaScryfall).filter(CartaScryfall.id == scryfall_id).first()
+        if not incoming_items:
+            return {"added_count": 0, "failed_card_ids": []}
+
+        # 2. Consulta en bloque a la base de datos (1 sola query)
+        distinct_ids = list({item[0] for item in incoming_items})
+        catalog_cards = (
+            db.query(CartaScryfall)
+            .filter(CartaScryfall.id.in_(distinct_ids))
+            .all()
+        )
+        catalog_map = {c.id: c for c in catalog_cards}
+
+        # 3. Inserción atómica en memoria
+        added_count: int = 0
+        failed_card_ids: List[str] = []
+
+        for scryfall_id, quantity, category in incoming_items:
+            card_catalog = catalog_map.get(scryfall_id)
             if not card_catalog:
                 failed_card_ids.append(scryfall_id)
                 continue

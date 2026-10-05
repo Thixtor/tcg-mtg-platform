@@ -1,11 +1,12 @@
+# app/schemas/wishlist.py
+# ---------------------------------------------------------
+# ESQUEMAS DE WISHLIST Y MOTOR DE MATCHMAKING
+# ---------------------------------------------------------
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from app.schemas.card import CardResponse
 
 
-# ---------------------------------------------------------
-# 6. ESQUEMAS DE WISHLIST Y MOTOR DE MATCHMAKING
-# ---------------------------------------------------------
 class WishlistAddPayload(BaseModel):
     """Agregar una carta deseada a la lista de búsqueda."""
     scryfall_card_id: str
@@ -47,3 +48,25 @@ class TradeMatchUserResponse(BaseModel):
     is_mutual_match: bool          # True si hay coincidencia bidireccional
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------
+# ESQUEMAS PARA RANKING DE CARTAS MÁS BUSCADAS (MOST WANTED)
+# ---------------------------------------------------------
+class MostWantedCardItem(BaseModel):
+    """Carta dentro del ranking comunitario según demanda en Wishlists."""
+    scryfall_card_id: str
+    card_name: str
+    type_line: Optional[str] = None
+    color_identity: Optional[str] = None
+    cmc: Optional[float] = None
+    users_count: int               # Cantidad de usuarios únicos que la buscan
+    total_copies_wanted: int       # Suma de copias totales solicitadas
+
+    model_config = {"from_attributes": True}
+
+
+class MostWantedResponse(BaseModel):
+    """Respuesta del ranking de cartas más demandadas."""
+    total: int
+    items: List[MostWantedCardItem]

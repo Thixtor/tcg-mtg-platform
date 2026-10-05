@@ -55,10 +55,18 @@ class ScryfallCardNormalizer:
 
     @staticmethod
     def _extract_colors(card_data: Dict[str, Any]) -> str:
-        raw_colors = card_data.get("colors") or card_data.get("color_identity") or []
+        raw_colors = card_data.get("colors") or []
         if isinstance(raw_colors, list) and raw_colors:
             return ",".join(raw_colors)
         return "C"
+
+    @staticmethod
+    def _extract_color_identity(card_data: Dict[str, Any]) -> str:
+        """Extrae la identidad de color para Commander (ej: 'W,U', 'B' o '')."""
+        raw_identity = card_data.get("color_identity") or []
+        if isinstance(raw_identity, list) and raw_identity:
+            return ",".join(sorted(str(c).upper().strip() for c in raw_identity))
+        return ""
 
     @staticmethod
     def _extract_oracle_id(card_data: Dict[str, Any], faces: List[Dict[str, Any]]) -> Optional[str]:
@@ -87,6 +95,7 @@ class ScryfallCardNormalizer:
             "cmc": cmc_val,
             "rarity": str(card_data.get("rarity") or "common").lower(),
             "colors": cls._extract_colors(card_data),
+            "color_identity": cls._extract_color_identity(card_data),
             "oracle_text": cls._extract_composite_field(card_data, faces, "oracle_text"),
             "image_url": cls._extract_image_url(card_data, faces),
             "scryfall_raw_data": card_data
@@ -164,6 +173,7 @@ class ScryfallIngestionService:
                 "cmc": stmt.excluded.cmc,
                 "rarity": stmt.excluded.rarity,
                 "colors": stmt.excluded.colors,
+                "color_identity": stmt.excluded.color_identity,
                 "oracle_text": stmt.excluded.oracle_text,
                 "image_url": stmt.excluded.image_url,
                 "scryfall_raw_data": stmt.excluded.scryfall_raw_data

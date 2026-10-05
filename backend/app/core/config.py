@@ -1,4 +1,5 @@
-from typing import List, Literal
+# app/core/config.py
+from typing import List, Literal, Optional
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -6,18 +7,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """
     Gestiona y valida la configuración del sistema.
-    Falla en el arranque si las variables críticas no están configuradas apropiadamente.
+    Permite desarrollo ágil local y valida rigor en producción.
     """
     # 1. Metadatos de la API y Entorno
     PROJECT_NAME: str = "TCG MTG Trade & Analytics API"
     PROJECT_VERSION: str = "1.0.0"
     API_V1_STR: str = "/api"
-    ENVIRONMENT: Literal["development", "testing", "production"] = "production"
+    ENVIRONMENT: Literal["development", "testing", "production"] = "development"
 
-    # Flag explícito para desarrollo: nunca implícito por el entorno
-    EXPOSE_DEV_OTP: bool = False
+    # Flag para inspeccionar OTP en desarrollo local
+    EXPOSE_DEV_OTP: bool = True
 
-    # 2. Seguridad y JWT (Sin defaults inseguros en producción)
+    # 2. Seguridad y JWT
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 días
@@ -33,7 +34,14 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
-    # 5. Políticas y Headers de Scryfall (Conforme a directrices de Scryfall)
+    # 5. Configuración de Email / OTP (Opcional en fase de desarrollo)
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: Optional[int] = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = "no-reply@tcg-app.local"
+
+    # 6. Políticas y Headers de Scryfall
     SCRYFALL_USER_AGENT: str = "MTGCardMarketApp/1.0"
     SCRYFALL_ACCEPT_HEADER: str = "application/json;q=0.9,*/*;q=0.8"
 
@@ -41,8 +49,11 @@ class Settings(BaseSettings):
     def validate_security_settings(self):
         if len(self.SECRET_KEY) < 32:
             raise ValueError("SECRET_KEY debe contener al menos 32 caracteres criptográficamente seguros.")
-        if self.ENVIRONMENT == "production" and self.EXPOSE_DEV_OTP:
-            raise ValueError("EXPOSE_DEV_OTP no puede estar habilitado en entorno de producción.")
+        if self.ENVIRONMENT == "production":
+            if self.EXPOSE_DEV_OTP:
+                raise ValueError("EXPOSE_DEV_OTP no puede estar habilitado en entorno de producción.")
+            if not self.SMTP_HOST or not self.SMTP_USER or not self.SMTP_PASSWORD:
+                raise ValueError("En producción es obligatorio configurar SMTP_HOST, SMTP_USER y SMTP_PASSWORD.")
         return self
 
     model_config = SettingsConfigDict(

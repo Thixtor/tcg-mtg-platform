@@ -5,10 +5,9 @@
 """
 Módulo de arranque e inicialización de la aplicación FastAPI.
 Configura middlewares CORS, rate limiting distribuido, health checks
-y el manejo estructurado de excepciones de integridad relacional (PostgreSQL).
+y el manejo estructurado y seguro de excepciones de integridad relacional (PostgreSQL).
 """
 import logging
-import re
 from typing import Optional
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
@@ -55,53 +54,55 @@ def _extract_pgcode(exc: IntegrityError) -> Optional[str]:
 @app.exception_handler(IntegrityError)
 async def global_integrity_error_handler(request: Request, exc: IntegrityError):
     """
-    Captura y clasifica violaciones de integridad relacional según su SQLSTATE:
-      - 23505: unique_violation -> 409 Conflict
+    Captura y clasifica violaciones de integridad relacional sanitizando
+    cualquier fuga de PII en logs y respuestas HTTP:
+      - 23505: unique_violation -> 409 Conflict (Mensaje genérico anti-enumeración)
       - 23503: foreign_key_violation -> 400 Bad Request
       - 23502: not_null_violation -> 422 Unprocessable Entity
+      - 23514: check_violation -> 400 Bad Request
       - Otros / Desconocidos -> 500 Internal Server Error seguro
     """
     pgcode = _extract_pgcode(exc)
-    raw_message = str(getattr(exc, "orig", exc))
+    raw_message = str(getattr(exc, "orig", exc)).lower()
+
+    # Log seguro: Registra la ruta y el código SQLSTATE sin incluir valores sensibles (PII)
     logger.warning(
-        f"Violación de integridad SQL en {request.method} {request.url.path} "
-        f"[SQLSTATE={pgcode}]: {raw_message}"
+        f"Violación de integridad de datos en {request.method} {request.url.path} "
+        f"[SQLSTATE={pgcode or 'UNKNOWN'}]"
     )
 
-    # 1. Unicidad duplicada
-    if pgcode == "23505" or "unique constraint" in raw_message.lower():
-        # Extracción segura de la clave si viene en el formato estándar de postgres
-        match = re.search(r"Key \((.*?)\)=\((.*?)\) already exists", raw_message)
-        detail_msg = (
-            f"El valor para el campo '{match.group(1)}' ya existe."
-            if match else
-            "El recurso o registro enviado ya se encuentra registrado."
-        )
+    # 1. Unicidad duplicada (Mitigación de enumeración de cuentas / teléfonos)
+    if pgcode == "23505" or "unique constraint" in raw_message:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
-            content={"detail": detail_msg}
+            content={"detail": "Uno de los identificadores o valores enviados ya se encuentra registrado."}
         )
 
-    # 2. Violación de clave foránea (recurso referenciado no existe)
-    if pgcode == "23503" or "foreign key constraint" in raw_message.lower():
+    # 2. Violación de clave foránea (Recurso padre o foráneo inexistente)
+    if pgcode == "23503" or "foreign key constraint" in raw_message:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"detail": "Uno de los identificadores referenciados no existe en el sistema."}
         )
 
-    # 3. Violación de valor nulo no permitido
-    if pgcode == "23502" or "not-null constraint" in raw_message.lower():
-        match = re.search(r"column \"(.*?)\"", raw_message)
-        col_name = match.group(1) if match else "obligatorio"
+    # 3. Violación de campo no nulo
+    if pgcode == "23502" or "not-null constraint" in raw_message:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"detail": f"El campo '{col_name}' no puede ser nulo."}
+            content={"detail": "Uno de los campos obligatorios no ha sido proporcionado."}
         )
 
-    # 4. Cualquier otra restricción no clasificada (ej: CHECK constraint)
+    # 4. Violación de restricción CHECK (ej: valores negativos o estados inválidos)
+    if pgcode == "23514" or "check constraint" in raw_message:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"detail": "Los datos enviados no cumplen con las reglas de validación del sistema."}
+        )
+
+    # 5. Restricción no clasificada
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Error de consistencia de datos en la base de datos."}
+        content={"detail": "Error de consistencia de datos en el servidor."}
     )
 
 

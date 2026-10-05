@@ -14,7 +14,8 @@ from app.schemas import (
     CollectionCreate,
     CollectionResponse,
     AddCardToCollectionPayload,
-    UserCardResponse
+    UserCardResponse,
+    UserCardSearchResponse
 )
 
 router = APIRouter(
@@ -88,7 +89,43 @@ def list_user_collections(
 
 
 # ---------------------------------------------------------
-# 2. CARTAS DENTRO DE UNA COLECCIÓN (USER CARDS)
+# 2. BÚSQUEDA EN INVENTARIO (USER CARDS)
+# ---------------------------------------------------------
+@router.get(
+    "/collections/cards/search",
+    response_model=UserCardSearchResponse,
+    summary="Buscar y filtrar cartas dentro del inventario del usuario"
+)
+def search_user_inventory(
+    q: Optional[str] = Query(None, description="Búsqueda por nombre de carta o tipo"),
+    color: Optional[str] = Query(None, description="Filtrar por colores (ej: 'U', 'W,B')"),
+    card_type: Optional[str] = Query(None, description="Tipo de carta (ej: 'Creature', 'Instant')"),
+    for_trade: Optional[bool] = Query(None, description="Filtrar cartas marcadas para trade"),
+    is_foil: Optional[bool] = Query(None, description="Filtrar por acabado foil"),
+    condition: Optional[str] = Query(None, description="Condición física (NM, LP, MP, HP, DMG)"),
+    collection_id: Optional[str] = Query(None, description="Filtrar por binder/colección específico"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    limit: int = Query(50, ge=1, le=100, description="Cantidad de cartas por página"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return CollectionService.search_user_cards(
+        db=db,
+        user_id=str(current_user.id),
+        query_text=q,
+        color_filter=color,
+        type_filter=card_type,
+        only_for_trade=for_trade,
+        is_foil=is_foil,
+        condition=condition,
+        collection_id=collection_id,
+        page=page,
+        limit=limit,
+    )
+
+
+# ---------------------------------------------------------
+# 3. CARTAS DENTRO DE UNA COLECCIÓN ESPECÍFICA
 # ---------------------------------------------------------
 @router.post(
     "/collections/{collection_id}/cards",

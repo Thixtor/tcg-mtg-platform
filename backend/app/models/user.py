@@ -153,9 +153,25 @@ class User(Base):
             self.allows_nationwide_shipping = allows_nationwide_shipping
 
     def register_successful_trade(self) -> None:
+        """Aumenta intercambios completados y reputación con tope seguro de 200 puntos."""
         self.completed_trades += 1
-        self.reputation_score = min(200, self.reputation_score + 2)
+        self.reputation_score = min(200, (self.reputation_score or 100) + 2)
 
     def register_dispute(self) -> None:
+        """Penaliza reputación y aumenta contador de disputas."""
         self.disputes_count += 1
-        self.reputation_score = max(0, self.reputation_score - 15)
+        self.reputation_score = max(0, (self.reputation_score or 100) - 15)
+
+    def apply_feedback(self, rating_value: float, successful: bool) -> None:
+        """Aplica retroalimentación recibida calculando promedio ponderado y reputación."""
+        current_rating = self.rating if self.rating is not None else 5.0
+        trades = max(self.completed_trades or 1, 1)
+
+        # Actualización ponderada de estrellas
+        self.rating = round(((current_rating * (trades - 1)) + rating_value) / trades, 2)
+
+        if successful:
+            bonus = int(rating_value * 2)  # Entre 2 y 10 pts
+            self.reputation_score = min(200, (self.reputation_score or 100) + bonus)
+        else:
+            self.register_dispute()

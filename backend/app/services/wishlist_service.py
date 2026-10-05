@@ -2,8 +2,9 @@
 # ---------------------------------------------------------
 # SERVICIO DE DOMINIO: LISTA DE DESEOS (WISHLIST)
 # ---------------------------------------------------------
-from typing import List
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, desc
 from fastapi import HTTPException, status
 
 from app.models.wishlist import WishlistItem
@@ -13,7 +14,8 @@ from app.schemas import WishlistAddPayload
 
 class WishlistService:
     """
-    Servicio de Dominio encargado de orquestar los ítems de búsqueda del usuario.
+    Servicio de Dominio encargado de orquestar los ítems de búsqueda del usuario
+    y calcular la demanda comunitaria de cartas.
     """
 
     @classmethod
@@ -82,3 +84,66 @@ class WishlistService:
 
         db.delete(item)
         db.commit()
+
+    @classmethod
+    def get_most_wanted_cards(
+        cls,
+        db: Session,
+        limit: int = 20,
+        color_filter: Optional[str] = None,
+        type_filter: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Calcula el ranking de las cartas más solicitadas según las Wishlists activas.
+        Agrupa por carta y ordena por usuarios demandantes únicos y cantidad total.
+        """
+        query = (
+            db.query(
+                CartaScryfall.id.label("scryfall_card_id"),
+                CartaScryfall.name.label("card_name"),
+                CartaScryfall.type_line.label("type_line"),
+                CartaScryfall.color_identity.label("color_identity"),
+                CartaScryfall.cmc.label("cmc"),
+                func.count(func.distinct(WishlistItem.user_id)).label("users_count"),
+                func.coalesce(func.sum(WishlistItem.quantity), 0).label("total_copies_wanted"),
+            )
+            .join(CartaScryfall, WishlistItem.scryfall_card_id == CartaScryfall.id)
+            .group_by(CartaScryfall.id)
+        )
+
+        if color_filter:
+            colors = [c.strip().upper() for c in color_filter.split(",") if c.strip()]
+            for color in colors:
+                query = query.filter(CartaScryfall.color_identity.ilike(f"%{color}%"))
+
+        if type_filter:
+            query = query.filter(CartaScryfall.type_line.ilike(f"%{type_filter.strip()}%"))
+
+        results = (
+            query
+            .order_by(
+                desc("users_count"),
+                desc("total_copies_wanted"),
+                CartaScryfall.name.asc()
+            )
+            .limit(limit)
+            .all()
+        )
+
+        items = [
+            {
+                "scryfall_card_id": row.scryfall_card_id,
+                "card_name": row.card_name,
+                "type_line": row.type_line,
+                "color_identity": row.color_identity,
+                "cmc": row.cmc,
+                "users_count": row.users_count,
+                "total_copies_wanted": int(row.total_copies_wanted),
+            }
+            for row in results
+        ]
+
+        return {
+            "total": len(items),
+            "items": items,
+        }

@@ -1,3 +1,4 @@
+# app/schemas/__init__.py
 # ---------------------------------------------------------
 # EXPORTACIÓN CENTRALIZADA DE ESQUEMAS PYDANTIC
 # ---------------------------------------------------------
@@ -13,7 +14,8 @@ from app.schemas.collection import (
     CollectionResponse,
     AddCardToCollectionPayload,
     UserCardResponse,
-    TradeMarketItemResponse,
+    UserCardSearchItem,
+    UserCardSearchResponse,
 )
 from app.schemas.deck import (
     DeckCreate,
@@ -24,8 +26,18 @@ from app.schemas.deck import (
 from app.schemas.wishlist import (
     WishlistAddPayload,
     WishlistItemResponse,
+    MostWantedCardItem,
+    MostWantedResponse,
+)
+from app.schemas.trade import (
+    TradeMarketItemResponse,
     MatchedCard,
     TradeMatchUserResponse,
+    TradeProposalItemCreate,
+    TradeProposalCreatePayload,
+    TradeProposalItemResponse,
+    TradeProposalResponse,
+    TradeFeedbackPayload,
 )
 from app.schemas.price import (
     PuntoPrecio,
@@ -43,15 +55,24 @@ __all__ = [
     "CollectionResponse",
     "AddCardToCollectionPayload",
     "UserCardResponse",
-    "TradeMarketItemResponse",
+    "UserCardSearchItem",
+    "UserCardSearchResponse",
     "DeckCreate",
     "DeckResponse",
     "AddCardToDeckPayload",
     "DeckCardDetailResponse",
     "WishlistAddPayload",
     "WishlistItemResponse",
+    "MostWantedCardItem",
+    "MostWantedResponse",
+    "TradeMarketItemResponse",
     "MatchedCard",
     "TradeMatchUserResponse",
+    "TradeProposalItemCreate",
+    "TradeProposalCreatePayload",
+    "TradeProposalItemResponse",
+    "TradeProposalResponse",
+    "TradeFeedbackPayload",
     "PuntoPrecio",
     "ResumenPreciosActuales",
     "HistorialPreciosResponse",

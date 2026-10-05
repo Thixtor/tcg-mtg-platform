@@ -6,7 +6,7 @@ import uuid
 import re
 from typing import List, Optional, Set, Dict, Any, Union
 from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import relationship, object_session
+from sqlalchemy.orm import relationship
 from app.database import Base
 
 
@@ -178,7 +178,7 @@ class DeckCard(Base):
     category = Column(String, default="mainboard", nullable=False)
 
     deck = relationship("Deck", back_populates="cards")
-    card_catalog = relationship("CartaScryfall", lazy="select")
+    card_catalog = relationship("CartaScryfall", lazy="joined")
 
     __table_args__ = (
         UniqueConstraint('deck_id', 'scryfall_card_id', 'category', name='uq_deck_card_category'),
@@ -190,17 +190,9 @@ class DeckCard(Base):
 
     @property
     def adapter(self) -> Optional[MTGCardDomainAdapter]:
+        """Entrega el adaptador de dominio directamente del catálogo precargado sin disparar queries N+1."""
         if self.card_catalog:
             return MTGCardDomainAdapter(self.card_catalog)
-
-        session = object_session(self)
-        if session and self.scryfall_card_id:
-            from app.models.card import CartaScryfall
-            card = session.query(CartaScryfall).filter(CartaScryfall.id == self.scryfall_card_id).first()
-            if card:
-                self.card_catalog = card
-                return MTGCardDomainAdapter(card)
-
         return None
 
     def change_quantity(self, new_quantity: int) -> None:

@@ -1,72 +1,42 @@
 # app/services/trade_proposal_service.py
 # ---------------------------------------------------------
-# SERVICIO DE DOMINIO: PROPUESTAS Y NEGOCIACIONES DE TRADE (DDD)
+# SERVICIO DE DOMINIO: NEGOCIACIÓN E INVENTARIO P2P (DDD)
 # ---------------------------------------------------------
 """
 Servicio de dominio para la orquestación de transacciones de intercambio.
-Implementa validaciones estrictas de propiedad, disponibilidad y visibilidad,
-bloqueo pesimista de inventario y transferencia atómica de cartas.
+Implementa validaciones estrictas de posesión y visibilidad, bloqueo pesimista
+compatible con PostgreSQL y transferencia atómica de cartas respetando FK RESTRICT.
 """
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional
 from decimal import Decimal
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from fastapi import HTTPException, status
 
 from app.models.trade_proposal import TradeProposal, TradeProposalItem, TradeStatus
 from app.models.collection import Collection, UserCard
 from app.models.user import User
-from app.schemas.trade_proposal import (
-    CreateTradeProposalPayload,
+from app.schemas.trade import (
+    TradeProposalCreatePayload,
     TradeProposalResponse,
-    TradeProposalItemPayload
+    TradeProposalItemResponse,
+    TradeProposalItemCreate,
 )
 
 
 class TradeProposalService:
 
-    @classmethod
-    def build_response_dto(cls, proposal: TradeProposal, requester_id: str) -> TradeProposalResponse:
-        """
-        Construye la respuesta aplicando política de privacidad estricta sobre PII:
-        El teléfono solo se expone bidireccionalmente cuando el trade fue aceptado o completado.
-        """
-        can_reveal_contact = proposal.status in (TradeStatus.ACCEPTED.value, TradeStatus.COMPLETED.value)
-        contact_phone = None
-
-        if can_reveal_contact:
-            if str(proposal.proposer_id) == str(requester_id):
-                contact_phone = proposal.receiver.phone_number if proposal.receiver else None
-            elif str(proposal.receiver_id) == str(requester_id):
-                contact_phone = proposal.proposer.phone_number if proposal.proposer else None
-
-        return TradeProposalResponse(
-            id=str(proposal.id),
-            proposer_id=str(proposal.proposer_id),
-            receiver_id=str(proposal.receiver_id),
-            status=proposal.status,
-            cash_amount=proposal.cash_amount,
-            cash_currency=proposal.cash_currency,
-            cash_payer_id=str(proposal.cash_payer_id) if proposal.cash_payer_id else None,
-            notes=proposal.notes,
-            contact_phone=contact_phone,
-            offered_items_count=len([i for i in proposal.items if i.side == "offered"]),
-            requested_items_count=len([i for i in proposal.items if i.side == "requested"])
-        )
-
+    # -------------------------------------------------------------------------
+    # VALIDACIONES Y BLOQUEO PESIMISTA
+    # -------------------------------------------------------------------------
     @classmethod
     def _validate_and_lock_items(
         cls,
         db: Session,
-        items_payload: List[TradeProposalItemPayload],
+        items_payload: List[TradeProposalItemCreate],
         expected_owner_id: str,
         side_label: str,
         must_be_public_trade: bool = False
     ) -> Dict[str, UserCard]:
-        """
-        Valida que cada carta exista, pertenezca al usuario esperado,
-        tenga cantidad suficiente y cumpla las reglas de visibilidad pública.
-        Aplica un bloqueo FOR UPDATE a nivel de fila para prevenir carreras.
-        """
         if not items_payload:
             return {}
 
@@ -92,7 +62,6 @@ class TradeProposalService:
                 UserCard.is_for_trade.is_(True)
             )
 
-        # Bloqueo pesimista para consistencia transaccional
         locked_cards = {c.id: c for c in query.with_for_update().all()}
 
         for item in items_payload:
@@ -102,7 +71,7 @@ class TradeProposalService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=(
                         f"La carta {item.user_card_id} ({side_label}) no existe, no pertenece al usuario "
-                        f"esperado o no está disponible para intercambio público."
+                        f"esperado o no está habilitada para intercambio público."
                     )
                 )
             if uc.quantity < item.quantity:
@@ -113,24 +82,22 @@ class TradeProposalService:
 
         return locked_cards
 
+    # -------------------------------------------------------------------------
+    # GESTIÓN DEL CICLO DE VIDA DE PROPUESTAS
+    # -------------------------------------------------------------------------
     @classmethod
     def create_proposal(
         cls, 
         db: Session, 
         proposer: User, 
-        payload: CreateTradeProposalPayload
+        payload: TradeProposalCreatePayload
     ) -> TradeProposal:
-        """
-        Crea una propuesta de trade validando posesión real de cartas del proponente
-        y disponibilidad en carpetas públicas marcadas para intercambio del receptor.
-        """
         if str(proposer.id) == payload.receiver_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
                 detail="No puedes crear un intercambio contigo mismo."
             )
 
-        # 1. Validar existencia del receptor
         receiver = db.query(User).filter(User.id == payload.receiver_id).first()
         if not receiver:
             raise HTTPException(
@@ -138,7 +105,6 @@ class TradeProposalService:
                 detail="El usuario receptor no existe."
             )
 
-        # 2. Validar pagador en compensación económica
         if payload.cash_amount and payload.cash_amount > Decimal("0.00"):
             if payload.cash_payer_id not in (str(proposer.id), str(receiver.id)):
                 raise HTTPException(
@@ -146,29 +112,20 @@ class TradeProposalService:
                     detail="El pagador de la compensación monetaria debe ser proponente o receptor."
                 )
 
-        # 3. Validar listas no vacías simultáneamente
-        if not payload.offered_user_card_ids and not payload.requested_user_card_ids:
+        offered_items = [it for it in payload.items if it.side == "offered"]
+        requested_items = [it for it in payload.items if it.side == "requested"]
+
+        if not offered_items and not requested_items:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Una propuesta debe incluir al menos una carta ofrecida o solicitada."
             )
 
-        # 4. Validar y bloquear cartas ofrecidas (Dueño: Proponente)
-        locked_offered = cls._validate_and_lock_items(
-            db, 
-            payload.offered_user_card_ids, 
-            expected_owner_id=str(proposer.id), 
-            side_label="ofrecidas",
-            must_be_public_trade=False
+        cls._validate_and_lock_items(
+            db, offered_items, expected_owner_id=str(proposer.id), side_label="ofrecidas", must_be_public_trade=False
         )
-
-        # 5. Validar y bloquear cartas solicitadas (Dueño: Receptor, Binders públicos y for_trade)
-        locked_requested = cls._validate_and_lock_items(
-            db, 
-            payload.requested_user_card_ids, 
-            expected_owner_id=str(receiver.id), 
-            side_label="solicitadas",
-            must_be_public_trade=True
+        cls._validate_and_lock_items(
+            db, requested_items, expected_owner_id=str(receiver.id), side_label="solicitadas", must_be_public_trade=True
         )
 
         proposal = TradeProposal(
@@ -183,20 +140,13 @@ class TradeProposalService:
         db.add(proposal)
         db.flush()
 
-        for item in payload.offered_user_card_ids:
+        for it in payload.items:
             db.add(TradeProposalItem(
-                proposal_id=proposal.id, 
-                user_card_id=item.user_card_id, 
-                side="offered", 
-                quantity=item.quantity
-            ))
-
-        for item in payload.requested_user_card_ids:
-            db.add(TradeProposalItem(
-                proposal_id=proposal.id, 
-                user_card_id=item.user_card_id, 
-                side="requested", 
-                quantity=item.quantity
+                proposal_id=proposal.id,
+                user_card_id=it.user_card_id,
+                side=it.side,
+                quantity=it.quantity,
+                agreed_price_usd=it.agreed_price_usd
             ))
 
         db.commit()
@@ -204,17 +154,20 @@ class TradeProposalService:
         return proposal
 
     @classmethod
-    def get_user_proposals(cls, db: Session, user_id: str) -> List[TradeProposal]:
-        return (
+    def get_user_proposals(cls, db: Session, user_id: str, status_filter: Optional[str] = None) -> List[TradeProposal]:
+        query = (
             db.query(TradeProposal)
             .options(
                 joinedload(TradeProposal.proposer),
-                joinedload(TradeProposal.receiver)
+                joinedload(TradeProposal.receiver),
+                selectinload(TradeProposal.items).joinedload(TradeProposalItem.user_card).joinedload(UserCard.card_catalog)
             )
             .filter((TradeProposal.proposer_id == user_id) | (TradeProposal.receiver_id == user_id))
-            .order_by(TradeProposal.updated_at.desc())
-            .all()
         )
+        if status_filter:
+            query = query.filter(TradeProposal.status == status_filter.lower())
+
+        return query.order_by(TradeProposal.updated_at.desc()).all()
 
     @classmethod
     def get_proposal_by_id_or_fail(cls, db: Session, proposal_id: str, user_id: str) -> TradeProposal:
@@ -222,7 +175,8 @@ class TradeProposalService:
             db.query(TradeProposal)
             .options(
                 joinedload(TradeProposal.proposer),
-                joinedload(TradeProposal.receiver)
+                joinedload(TradeProposal.receiver),
+                selectinload(TradeProposal.items).joinedload(TradeProposalItem.user_card).joinedload(UserCard.card_catalog)
             )
             .filter(TradeProposal.id == proposal_id)
             .first()
@@ -263,6 +217,23 @@ class TradeProposalService:
         return proposal
 
     @classmethod
+    def cancel_proposal(cls, db: Session, proposal_id: str, user_id: str) -> TradeProposal:
+        proposal = cls.get_proposal_by_id_or_fail(db, proposal_id, user_id)
+        try:
+            proposal.cancel(user_id)
+        except PermissionError as pe:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(pe))
+        except ValueError as ve:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+        db.commit()
+        db.refresh(proposal)
+        return proposal
+
+    # -------------------------------------------------------------------------
+    # TRANSFERENCIA FÍSICA Y CIERRE ATÓMICO (COMPATIBLE CON FK RESTRICT)
+    # -------------------------------------------------------------------------
+    @classmethod
     def _transfer_card_instance(
         cls,
         db: Session,
@@ -270,22 +241,17 @@ class TradeProposalService:
         target_user_id: str,
         quantity_to_move: int
     ) -> None:
-        """
-        Transfiere físicamente copias de cartas entre usuarios de forma atómica:
-        Descuenta del origen y añade/fusiona en el binder principal del destino.
-        """
-        # Descontar del origen
         if source_user_card.quantity < quantity_to_move:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Disponibilidad insuficiente durante la transferencia de la carta {source_user_card.id}."
             )
         
+        # Reducir stock sin borrar fila para preservar integridad de FK RESTRICT
         source_user_card.quantity -= quantity_to_move
         if source_user_card.quantity == 0:
-            db.delete(source_user_card)
+            source_user_card.is_for_trade = False
 
-        # Localizar o crear binder destino
         target_collection = (
             db.query(Collection)
             .filter(Collection.user_id == target_user_id)
@@ -300,7 +266,6 @@ class TradeProposalService:
             db.add(target_collection)
             db.flush()
 
-        # Añadir al inventario del receptor
         target_collection.add_card(
             scryfall_card_id=source_user_card.scryfall_card_id,
             quantity=quantity_to_move,
@@ -312,16 +277,10 @@ class TradeProposalService:
 
     @classmethod
     def complete_trade(cls, db: Session, proposal_id: str, user_id: str) -> TradeProposal:
-        """
-        Finaliza el trade de forma atómica:
-        1. Transiciona la máquina de estados a COMPLETED.
-        2. Bloquea las cartas y transfiere el inventario físico entre las partes.
-        3. Acredita la reputación P2P a ambos participantes.
-        """
         proposal = (
             db.query(TradeProposal)
             .filter(TradeProposal.id == proposal_id)
-            .with_for_update()
+            .with_for_update(of=TradeProposal)
             .first()
         )
         if not proposal or (str(proposal.proposer_id) != str(user_id) and str(proposal.receiver_id) != str(user_id)):
@@ -337,7 +296,7 @@ class TradeProposalService:
         except ValueError as ve:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
 
-        # Transferencia física atómica de cartas
+        # Transferencia física de inventario
         for item in proposal.items:
             uc = db.query(UserCard).filter(UserCard.id == item.user_card_id).with_for_update().first()
             if not uc:
@@ -347,13 +306,11 @@ class TradeProposalService:
                 )
 
             if item.side == "offered":
-                # Del proponente al receptor
                 cls._transfer_card_instance(db, uc, str(proposal.receiver_id), item.quantity)
             elif item.side == "requested":
-                # Del receptor al proponente
                 cls._transfer_card_instance(db, uc, str(proposal.proposer_id), item.quantity)
 
-        # Bonificación de reputación en ambos participantes
+        # Registrar trade exitoso en el modelo User
         if proposal.proposer:
             proposal.proposer.register_successful_trade()
         if proposal.receiver:
@@ -362,3 +319,42 @@ class TradeProposalService:
         db.commit()
         db.refresh(proposal)
         return proposal
+
+    # -------------------------------------------------------------------------
+    # DTO MAPPER OPTIMIZADO (EVITA N+1)
+    # -------------------------------------------------------------------------
+    @classmethod
+    def map_proposal_to_dto(cls, proposal: TradeProposal) -> TradeProposalResponse:
+        items_dto: List[TradeProposalItemResponse] = []
+        for it in proposal.items:
+            card_name = None
+            image_url = None
+            if it.user_card and it.user_card.card_catalog:
+                card_name = it.user_card.card_catalog.name
+                image_url = it.user_card.card_catalog.image_url
+
+            items_dto.append(
+                TradeProposalItemResponse(
+                    id=str(it.id),
+                    user_card_id=str(it.user_card_id),
+                    side=str(it.side),
+                    quantity=int(it.quantity),
+                    agreed_price_usd=float(it.agreed_price_usd) if it.agreed_price_usd is not None else None,
+                    card_name=card_name,
+                    image_url=image_url
+                )
+            )
+
+        return TradeProposalResponse(
+            id=str(proposal.id),
+            proposer_id=str(proposal.proposer_id),
+            receiver_id=str(proposal.receiver_id),
+            status=str(proposal.status),
+            cash_amount=float(proposal.cash_amount or 0.0),
+            cash_currency=str(proposal.cash_currency or "COP"),
+            cash_payer_id=str(proposal.cash_payer_id) if proposal.cash_payer_id else None,
+            notes=proposal.notes,
+            created_at=proposal.created_at,
+            updated_at=proposal.updated_at,
+            items=items_dto
+        )

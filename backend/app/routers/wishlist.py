@@ -2,8 +2,8 @@
 # ---------------------------------------------------------
 # ROUTER: WISHLIST Y MOTOR DE MATCHMAKING (POO / DDD)
 # ---------------------------------------------------------
-from typing import List
-from fastapi import APIRouter, Depends, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -12,7 +12,8 @@ from app.models.user import User
 from app.schemas import (
     WishlistAddPayload,
     WishlistItemResponse,
-    TradeMatchUserResponse
+    TradeMatchUserResponse,
+    MostWantedResponse
 )
 from app.services.wishlist_service import WishlistService
 from app.services.matchmaking_service import find_trade_matches_for_user
@@ -23,7 +24,29 @@ router = APIRouter(
 
 
 # ---------------------------------------------------------
-# 1. GESTIÓN DE LA LISTA DE DESEOS (WISHLIST)
+# 1. RANKING PÚBLICO: CARTAS MÁS BUSCADAS (MOST WANTED)
+# ---------------------------------------------------------
+@router.get(
+    "/wishlist/most-wanted",
+    response_model=MostWantedResponse,
+    summary="Top de cartas más deseadas y requeridas en wishlists de la comunidad"
+)
+def get_most_wanted_cards(
+    limit: int = Query(20, ge=1, le=100, description="Cantidad máxima de cartas a retornar"),
+    color: Optional[str] = Query(None, description="Filtrar por identidad de color (ej: 'U', 'W,B')"),
+    card_type: Optional[str] = Query(None, description="Filtrar por tipo de carta (ej: 'Artifact', 'Creature')"),
+    db: Session = Depends(get_db)
+):
+    return WishlistService.get_most_wanted_cards(
+        db=db,
+        limit=limit,
+        color_filter=color,
+        type_filter=card_type
+    )
+
+
+# ---------------------------------------------------------
+# 2. GESTIÓN DE LA LISTA DE DESEOS (WISHLIST)
 # ---------------------------------------------------------
 @router.post(
     "/wishlist",
@@ -74,7 +97,7 @@ def remove_from_wishlist(
 
 
 # ---------------------------------------------------------
-# 2. MOTOR DE MATCHMAKING
+# 3. MOTOR DE MATCHMAKING
 # ---------------------------------------------------------
 @router.get(
     "/matchmaking/me",

@@ -4,14 +4,24 @@
 # ---------------------------------------------------------
 """
 Módulo de dominio para la negociación de intercambios entre usuarios.
-Encapsula la máquina de estados finitos (FSM) de una propuesta de trade
-y la integridad transaccional de los ítems involucrados.
+Encapsula la máquina de estados finitos (FSM) de una propuesta de trade,
+la integridad transaccional de los ítems involucrados y el feedback único.
 """
 import uuid
 from enum import Enum
 from datetime import datetime, timezone
 from typing import Set, Dict
-from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    Numeric,
+    DateTime,
+    ForeignKey,
+    Boolean,
+    Float,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -86,6 +96,12 @@ class TradeProposal(Base):
         cascade="all, delete-orphan", 
         lazy="selectin"
     )
+    feedbacks = relationship(
+        "TradeFeedback",
+        back_populates="proposal",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
 
     # -------------------------------------------------------------------------
     # MÁQUINA DE ESTADOS Y TRANSICIONES DEL AGREGADO
@@ -122,3 +138,26 @@ class TradeProposal(Base):
         if str(self.proposer_id) != str(user_id) and str(self.receiver_id) != str(user_id):
             raise PermissionError("No perteneces a esta propuesta para marcarla como completada.")
         self._transition_to(TradeStatus.COMPLETED)
+
+
+class TradeFeedback(Base):
+    """Calificación y reseña emitida por un usuario sobre un intercambio completado."""
+    __tablename__ = 'trade_feedbacks'
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    proposal_id = Column(String, ForeignKey('trade_proposals.id', ondelete='CASCADE'), nullable=False, index=True)
+    author_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    target_user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    rating = Column(Float, nullable=False)
+    comment = Column(String(500), nullable=True)
+    successful = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    proposal = relationship("TradeProposal", back_populates="feedbacks")
+    author = relationship("User", foreign_keys=[author_id], lazy="select")
+    target_user = relationship("User", foreign_keys=[target_user_id], lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint('proposal_id', 'author_id', name='uq_trade_feedback_proposal_author'),
+    )
