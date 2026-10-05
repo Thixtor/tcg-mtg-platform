@@ -1,1 +1,1 @@
-# Módulo de enrutadores de la API (FastAPI APIRouters)
+from app.routers import cards, auth, users, collections, decks, wishlist, prices, trade, notifications

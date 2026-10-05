@@ -10,6 +10,7 @@ from app.models.deck import Deck, DeckCard
 from app.models.wishlist import WishlistItem
 from app.models.price import HistoricoPrecio
 from app.models.trade_proposal import TradeProposal, TradeProposalItem
+from app.models.notification import Notification
 
 __all__ = [
     "Base",
@@ -23,4 +24,5 @@ __all__ = [
     "HistoricoPrecio",
     "TradeProposal",
     "TradeProposalItem",
+    "Notification"
 ]

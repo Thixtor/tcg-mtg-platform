@@ -20,7 +20,17 @@ from slowapi import _rate_limit_exceeded_handler
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.database import SessionLocal
-from app.routers import cards, auth, users, collections, decks, wishlist, prices, trade
+from app.routers import (
+    cards,
+    auth,
+    users,
+    collections,
+    decks,
+    wishlist,
+    prices,
+    trade,
+    notifications,
+)
 
 logger = logging.getLogger("main")
 
@@ -128,6 +138,7 @@ app.include_router(decks.router, prefix=settings.API_V1_STR)
 app.include_router(wishlist.router, prefix=settings.API_V1_STR)
 app.include_router(prices.router, prefix=settings.API_V1_STR)
 app.include_router(trade.router, prefix=settings.API_V1_STR)
+app.include_router(notifications.router)
 
 
 # ---------------------------------------------------------
