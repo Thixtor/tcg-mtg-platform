@@ -3,36 +3,41 @@
 // ---------------------------------------------------------
 import React from 'react';
 
+const SYMBOL_MAP = {
+  w: 'ms-w',
+  u: 'ms-u',
+  b: 'ms-b',
+  r: 'ms-r',
+  g: 'ms-g',
+  c: 'ms-c',
+  t: 'ms-tap',
+  q: 'ms-untap',
+  x: 'ms-x',
+};
+
 /**
- * Glifo individual de maná o acción basado en Mana Font.
+ * Glifo individual de maná o acción escalado armónicamente con el texto.
  * @param {string} symbol - Código del símbolo (ej: 'w', 'u', '3', 't').
- * @param {string} size - Clase de tamaño tipográfico de Tailwind.
- * @param {boolean} cost - Activa el círculo de coste (ms-cost).
- * @param {boolean} shadow - Activa la sombra dimensional (ms-shadow).
+ * @param {string} size - Clase de tamaño (ej: 'text-[11px]', 'text-xs', 'text-sm').
  */
-export function ManaGlyph({ symbol, size = 'text-sm', cost = true, shadow = true, className = '' }) {
+export function ManaGlyph({ symbol, size = 'text-[11px]', cost = true, shadow = true, className = '' }) {
   if (!symbol) return null;
 
   const clean = symbol.toString().toLowerCase().replace(/[{}/]/g, '');
-  
-  // Soporte para símbolos especiales de acción
-  const symbolClass = clean === 't' ? 'ms-tap' : clean === 'q' ? 'ms-untap' : `ms-${clean}`;
+  const mappedClass = SYMBOL_MAP[clean] || `ms-${clean}`;
 
   return (
     <i
-      className={`ms ${symbolClass} ${cost ? 'ms-cost' : ''} ${shadow ? 'ms-shadow' : ''} ${size} ${className} inline-flex items-center justify-center align-middle`}
+      className={`ms ${mappedClass} ${cost ? 'ms-cost' : ''} ${shadow ? 'ms-shadow' : ''} ${size} ${className} inline-flex items-center justify-center align-middle leading-none`}
       title={symbol.toUpperCase()}
     />
   );
 }
 
 /**
- * Parsea y renderiza secuencias de coste de maná (ej: "{2}{W}{U}").
- * @param {string} costString - Cadena de coste con notación Scryfall/MTG.
- * @param {string} size - Tamaño del glifo.
- * @param {string} gap - Espaciado horizontal entre símbolos.
+ * Parsea y renderiza secuencias de coste alineadas al tamaño del texto.
  */
-export default function ManaCost({ costString, size = 'text-xs', gap = 'gap-0.5', className = '' }) {
+export default function ManaCost({ costString, size = 'text-[11px]', gap = 'gap-0.5', className = '' }) {
   if (!costString) return null;
 
   const symbols = costString.match(/\{[^}]+\}/g) || [];

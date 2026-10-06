@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// COMPONENTE: TOP 10 CARTAS MÁS BUSCADAS (CON MANA FONT)
+// COMPONENTE: TOP 10 CARTAS MÁS BUSCADAS (CON MANA FONT Y HOVER ZOOM)
 // ---------------------------------------------------------
 import React, { useState, useEffect } from 'react';
 import { searchCardsApi } from '@/api/cards';
@@ -34,9 +34,6 @@ const TYPE_OPTIONS = [
   { label: 'Tierra', value: 'land' },
 ];
 
-/**
- * Slider con ranking de las 10 cartas más buscadas con selectores de rareza, color y tipo.
- */
 export default function TopCardsSlider({ isLightMode, onOpenCard }) {
   const [topCards, setTopCards] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +78,7 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
 
   return (
     <section className="space-y-4">
-      {/* 1. Cabecera y Filtros */}
+      {/* 1. Cabecera y Barra de Filtros */}
       <div className={`flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b pb-4 ${
         isLightMode ? 'border-neutral-300' : 'border-neutral-800'
       }`}>
@@ -94,8 +91,8 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
           </p>
         </div>
 
-        {/* Controles de Selección */}
-        <div className="flex flex-wrap items-center gap-3 text-xs">
+        {/* Controles de Selección Compactos y Proporcionales */}
+        <div className="flex flex-wrap items-center gap-2.5 text-xs">
           {/* Selector de Rareza */}
           <div className={`flex items-center gap-1 p-1 rounded-lg border ${
             isLightMode ? 'bg-neutral-200/80 border-neutral-300' : 'bg-neutral-900/80 border-neutral-800'
@@ -107,7 +104,7 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
               <button
                 key={opt.value}
                 onClick={() => setSelectedRarity(opt.value)}
-                className={`px-2.5 py-1 rounded transition-colors ${
+                className={`px-2 py-0.5 rounded transition-colors ${
                   selectedRarity === opt.value
                     ? 'bg-amber-600 text-white font-semibold shadow'
                     : isLightMode
@@ -120,8 +117,8 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
             ))}
           </div>
 
-          {/* Selector de Color con Mana Font */}
-          <div className={`flex items-center gap-1.5 p-1.5 rounded-lg border ${
+          {/* Selector de Color con Mana Font Proporcional */}
+          <div className={`flex items-center gap-1 p-1 rounded-lg border ${
             isLightMode ? 'bg-neutral-200/80 border-neutral-300' : 'bg-neutral-900/80 border-neutral-800'
           }`}>
             <span className={`px-1.5 font-medium ${isLightMode ? 'text-neutral-700' : 'text-neutral-400'}`}>
@@ -135,7 +132,7 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
                   <button
                     key="all-colors"
                     onClick={() => setSelectedColor('')}
-                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
                       isSelected
                         ? 'bg-amber-600 text-white font-semibold shadow'
                         : isLightMode
@@ -153,13 +150,13 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
                   key={c.id}
                   onClick={() => setSelectedColor(c.id)}
                   title={c.label}
-                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
                     isSelected
-                      ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-neutral-900 scale-110 shadow-lg'
+                      ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-neutral-900 scale-110 shadow-sm'
                       : 'opacity-70 hover:opacity-100 hover:scale-105'
                   }`}
                 >
-                  <ManaGlyph symbol={c.symbol} size="text-[17px]" cost={true} shadow={true} />
+                  <ManaGlyph symbol={c.symbol} size="text-[12px]" cost={true} shadow={true} />
                 </button>
               );
             })}
@@ -169,13 +166,13 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
           <div className={`flex items-center px-2 py-1 rounded-lg border ${
             isLightMode ? 'bg-neutral-200/80 border-neutral-300' : 'bg-neutral-900/80 border-neutral-800'
           }`}>
-            <span className={`pr-2 font-medium ${isLightMode ? 'text-neutral-700' : 'text-neutral-400'}`}>
+            <span className={`pr-1.5 font-medium ${isLightMode ? 'text-neutral-700' : 'text-neutral-400'}`}>
               Tipo:
             </span>
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className={`bg-transparent py-0.5 focus:outline-none cursor-pointer ${
+              className={`bg-transparent py-0.5 text-xs focus:outline-none cursor-pointer ${
                 isLightMode ? 'text-neutral-800' : 'text-neutral-200'
               }`}
             >
@@ -189,7 +186,7 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
         </div>
       </div>
 
-      {/* 2. Slider Horizontal */}
+      {/* 2. Slider Horizontal con espacio vertical (py-4) para el Zoom */}
       {loading ? (
         <div className="flex gap-4 overflow-x-hidden py-4">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -206,7 +203,7 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
           No se encontraron cartas en el Top 10 para la combinación de filtros seleccionada.
         </div>
       ) : (
-        <div className="flex gap-4 sm:gap-6 overflow-x-auto pb-4 pt-2 scrollbar-thin scrollbar-thumb-neutral-700">
+        <div className="flex gap-4 sm:gap-6 overflow-x-auto pt-3 pb-6 px-1 scrollbar-thin scrollbar-thumb-neutral-700">
           {topCards.map((card, index) => {
             const imgUrl =
               card.image_url ||
@@ -218,27 +215,27 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
               <div
                 key={card.id || index}
                 onClick={() => onOpenCard && onOpenCard(card)}
-                className="relative flex-shrink-0 w-[170px] sm:w-[200px] group cursor-pointer transition-transform duration-200 hover:-translate-y-1.5"
+                className="relative flex-shrink-0 w-[170px] sm:w-[200px] group cursor-pointer transition-all duration-300 ease-out hover:scale-108 hover:-translate-y-2 hover:z-30 origin-center"
               >
-                {/* Ranking Badge */}
-                <div className="absolute top-2 left-2 z-10 w-7 h-7 rounded-full bg-black/85 backdrop-blur-md border border-amber-500/80 text-amber-400 font-extrabold text-xs flex items-center justify-center shadow-lg">
+                {/* Ranking Badge con destaque en hover */}
+                <div className="absolute top-2 left-2 z-10 w-7 h-7 rounded-full bg-black/85 backdrop-blur-md border border-amber-500/80 text-amber-400 font-extrabold text-xs flex items-center justify-center shadow-lg transition-transform duration-300 group-hover:scale-110 group-hover:border-amber-400">
                   #{index + 1}
                 </div>
 
-                {/* Marco de Imagen */}
-                <div className={`w-full aspect-[2.5/3.5] rounded-xl overflow-hidden shadow-md group-hover:shadow-amber-500/20 group-hover:shadow-xl border ${
+                {/* Marco de Imagen con sombra luminosa al hacer zoom */}
+                <div className={`w-full aspect-[2.5/3.5] rounded-xl overflow-hidden shadow-md transition-all duration-300 group-hover:shadow-2xl group-hover:shadow-amber-500/25 group-hover:border-amber-500/60 border ${
                   isLightMode ? 'border-neutral-300 bg-neutral-200' : 'border-neutral-800 bg-neutral-900'
                 }`}>
                   <img
                     src={imgUrl}
                     alt={card.name}
                     loading="lazy"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                 </div>
 
                 {/* Metadatos Rápidos */}
-                <div className="mt-2 px-1">
+                <div className="mt-2 px-1 transition-colors duration-200">
                   <p className="text-xs sm:text-sm font-semibold truncate group-hover:text-amber-500 transition-colors">
                     {card.name}
                   </p>

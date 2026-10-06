@@ -3,7 +3,7 @@
 // ---------------------------------------------------------
 import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, Search, ArrowRight, User, Shield, FolderPlus, X, Loader2 } from 'lucide-react';
-import ManaCostSymbols from '@/components/common/ManaCostSymbols';
+import ManaCost from '@/components/common/ManaSymbol';
 
 const HERO_ART_URL = "https://images.ctfassets.net/s5n2t79q9icq/5nE8pQoF2W64qskegW2O4m/d0dbd4b29bb60ad4adca2fa13e8b15d2/MTG_Generic_Crop.jpg";
 
@@ -37,7 +37,7 @@ export default function HomeHeroBanner({
         const res = await fetch(`https://api.scryfall.com/cards/search?q=${query}&order=edhrec`);
         if (res.ok) {
           const data = await res.json();
-          setSearchResults(data.data?.slice(0, 6) || []);
+          setSearchResults(data.data?.slice(0, 20) || []);
           setIsDropdownOpen(true);
         } else {
           setSearchResults([]);
@@ -153,8 +153,9 @@ export default function HomeHeroBanner({
               </div>
             </form>
 
+            {/* Dropdown Predictivo con Scroll y Mana Font */}
             {isDropdownOpen && (
-              <div className={`absolute top-full left-0 right-0 mt-2 shadow-2xl overflow-hidden z-50 border backdrop-blur-xl ${
+              <div className={`absolute top-full left-0 right-0 mt-2 shadow-2xl rounded-b-lg overflow-hidden z-50 border backdrop-blur-xl ${
                 isLightMode ? 'bg-white/95 border-[#E2DBD0] text-[#1F1C19]' : 'bg-[#141416]/95 border-neutral-800 text-neutral-100'
               }`}>
                 {isSearching ? (
@@ -163,38 +164,46 @@ export default function HomeHeroBanner({
                     <span>Consultando cartas...</span>
                   </div>
                 ) : searchResults.length > 0 ? (
-                  <div className="divide-y divide-neutral-800/40">
-                    {searchResults.map((card) => {
-                      const img = card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small;
-                      const price = card.prices?.usd ? `$${card.prices.usd}` : null;
-                      return (
-                        <div
-                          key={card.id}
-                          onClick={() => { setIsDropdownOpen(false); onOpenCard?.(card); }}
-                          className={`p-2.5 flex items-center justify-between gap-3 cursor-pointer transition ${
-                            isLightMode ? 'hover:bg-[#F2EDE2]' : 'hover:bg-neutral-800/60'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-8 h-11 bg-neutral-950 shrink-0 border border-neutral-700/50 overflow-hidden">
-                              {img ? <img src={img} alt={card.name} className="w-full h-full object-cover" /> : null}
+                  <div className="flex flex-col">
+                    {/* Contenedor desplazable */}
+                    <div className="max-h-[340px] sm:max-h-[380px] overflow-y-auto divide-y divide-neutral-800/40 scrollbar-thin scrollbar-thumb-neutral-700">
+                      {searchResults.map((card) => {
+                        const img = card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small;
+                        const price = card.prices?.usd ? `$${card.prices.usd}` : null;
+                        return (
+                          <div
+                            key={card.id}
+                            onClick={() => { setIsDropdownOpen(false); onOpenCard?.(card); }}
+                            className={`p-2.5 flex items-center justify-between gap-3 cursor-pointer transition ${
+                              isLightMode ? 'hover:bg-[#F2EDE2]' : 'hover:bg-neutral-800/60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-8 h-11 bg-neutral-950 shrink-0 border border-neutral-700/50 overflow-hidden rounded-sm">
+                                {img ? <img src={img} alt={card.name} className="w-full h-full object-cover" /> : null}
+                              </div>
+                              <div className="min-w-0">
+                                <h4 className="text-xs font-bold truncate group-hover:text-amber-500">{card.name}</h4>
+                                <p className="text-[10px] text-neutral-400 truncate font-mono">{card.type_line}</p>
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-bold truncate group-hover:text-amber-500">{card.name}</h4>
-                              <p className="text-[10px] text-neutral-400 truncate font-mono">{card.type_line}</p>
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              {/* Tamaño equilibrado con el texto (11px) */}
+                              <ManaCost costString={card.mana_cost || ''} size="text-[11px]" gap="gap-0.5" />
+                              {price && <span className="text-[11px] font-mono font-bold text-emerald-400">{price}</span>}
                             </div>
                           </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            <ManaCostSymbols manaCost={card.mana_cost || ''} />
-                            {price && <span className="text-xs font-mono font-bold text-emerald-400">{price}</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
+
+                    {/* Botón inferior al pie */}
                     <div 
                       onClick={handleSearchSubmit}
-                      className={`p-2.5 text-center text-xs font-mono font-bold cursor-pointer transition ${
-                        isLightMode ? 'bg-[#EAE4D7] text-amber-800 hover:bg-[#E2DBD0]' : 'bg-neutral-900 text-amber-400 hover:bg-neutral-800'
+                      className={`p-2.5 text-center text-xs font-mono font-bold cursor-pointer transition border-t ${
+                        isLightMode 
+                          ? 'bg-[#EAE4D7] text-amber-800 hover:bg-[#E2DBD0] border-[#D8CEBC]' 
+                          : 'bg-neutral-900 text-amber-400 hover:bg-neutral-800 border-neutral-800'
                       }`}
                     >
                       Ver todos los resultados en el Catálogo &rarr;
