@@ -13,6 +13,7 @@ class DeckCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100, description="Nombre del mazo")
     format: str = Field(default="Commander", max_length=50, description="Formato MTG")
     description: Optional[str] = Field(None, max_length=500, description="Descripción del mazo")
+    cover_image_url: Optional[str] = Field(None, description="URL de arte de portada o comandante")
 
 
 class DeckResponse(BaseModel):
@@ -22,6 +23,13 @@ class DeckResponse(BaseModel):
     format: str
     description: Optional[str] = None
     featured_card_id: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    commander_image_url: Optional[str] = None
+    commander_name: Optional[str] = None
+    is_public: Optional[bool] = True
+    total_cards: Optional[int] = 100
+    likes_count: Optional[int] = 0
+    upvotes_count: Optional[int] = 0
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 

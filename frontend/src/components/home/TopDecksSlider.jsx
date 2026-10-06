@@ -1,17 +1,17 @@
 // ---------------------------------------------------------
-// COMPONENTE: SLIDER TOP 10 MAZOS (ESTILO CRUNCHYROLL / CINE)
+// COMPONENTE: SLIDER TOP 10 MAZOS (HOMOLOGADO CON TOP CARTAS)
 // ---------------------------------------------------------
 import React, { useRef } from 'react';
 import { Flame, ChevronLeft, ChevronRight, Loader2, ThumbsUp, Eye } from 'lucide-react';
 
-const DEFAULT_COMMANDER_BG = "https://images.ctfassets.net/s5n2t79q9icq/5nE8pQoF2W64qskegW2O4m/d0dbd4b29bb60ad4adca2fa13e8b15d2/MTG_Generic_Crop.jpg";
+const MTG_CARD_BACK_FALLBACK = "https://cards.scryfall.io/back.png";
 
 export default function TopDecksSlider({ topDecks = [], loading = false, onSelectDeck }) {
   const sliderRef = useRef(null);
 
   const handleScroll = (direction) => {
     if (sliderRef.current) {
-      const scrollAmount = direction === 'left' ? -420 : 420;
+      const scrollAmount = direction === 'left' ? -380 : 380;
       sliderRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
@@ -19,11 +19,11 @@ export default function TopDecksSlider({ topDecks = [], loading = false, onSelec
   return (
     <section className="space-y-4 relative select-none">
       
-      {/* CABECERA DE LA SECCIÓN */}
+      {/* 1. Cabecera de la Sección */}
       <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <div className="flex items-center gap-3">
-          <Flame className="w-6 h-6 text-amber-500" />
-          <h2 className="text-xl sm:text-2xl font-black uppercase tracking-wider text-white">
+        <div className="flex items-center gap-2.5">
+          <Flame className="w-5 h-5 text-amber-500" />
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
             Top 10 Mazos Más Votados
           </h2>
         </div>
@@ -32,14 +32,14 @@ export default function TopDecksSlider({ topDecks = [], loading = false, onSelec
           <div className="flex items-center gap-1">
             <button
               onClick={() => handleScroll('left')}
-              className="w-8 h-8 flex items-center justify-center bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-amber-500 text-neutral-300 hover:text-white transition cursor-pointer"
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-amber-500 text-neutral-300 hover:text-white transition cursor-pointer"
               title="Anterior"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => handleScroll('right')}
-              className="w-8 h-8 flex items-center justify-center bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-amber-500 text-neutral-300 hover:text-white transition cursor-pointer"
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-amber-500 text-neutral-300 hover:text-white transition cursor-pointer"
               title="Siguiente"
             >
               <ChevronRight className="w-4 h-4" />
@@ -48,13 +48,18 @@ export default function TopDecksSlider({ topDecks = [], loading = false, onSelec
         )}
       </div>
 
+      {/* 2. Contenido del Slider */}
       {loading ? (
-        <div className="py-24 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-amber-500" />
-          <span>Cargando barajas más votadas...</span>
+        <div className="flex gap-4 overflow-x-hidden py-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="min-w-[170px] sm:min-w-[200px] h-[280px] rounded-xl animate-pulse border bg-neutral-900/60 border-neutral-800"
+            />
+          ))}
         </div>
       ) : topDecks.length === 0 ? (
-        <div className="py-12 text-center text-xs text-neutral-500 border border-neutral-800 bg-neutral-900/30">
+        <div className="py-12 text-center text-xs text-neutral-500 border border-neutral-800 rounded-xl bg-neutral-900/30">
           Aún no hay barajas comunitarias registradas. ¡Sé el primero en publicar una!
         </div>
       ) : (
@@ -63,90 +68,85 @@ export default function TopDecksSlider({ topDecks = [], loading = false, onSelec
           {/* Flecha Flotante Izquierda */}
           <button
             onClick={() => handleScroll('left')}
-            className="hidden md:flex absolute -left-4 top-1/3 -translate-y-1/2 z-30 w-10 h-16 bg-neutral-950/90 border border-neutral-800 hover:border-amber-500 text-white items-center justify-center transition opacity-0 group-hover/slider:opacity-100 cursor-pointer shadow-xl backdrop-blur-md"
+            className="hidden md:flex absolute -left-3 top-1/2 -translate-y-1/2 z-30 w-9 h-14 rounded-r-xl bg-neutral-950/90 border border-neutral-800 hover:border-amber-500 text-white items-center justify-center transition opacity-0 group-hover/slider:opacity-100 cursor-pointer shadow-xl backdrop-blur-md"
           >
-            <ChevronLeft className="w-5 h-5 text-amber-400" />
+            <ChevronLeft className="w-4 h-4 text-amber-400" />
           </button>
 
-          {/* Carrusel Deslizable */}
+          {/* Carrusel Deslizable Homologado */}
           <div
             ref={sliderRef}
-            className="flex items-start gap-4 overflow-x-auto pb-4 pt-1 scroll-smooth snap-x snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            className="flex items-start gap-4 sm:gap-6 overflow-x-auto pt-3 pb-6 px-1 scrollbar-thin scrollbar-thumb-neutral-700 snap-x snap-mandatory"
           >
             {topDecks.map((deck, index) => {
-              // Resolución profunda de la imagen del Comandante idéntica a Decks
-              const cardItem = deck.cards?.[0] || deck.commander;
-              const cardCatalog = cardItem?.card_catalog || cardItem;
-              
-              const commanderArt = deck.commander_image_url
-                || deck.commander_art_url 
-                || deck.featured_card_url
-                || deck.image_url
-                || cardCatalog?.image_uris?.art_crop
-                || cardCatalog?.image_uris?.normal
-                || cardCatalog?.card_faces?.[0]?.image_uris?.art_crop
-                || cardCatalog?.card_faces?.[0]?.image_uris?.normal
-                || cardCatalog?.image_url 
-                || cardItem?.image_url 
-                || DEFAULT_COMMANDER_BG;
+              const cardImage = 
+                deck.cover_image_url ||
+                deck.commander_image_url ||
+                deck.commander_art_url ||
+                deck.featured_card_url ||
+                deck.image_url ||
+                deck.commander?.image_uris?.art_crop ||
+                deck.commander?.image_uris?.normal ||
+                deck.commander?.image_url ||
+                deck.cards?.[0]?.image_url ||
+                MTG_CARD_BACK_FALLBACK;
 
               const votes = deck.upvotes_count ?? deck.likes_count ?? 0;
 
               return (
                 <div
-                  key={deck.id}
+                  key={deck.id || index}
                   onClick={() => onSelectDeck?.(deck.id)}
-                  className="group/card min-w-[190px] sm:min-w-[210px] md:min-w-[225px] snap-start cursor-pointer flex flex-col space-y-2.5 transition duration-200"
+                  className="relative flex-shrink-0 w-[170px] sm:w-[200px] group cursor-pointer transition-all duration-300 ease-out hover:scale-108 hover:-translate-y-2 hover:z-30 origin-center snap-start"
                 >
-                  {/* PÓSTER VERTICAL CON SCOPE AISLADO */}
-                  <div className="relative aspect-[2/3] w-full bg-neutral-950 border border-neutral-800 group-hover/card:border-amber-500 overflow-hidden transition-all duration-300 shadow-md">
-                    
-                    {/* Imagen del Comandante */}
+                  {/* Badge Circular de Ranking (#1, #2, etc.) */}
+                  <div className="absolute top-2 left-2 z-20 w-7 h-7 rounded-full bg-black/85 backdrop-blur-md border border-amber-500/80 text-amber-400 font-extrabold text-xs flex items-center justify-center shadow-lg transition-transform duration-300 group-hover:scale-110 group-hover:border-amber-400">
+                    #{index + 1}
+                  </div>
+
+                  {/* Badge de Votos en la esquina superior derecha */}
+                  <div className="absolute top-2 right-2 z-20 flex items-center gap-1 bg-black/80 backdrop-blur-md px-2 py-0.5 rounded-full border border-neutral-700 text-[10px] font-mono font-bold text-amber-400 shadow-md">
+                    <ThumbsUp className="w-3 h-3 text-amber-400" />
+                    <span>{votes}</span>
+                  </div>
+
+                  {/* Marco de Imagen con Aspect Ratio de Carta MTG (2.5 / 3.5) */}
+                  <div className="relative w-full aspect-[2.5/3.5] rounded-xl overflow-hidden shadow-md transition-all duration-300 group-hover:shadow-2xl group-hover:shadow-amber-500/25 group-hover:border-amber-500/60 border border-neutral-800 bg-neutral-900">
                     <img 
-                      src={commanderArt} 
+                      src={cardImage} 
                       alt={deck.name} 
-                      className="w-full h-full object-cover object-center group-hover/card:scale-105 transition-transform duration-500"
+                      loading="lazy"
+                      className="w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-105"
                       onError={(e) => {
                         e.currentTarget.onerror = null;
-                        e.currentTarget.src = DEFAULT_COMMANDER_BG;
+                        e.currentTarget.src = MTG_CARD_BACK_FALLBACK;
                       }}
                     />
-                    
+
                     {/* Degradado Cinematográfico */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-black/30 pointer-events-none" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
 
-                    {/* Medalla de Ranking */}
-                    <div className="absolute top-0 left-0 z-10 bg-amber-500 text-neutral-950 font-black text-xs px-2.5 py-1 tracking-tighter shadow-md">
-                      #{index + 1}
-                    </div>
-
-                    {/* Votos */}
-                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-black/70 backdrop-blur-md px-2 py-0.5 border border-neutral-700 text-[10px] font-mono font-bold text-amber-400">
-                      <ThumbsUp className="w-3 h-3 text-amber-400" />
-                      <span>{votes}</span>
-                    </div>
-
-                    {/* Botón flotante al hacer hover en esta tarjeta */}
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/card:opacity-100 transition-opacity flex items-center justify-center p-4 z-20">
-                      <span className="px-4 py-2 bg-amber-500 text-neutral-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-xl hover:bg-amber-400 transition">
-                        <Eye className="w-4 h-4" />
+                    {/* Overlay al hacer hover con botón 'Inspeccionar' */}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3 z-10">
+                      <span className="px-3 py-1.5 rounded-lg bg-amber-500 text-neutral-950 font-black text-[11px] uppercase tracking-wider flex items-center gap-1 shadow-lg hover:bg-amber-400 transition">
+                        <Eye className="w-3.5 h-3.5" />
                         <span>Inspeccionar</span>
                       </span>
                     </div>
 
-                    {/* Metadatos inferiores del póster */}
+                    {/* Metadatos inferiores de la carta (Formato y Cantidad) */}
                     <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[10px] font-mono font-bold text-neutral-300 pointer-events-none z-10">
-                      <span className="uppercase text-amber-400">{deck.format || 'COMMANDER'}</span>
-                      <span>{deck.total_cards || 100} cartas</span>
+                      <span className="uppercase text-amber-400 truncate max-w-[90px]">{deck.format || 'COMMANDER'}</span>
+                      <span className="shrink-0">{deck.total_cards || 100} cartas</span>
                     </div>
                   </div>
 
-                  {/* Texto inferior de la tarjeta */}
-                  <div className="space-y-0.5">
-                    <h3 className="text-sm font-bold text-white group-hover/card:text-amber-400 transition truncate">
+                  {/* Metadatos Inferiores Alineados */}
+                  <div className="mt-2 px-1 transition-colors duration-200">
+                    <h3 className="text-xs sm:text-sm font-semibold truncate group-hover:text-amber-500 transition-colors">
                       {deck.name}
                     </h3>
-                    <p className="text-[11px] text-neutral-400 font-mono truncate">
+                    <p className="text-[11px] truncate text-neutral-400 font-mono">
                       {deck.commander_name || deck.description || 'Estrategia de Comunidad'}
                     </p>
                   </div>
@@ -158,9 +158,9 @@ export default function TopDecksSlider({ topDecks = [], loading = false, onSelec
           {/* Flecha Flotante Derecha */}
           <button
             onClick={() => handleScroll('right')}
-            className="hidden md:flex absolute -right-4 top-1/3 -translate-y-1/2 z-30 w-10 h-16 bg-neutral-950/90 border border-neutral-800 hover:border-amber-500 text-white items-center justify-center transition opacity-0 group-hover/slider:opacity-100 cursor-pointer shadow-xl backdrop-blur-md"
+            className="hidden md:flex absolute -right-3 top-1/2 -translate-y-1/2 z-30 w-9 h-14 rounded-l-xl bg-neutral-950/90 border border-neutral-800 hover:border-amber-500 text-white items-center justify-center transition opacity-0 group-hover/slider:opacity-100 cursor-pointer shadow-xl backdrop-blur-md"
           >
-            <ChevronRight className="w-5 h-5 text-amber-400" />
+            <ChevronRight className="w-4 h-4 text-amber-400" />
           </button>
         </div>
       )}

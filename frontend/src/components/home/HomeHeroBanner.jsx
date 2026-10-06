@@ -113,7 +113,7 @@ export default function HomeHeroBanner({
           <p className={`text-xs sm:text-sm md:text-base max-w-2xl leading-relaxed ${
             isLightMode ? 'text-neutral-700' : 'text-neutral-300'
           }`}>
-            Consulta legalidad oficial de formatos, audita barajas contra tu inventario físico de carpetas y conecta con otros coleccionistas para realizar trade local sin intermediarios.
+            Consulta legalidad oficial de formatos, audita barajas contra tu inventario físico de colecciones y conecta con otros coleccionistas para realizar trade local sin intermediarios.
           </p>
 
           {/* Buscador */}
@@ -121,6 +121,8 @@ export default function HomeHeroBanner({
             <form onSubmit={handleSearchSubmit} className="relative flex items-center">
               <Search className="w-4 h-4 text-neutral-400 absolute left-4 pointer-events-none z-10" />
               <input
+                id="hero-scryfall-search"
+                name="scryfallQuery"
                 type="text"
                 placeholder="Buscar carta por nombre o comandante en Scryfall..."
                 value={searchQuery}
@@ -165,7 +167,6 @@ export default function HomeHeroBanner({
                   </div>
                 ) : searchResults.length > 0 ? (
                   <div className="flex flex-col">
-                    {/* Contenedor desplazable */}
                     <div className="max-h-[340px] sm:max-h-[380px] overflow-y-auto divide-y divide-neutral-800/40 scrollbar-thin scrollbar-thumb-neutral-700">
                       {searchResults.map((card) => {
                         const img = card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small;
@@ -188,7 +189,6 @@ export default function HomeHeroBanner({
                               </div>
                             </div>
                             <div className="flex items-center gap-2.5 shrink-0">
-                              {/* Tamaño equilibrado con el texto (11px) */}
                               <ManaCost costString={card.mana_cost || ''} size="text-[11px]" gap="gap-0.5" />
                               {price && <span className="text-[11px] font-mono font-bold text-emerald-400">{price}</span>}
                             </div>
@@ -197,7 +197,6 @@ export default function HomeHeroBanner({
                       })}
                     </div>
 
-                    {/* Botón inferior al pie */}
                     <div 
                       onClick={handleSearchSubmit}
                       className={`p-2.5 text-center text-xs font-mono font-bold cursor-pointer transition border-t ${
@@ -243,7 +242,7 @@ export default function HomeHeroBanner({
                   className="px-4 py-2 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200 text-xs font-bold transition flex items-center gap-1.5 border border-neutral-700/60 shadow-sm active:scale-95"
                 >
                   <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Crear Carpeta</span>
+                  <span>Crear Colección</span>
                 </button>
               </div>
             )}

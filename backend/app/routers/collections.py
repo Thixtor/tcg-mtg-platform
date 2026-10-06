@@ -2,13 +2,16 @@
 # ---------------------------------------------------------
 # ROUTER: GESTIÓN DE COLECCIONES Y BINDERS DE USUARIO (POO / DDD)
 # ---------------------------------------------------------
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.database import get_db
 from app.core.security import get_current_user, get_current_user_optional
-from app.models import User
+from app.models import User, Deck
+from app.models.collection import Collection, UserCard
+from app.models.deck import DeckCard
 from app.services.collection_service import CollectionService
 from app.schemas import (
     CollectionCreate,
@@ -89,8 +92,82 @@ def list_user_collections(
 
 
 # ---------------------------------------------------------
-# 2. BÚSQUEDA EN INVENTARIO (USER CARDS)
+# 2. BÚSQUEDA EN INVENTARIO Y STOCK PROPIO (USER CARDS Y MAZOS)
 # ---------------------------------------------------------
+@router.get(
+    "/collections/cards/my-copies/{scryfall_card_id}",
+    summary="Consultar copias físicas en binders y asignación en mazos del usuario"
+)
+def get_my_card_copies(
+    scryfall_card_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Retorna el conteo y desglose de copias en carpetas físicas (UserCard)
+    y su uso en listas de mazos (DeckCard), de forma desacoplada.
+    """
+    # 1. Copias físicas en Colecciones / Binders
+    user_cards = (
+        db.query(UserCard, Collection.name.label("collection_name"))
+        .join(Collection, UserCard.collection_id == Collection.id)
+        .filter(
+            Collection.user_id == str(current_user.id),
+            UserCard.scryfall_card_id == scryfall_card_id
+        )
+        .all()
+    )
+
+    total_collection = sum(uc.quantity for uc, _ in user_cards)
+    for_trade_copies = sum(uc.quantity for uc, _ in user_cards if getattr(uc, "is_for_trade", False))
+
+    collection_details = [
+        {
+            "user_card_id": str(uc.id),
+            "collection_id": str(uc.collection_id),
+            "collection_name": col_name,
+            "quantity": uc.quantity,
+            "condition": getattr(uc, "condition", "NM"),
+            "is_foil": getattr(uc, "is_foil", False),
+            "is_for_trade": getattr(uc, "is_for_trade", False),
+        }
+        for uc, col_name in user_cards
+    ]
+
+    # 2. Copias asignadas en Mazos propios
+    deck_cards = (
+        db.query(DeckCard, Deck.name.label("deck_name"))
+        .join(Deck, DeckCard.deck_id == Deck.id)
+        .filter(
+            Deck.user_id == str(current_user.id),
+            DeckCard.scryfall_card_id == scryfall_card_id
+        )
+        .all()
+    )
+
+    total_in_decks = sum(dc.quantity for dc, _ in deck_cards)
+
+    deck_details = [
+        {
+            "deck_card_id": str(dc.id),
+            "deck_id": str(dc.deck_id),
+            "deck_name": d_name,
+            "quantity": dc.quantity,
+            "category": getattr(dc, "category", "mainboard"),
+        }
+        for dc, d_name in deck_cards
+    ]
+
+    return {
+        "scryfall_card_id": scryfall_card_id,
+        "total_collection": total_collection,
+        "for_trade_copies": for_trade_copies,
+        "collection_details": collection_details,
+        "total_in_decks": total_in_decks,
+        "deck_details": deck_details
+    }
+
+
 @router.get(
     "/collections/cards/search",
     response_model=UserCardSearchResponse,

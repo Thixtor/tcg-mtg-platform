@@ -1,10 +1,12 @@
 // ---------------------------------------------------------
-// COMPONENTE: CONTENEDOR DE MODALES GLOBALES
+// COMPONENTE: CONTENEDOR DE MODALES GLOBALES (DECKS Y COLECCIONES)
 // ---------------------------------------------------------
 import React from 'react';
 import AuthModal from '@/components/auth/AuthModal';
 import EditProfileModal from '@/components/profile/EditProfileModal';
 import CreateDeckModal from '@/components/decks/CreateDeckModal';
+import CreateCollectionModal from '@/components/collections/CreateCollectionModal';
+import { createMyCollectionApi } from '@/api/collections';
 
 export default function GlobalModals({
   currentUser,
@@ -17,8 +19,22 @@ export default function GlobalModals({
   isCreateDeckModalOpen,
   onCloseCreateDeckModal,
   deckCount,
-  onDeckCreated
+  onDeckCreated,
+  isCreateCollectionModalOpen,
+  onCloseCreateCollectionModal,
+  onCollectionCreated,
+  collectionCount = 0
 }) {
+  const handleCreateCollection = async (payload) => {
+    try {
+      const newCollection = await createMyCollectionApi(payload);
+      onCollectionCreated?.(newCollection);
+      onCloseCreateCollectionModal?.();
+    } catch (err) {
+      console.error('[GlobalModals] Error creando colección:', err);
+    }
+  };
+
   return (
     <>
       <AuthModal
@@ -40,6 +56,15 @@ export default function GlobalModals({
         currentDeckCount={deckCount}
         onDeckCreated={onDeckCreated}
       />
+
+      {isCreateCollectionModalOpen && (
+        <CreateCollectionModal
+          isOpen={isCreateCollectionModalOpen}
+          onClose={onCloseCreateCollectionModal}
+          onCreate={handleCreateCollection}
+          currentCount={collectionCount}
+        />
+      )}
     </>
   );
 }

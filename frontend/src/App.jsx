@@ -1,9 +1,10 @@
 // ---------------------------------------------------------
-// COMPONENTE PRINCIPAL: APP ORQUESTADOR
+// COMPONENTE PRINCIPAL: APP ORQUESTADOR (ACCIONES RÁPIDAS Y FOOTER)
 // ---------------------------------------------------------
 import React, { useState, useEffect } from 'react';
 
 import Navbar from '@/components/layout/Navbar';
+import Footer from '@/components/layout/Footer';
 import GlobalModals from '@/components/layout/GlobalModals';
 
 import HomePage from '@/pages/HomePage';
@@ -37,18 +38,22 @@ function AppContent() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
-  const [openBinderModalTrigger, setOpenBinderModalTrigger] = useState(0);
+  const [isCreateCollectionModalOpen, setIsCreateCollectionModalOpen] = useState(false);
   const [refreshDecksTrigger, setRefreshDecksTrigger] = useState(0);
+  const [refreshBindersTrigger, setRefreshBindersTrigger] = useState(0);
 
-  // Cierre de sesión por interceptor 401
+  // Cierre de sesión por interceptor 401 protegido
   useEffect(() => {
     const handleGlobalLogout = () => {
-      setCurrentUser(null);
-      setActiveTab('home');
+      setCurrentUser((prev) => {
+        if (!prev) return null;
+        return null;
+      });
       setSelectedDeckId(null);
       setSelectedBinderId(null);
       setViewingUserId(null);
-      setOpenBinderModalTrigger(0);
+      setIsCreateDeckModalOpen(false);
+      setIsCreateCollectionModalOpen(false);
       setCatalogSearchQuery('');
     };
 
@@ -72,7 +77,8 @@ function AppContent() {
     setSelectedDeckId(null);
     setSelectedBinderId(null);
     setViewingUserId(null);
-    setOpenBinderModalTrigger(0);
+    setIsCreateDeckModalOpen(false);
+    setIsCreateCollectionModalOpen(false);
     setCatalogSearchQuery('');
   };
 
@@ -84,13 +90,11 @@ function AppContent() {
     });
   };
 
-  // Navegación unificada desde el Navbar
   const handleNavigateTab = (tab) => {
     setActiveTab(tab);
     setSelectedDeckId(null);
     setSelectedBinderId(null);
     setViewingUserId(null);
-    setOpenBinderModalTrigger(0);
     if (tab !== 'catalog') {
       setCatalogSearchQuery('');
     }
@@ -116,10 +120,18 @@ function AppContent() {
     }
   };
 
+  // Abre el modal rápido de colección
   const handleTriggerCreateCollection = () => {
-    setSelectedBinderId(null);
-    setActiveTab('binders');
-    setOpenBinderModalTrigger((prev) => prev + 1);
+    setIsCreateCollectionModalOpen(true);
+  };
+
+  // Al crear la colección, redirige directamente a su espacio de trabajo como ocurre con los decks
+  const handleCollectionCreated = (newCollection) => {
+    setRefreshBindersTrigger((prev) => prev + 1);
+    if (newCollection?.id) {
+      setSelectedBinderId(newCollection.id);
+      setActiveTab('binders');
+    }
   };
 
   return (
@@ -172,7 +184,7 @@ function AppContent() {
             userId={currentUser?.id} 
             selectedBinderId={selectedBinderId}
             onSelectBinderId={setSelectedBinderId}
-            openCreateTrigger={openBinderModalTrigger}
+            openCreateTrigger={refreshBindersTrigger}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onNavigateToTradeWall={() => setActiveTab('tradewall')} 
           />
@@ -229,7 +241,10 @@ function AppContent() {
         )}
       </main>
 
-      {/* 3. MODALES GLOBALES MODULARIZADOS */}
+      {/* 3. PIE DE PÁGINA CON CRÉDITOS OFICIALES Y SCRYFALL */}
+      <Footer isLightMode={isLightMode} />
+
+      {/* 4. MODALES GLOBALES MODULARIZADOS */}
       <GlobalModals
         currentUser={currentUser}
         isAuthModalOpen={isAuthModalOpen}
@@ -245,6 +260,9 @@ function AppContent() {
         onCloseCreateDeckModal={() => setIsCreateDeckModalOpen(false)}
         deckCount={deckCount}
         onDeckCreated={handleDeckCreated}
+        isCreateCollectionModalOpen={isCreateCollectionModalOpen}
+        onCloseCreateCollectionModal={() => setIsCreateCollectionModalOpen(false)}
+        onCollectionCreated={handleCollectionCreated}
       />
 
     </div>

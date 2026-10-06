@@ -1,6 +1,6 @@
 // ---------------------------------------------------------
 // COMPONENTE: MODAL CINEMATOGRÁFICO DE DETALLE DE CARTA (MTG)
-// CON SELECTOR DE ESTILOS Y ACCIÓN DIRECTA A BINDERS / MAZOS
+// CON AUDITORÍA FÍSICA (BINDERS) Y VIRTUAL (MAZOS)
 // ---------------------------------------------------------
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
@@ -17,7 +17,10 @@ import {
   Store,
   Palette,
   FolderPlus,
-  Layers
+  Layers,
+  Box,
+  Swords,
+  Sparkles
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import ManaCost, { ManaGlyph } from '@/components/common/ManaSymbol';
@@ -64,7 +67,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
 
   // Control para abrir el modal de asignación a Colección / Mazo
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [initialAddTab, setInitialAddTab] = useState('collection'); // 'collection' o 'deck'
+  const [initialAddTab, setInitialAddTab] = useState('collection');
 
   // Métrica interna de trades y demanda de la plataforma
   const [tradeMetrics, setTradeMetrics] = useState({
@@ -72,6 +75,24 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     requestedCount: 0,
     loading: true,
   });
+
+  // Métrica de posesión física en binders y asignación en mazos
+  const [myInventory, setMyInventory] = useState({
+    isLoggedIn: false,
+    totalCollection: 0,
+    forTradeCopies: 0,
+    collectionDetails: [],
+    totalInDecks: 0,
+    deckDetails: [],
+    loading: false,
+  });
+
+  // Verificar si hay sesión activa mediante token
+  const hasToken = typeof window !== 'undefined' && Boolean(
+    localStorage.getItem('token') || 
+    localStorage.getItem('access_token') || 
+    localStorage.getItem('auth_token')
+  );
 
   // 1. Carga inicial de la carta y obtención de todas sus impresiones/estilos
   useEffect(() => {
@@ -124,7 +145,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     return () => { isCancelled = true; };
   }, [card, isOpen]);
 
-  // 2. Consulta de Demanda y Disponibilidad interna según los Trades de la App
+  // 2. Consulta de Demanda y Disponibilidad interna según Trades de la App
   useEffect(() => {
     if (!isOpen || !activeVersion) return;
 
@@ -153,7 +174,58 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     return () => { isMounted = false; };
   }, [activeVersion, isOpen]);
 
-  // 3. Normalización estructural de atributos de la versión seleccionada
+  // 3. Consulta de Stock en Binders y Mazos propios (usuarios autenticados)
+  useEffect(() => {
+    if (!isOpen || !activeVersion) return;
+
+    if (!hasToken) {
+      setMyInventory({
+        isLoggedIn: false,
+        totalCollection: 0,
+        forTradeCopies: 0,
+        collectionDetails: [],
+        totalInDecks: 0,
+        deckDetails: [],
+        loading: false,
+      });
+      return;
+    }
+
+    let isMounted = true;
+    const scryId = activeVersion.id || activeVersion.scryfall_card_id;
+    setMyInventory((prev) => ({ ...prev, isLoggedIn: true, loading: true }));
+
+    apiClient.get(`/collections/cards/my-copies/${scryId}`)
+      .then((res) => {
+        if (!isMounted) return;
+        setMyInventory({
+          isLoggedIn: true,
+          totalCollection: res.data?.total_collection || 0,
+          forTradeCopies: res.data?.for_trade_copies || 0,
+          collectionDetails: res.data?.collection_details || [],
+          totalInDecks: res.data?.total_in_decks || 0,
+          deckDetails: res.data?.deck_details || [],
+          loading: false,
+        });
+      })
+      .catch(() => {
+        if (isMounted) {
+          setMyInventory({
+            isLoggedIn: true,
+            totalCollection: 0,
+            forTradeCopies: 0,
+            collectionDetails: [],
+            totalInDecks: 0,
+            deckDetails: [],
+            loading: false,
+          });
+        }
+      });
+
+    return () => { isMounted = false; };
+  }, [activeVersion, isOpen, hasToken]);
+
+  // 4. Normalización estructural de atributos de la versión seleccionada
   const normalizedCard = useMemo(() => {
     const activeData = hoveredPrint || activeVersion || card;
     if (!activeData) return null;
@@ -246,7 +318,6 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
 
   const appDemand = getAppTradeDemand();
 
-  // Abrir modal con la pestaña seleccionada
   const handleOpenAdd = (tab) => {
     setInitialAddTab(tab);
     setIsAddModalOpen(true);
@@ -254,12 +325,12 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fadeIn">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fadeIn font-sans">
         <div className={`relative w-full max-w-5xl max-h-[92vh] flex flex-col md:flex-row rounded-2xl overflow-hidden shadow-2xl border ${
           isLightMode ? 'bg-[#FAF7F2] text-[#24211E] border-neutral-300' : 'bg-[#121214] text-neutral-100 border-neutral-800'
         }`}>
 
-          {/* Botón Cerrar (con zona de resguardo independiente) */}
+          {/* Botón Cerrar */}
           <button
             onClick={onClose}
             className={`absolute top-3.5 right-3.5 z-40 p-2 rounded-full shadow-md transition-transform hover:scale-110 active:scale-95 ${
@@ -272,12 +343,12 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
             <X className="w-4 h-4" />
           </button>
 
-          {/* 1. Columna Izquierda: Imagen Principal y Selector de Versiones */}
+          {/* 1. Columna Izquierda: Imagen, Versiones y Widgets de Inventario / Mazos / Trade */}
           <div className={`md:w-5/12 p-6 flex flex-col justify-between overflow-y-auto space-y-4 border-b md:border-b-0 md:border-r ${
             isLightMode ? 'bg-[#EFEAE1] border-neutral-300' : 'bg-[#0B0B0C] border-neutral-800'
           }`}>
             <div className="w-full flex flex-col items-center">
-              {/* Visualización de la ilustración actual con margen de respiro */}
+              {/* Visualización de la ilustración */}
               <div className="relative group w-full max-w-[240px] aspect-[2.5/3.5] rounded-xl overflow-hidden shadow-2xl border border-neutral-700/60 bg-neutral-950 transition-all duration-300">
                 <img
                   src={normalizedCard.imageUrl}
@@ -341,35 +412,128 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
               </div>
             </div>
 
-            {/* Tarjeta de Disponibilidad para Cambios en la App */}
-            <div className={`w-full p-3 rounded-xl border flex items-center justify-between text-xs ${
-              isLightMode ? 'bg-white border-neutral-300' : 'bg-neutral-900/80 border-neutral-800'
-            }`}>
-              <div className="flex items-center gap-2">
-                <ArrowLeftRight className="w-4 h-4 text-amber-500 shrink-0" />
+            {/* SECCIÓN INFORMATIVA INFERIOR DE LA COLUMNA: BINDERS, MAZOS Y TRADE */}
+            <div className="w-full space-y-2.5">
+              {/* Widget: Auditoría Personal (Colección Física vs Uso en Mazos) */}
+              <div className={`w-full p-3 rounded-xl border text-xs transition-colors space-y-2.5 ${
+                isLightMode ? 'bg-white border-neutral-300' : 'bg-neutral-900/80 border-neutral-800'
+              }`}>
+                {/* 1. Inventario Físico en Colección */}
                 <div>
-                  <span className="font-bold block">Disponibilidad para Trade</span>
-                  <span className="text-[11px] text-neutral-400">En la comunidad</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Box className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span className="font-bold">En Colección (Binders)</span>
+                    </div>
+
+                    {myInventory.loading ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
+                    ) : myInventory.isLoggedIn ? (
+                      myInventory.totalCollection > 0 ? (
+                        <span className="font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 text-[11px]">
+                          <CheckCircle2 className="inline w-3 h-3 mr-1" />
+                          {myInventory.totalCollection} en físico
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-mono text-neutral-400 bg-neutral-800/40 px-2 py-0.5 rounded border border-neutral-700/40">
+                          0 copias
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-[10px] font-mono text-neutral-400">Modo visitante</span>
+                    )}
+                  </div>
+
+                  {myInventory.isLoggedIn && myInventory.collectionDetails.length > 0 && (
+                    <div className="mt-1.5 pl-5 space-y-0.5 text-[11px] text-neutral-300">
+                      {myInventory.collectionDetails.map((d) => (
+                        <div key={d.user_card_id} className="flex items-center justify-between">
+                          <span className="truncate max-w-[160px]" title={d.collection_name}>
+                            • {d.collection_name}
+                          </span>
+                          <span className="font-mono text-neutral-400">
+                            {d.quantity}x {d.is_foil ? <Sparkles className="inline w-2.5 h-2.5 text-amber-400" /> : null} ({d.condition})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-neutral-800/60" />
+
+                {/* 2. Uso en Mazos Registrados */}
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Swords className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                      <span className="font-bold">En Mazos Activos</span>
+                    </div>
+
+                    {myInventory.loading ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
+                    ) : myInventory.isLoggedIn ? (
+                      myInventory.totalInDecks > 0 ? (
+                        <span className="font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20 text-[11px]">
+                          {myInventory.totalInDecks} en lista
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-mono text-neutral-400 bg-neutral-800/40 px-2 py-0.5 rounded border border-neutral-700/40">
+                          0 en mazos
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-[10px] font-mono text-neutral-400">—</span>
+                    )}
+                  </div>
+
+                  {myInventory.isLoggedIn && myInventory.deckDetails.length > 0 && (
+                    <div className="mt-1.5 pl-5 space-y-0.5 text-[11px] text-neutral-300">
+                      {myInventory.deckDetails.map((d) => (
+                        <div key={d.deck_card_id} className="flex items-center justify-between">
+                          <span className="truncate max-w-[160px]" title={d.deck_name}>
+                            • {d.deck_name}
+                          </span>
+                          <span className="font-mono text-neutral-400">
+                            {d.quantity}x ({d.category})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {tradeMetrics.loading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
-              ) : tradeMetrics.copiesForTrade > 0 ? (
-                <span className="flex items-center gap-1 font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  {tradeMetrics.copiesForTrade} copia{tradeMetrics.copiesForTrade > 1 ? 's' : ''}
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-neutral-400 bg-neutral-800/40 px-2 py-0.5 rounded border border-neutral-700/40">
-                  <AlertCircle className="w-3 h-3" />
-                  Sin copias activas
-                </span>
-              )}
+              {/* Widget: Disponibilidad para Cambios en la Comunidad */}
+              <div className={`w-full p-3 rounded-xl border flex items-center justify-between text-xs ${
+                isLightMode ? 'bg-white border-neutral-300' : 'bg-neutral-900/80 border-neutral-800'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <ArrowLeftRight className="w-4 h-4 text-amber-500 shrink-0" />
+                  <div>
+                    <span className="font-bold block">Disponibilidad para Trade</span>
+                    <span className="text-[10px] text-neutral-400">En la comunidad</span>
+                  </div>
+                </div>
+
+                {tradeMetrics.loading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                ) : tradeMetrics.copiesForTrade > 0 ? (
+                  <span className="flex items-center gap-1 font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {tradeMetrics.copiesForTrade} copia{tradeMetrics.copiesForTrade > 1 ? 's' : ''}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-neutral-400 bg-neutral-800/40 px-2 py-0.5 rounded border border-neutral-700/40">
+                    <AlertCircle className="w-3 h-3" />
+                    Sin copias activas
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* 2. Columna Derecha: Información, Coste (con espacio protegido) y Reglas */}
+          {/* 2. Columna Derecha: Información, Coste y Reglas */}
           <div className="md:w-7/12 p-6 overflow-y-auto space-y-4 max-h-[65vh] md:max-h-none scrollbar-thin scrollbar-thumb-neutral-700 flex flex-col justify-between">
             <div className="space-y-4">
               {loadingDetails && (
@@ -379,7 +543,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 </div>
               )}
 
-              {/* Cabecera con Padding Derecho (pr-12) para proteger contra la X */}
+              {/* Cabecera con Padding Derecho para la X */}
               <div className="border-b pb-3 pr-12 border-neutral-700/40">
                 <div className="flex items-start justify-between gap-3">
                   <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight">
@@ -404,7 +568,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 </div>
               </div>
 
-              {/* Resumen de Precios para esta Impresión Específica */}
+              {/* Precios de esta Impresión */}
               <div className={`p-3.5 rounded-xl border ${
                 isLightMode ? 'bg-[#F4EFE6] border-neutral-300' : 'bg-neutral-900/90 border-neutral-800'
               }`}>
@@ -455,7 +619,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 </div>
               </div>
 
-              {/* Caja de Reglas Oficiales (Oracle) y Texto Impreso */}
+              {/* Reglas Oficiales Oracle */}
               <div className={`p-4 rounded-xl text-xs sm:text-sm leading-relaxed border space-y-3 ${
                 isLightMode ? 'bg-white border-neutral-200' : 'bg-neutral-900/60 border-neutral-800'
               }`}>
@@ -531,10 +695,9 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
               </div>
             </div>
 
-            {/* Barra Inferior: Acciones Rápidas (Carpeta, Mazo, Scryfall, Cerrar) */}
+            {/* Barra Inferior: Acciones Rápidas */}
             <div className="pt-3 border-t border-neutral-700/40 flex flex-wrap items-center justify-between gap-2.5">
               <div className="flex items-center gap-2">
-                {/* Botón Añadir a Carpeta / Colección */}
                 <button
                   onClick={() => handleOpenAdd('collection')}
                   className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm border border-neutral-700 active:scale-95"
@@ -543,7 +706,6 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                   <span>Añadir a Carpeta</span>
                 </button>
 
-                {/* Botón Añadir a Mazo */}
                 <button
                   onClick={() => handleOpenAdd('deck')}
                   className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm active:scale-95"
@@ -579,7 +741,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
         </div>
       </div>
 
-      {/* Modal Subordinado de Asignación Física / Construcción */}
+      {/* Modal Subordinado de Asignación */}
       {isAddModalOpen && (
         <AddToCollectionOrDeckModal
           card={activeVersion || card}

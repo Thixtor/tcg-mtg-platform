@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// CLIENTE AXIOS CON INTERCEPTORES DE SESIÓN
+// CLIENTE AXIOS CON INTERCEPTORES DE SESIÓN PROTEGIDOS
 // ---------------------------------------------------------
 import axios from 'axios';
 import { getAccessToken, clearSession } from '@/services/session.service';
@@ -26,27 +26,31 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Interceptor de respuesta con invalidación real ante 401
+// Interceptor de respuesta con freno para evitar bucle de re-render
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      console.warn(`[Transporte HTTP] 401 Unauthorized en ${error.config?.url}. Invalidando sesión del cliente.`);
-      
-      // Limpia credenciales de sesión en storage
-      if (typeof clearSession === 'function') {
-        clearSession();
-      } else {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('mtg_dev_user');
-      }
+      const activeToken = getAccessToken();
 
-      // Emite evento para que App.jsx y los componentes sincronicen su estado
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('mtg:logout', {
-          detail: { reason: 'session_expired' }
-        }));
+      // FRENO DE BUCLE: Solo disparamos el evento de logout si el cliente
+      // tenía credenciales en sesión. Si era anónimo, se ignora la invalidación.
+      if (activeToken) {
+        console.warn(`[Transporte HTTP] 401 Unauthorized en ${error.config?.url}. Invalidando sesión del cliente.`);
+
+        if (typeof clearSession === 'function') {
+          clearSession();
+        } else {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          localStorage.removeItem('mtg_dev_user');
+        }
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('mtg:logout', {
+            detail: { reason: 'session_expired' }
+          }));
+        }
       }
     }
     return Promise.reject(error);

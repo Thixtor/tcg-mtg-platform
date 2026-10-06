@@ -9,6 +9,7 @@ import { parseApiError } from '@/utils/apiErrors';
 const RARITY_OPTIONS = [
   { label: 'Todas', value: '' },
   { label: 'Común', value: 'common' },
+  { label: 'Infrecuente', value: 'uncommon' },
   { label: 'Rara', value: 'rare' },
   { label: 'Mítica', value: 'mythic' },
 ];
@@ -170,6 +171,8 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
               Tipo:
             </span>
             <select
+              id="top-cards-type-filter"
+              name="topCardsType"
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
               className={`bg-transparent py-0.5 text-xs focus:outline-none cursor-pointer ${
@@ -186,7 +189,7 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
         </div>
       </div>
 
-      {/* 2. Slider Horizontal con espacio vertical (py-4) para el Zoom */}
+      {/* 2. Slider Horizontal con zoom */}
       {loading ? (
         <div className="flex gap-4 overflow-x-hidden py-4">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -222,7 +225,7 @@ export default function TopCardsSlider({ isLightMode, onOpenCard }) {
                   #{index + 1}
                 </div>
 
-                {/* Marco de Imagen con sombra luminosa al hacer zoom */}
+                {/* Marco de Imagen */}
                 <div className={`w-full aspect-[2.5/3.5] rounded-xl overflow-hidden shadow-md transition-all duration-300 group-hover:shadow-2xl group-hover:shadow-amber-500/25 group-hover:border-amber-500/60 border ${
                   isLightMode ? 'border-neutral-300 bg-neutral-200' : 'border-neutral-800 bg-neutral-900'
                 }`}>

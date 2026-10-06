@@ -2,13 +2,16 @@
 # ---------------------------------------------------------
 # ROUTER: MAZOS Y CONSTRUCCIÓN DE DECKS (MTG - DDD REFACTORED)
 # ---------------------------------------------------------
+import uuid
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 
 from app.database import get_db
 from app.core.security import get_current_user
-from app.models import User
+from app.models import User, Deck
+from app.models.deck import DeckCard
 from app.services.deck_service import DeckService
 from app.services.inventory_service import calculate_deck_availability
 from app.schemas.deck import (
@@ -25,9 +28,95 @@ router = APIRouter(
     tags=["Mazos y Construcción de Decks"]
 )
 
+MTG_CARD_BACK_FALLBACK = "https://cards.scryfall.io/back.png"
+
+
+def _is_valid_uuid(val: Any) -> bool:
+    """Verifica si el identificador tiene un formato UUID canónico válido."""
+    if not val:
+        return False
+    try:
+        uuid.UUID(str(val).strip())
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def _enrich_deck_visuals(db: Session, deck: Deck) -> Deck:
+    """
+    Resuelve e inyecta la URL de ilustración y el nombre del comandante
+    leyendo DeckCard y CartaScryfall. Evita URLs rotas que provoquen bloqueos CORB.
+    """
+    if getattr(deck, "cover_image_url", None):
+        return deck
+
+    # 1. Obtener la lista de cartas asociadas
+    cards = deck.cards if hasattr(deck, "cards") and deck.cards else []
+    
+    # 2. Priorizar la carta con categoría commander
+    target_card = next((c for c in cards if getattr(c, "category", None) == "commander"), None)
+
+    # Si no está en memoria, consultar la base de datos directamente
+    if not target_card:
+        target_card = (
+            db.query(DeckCard)
+            .filter(DeckCard.deck_id == deck.id, DeckCard.category == "commander")
+            .first()
+        )
+
+    # 3. Fallback: tomar la primera carta registrada en el mazo
+    if not target_card:
+        target_card = cards[0] if cards else (
+            db.query(DeckCard)
+            .filter(DeckCard.deck_id == deck.id)
+            .first()
+        )
+
+    resolved_img = None
+    resolved_name = None
+
+    if target_card and getattr(target_card, "scryfall_card_id", None):
+        scry_id = str(target_card.scryfall_card_id).strip()
+
+        # Intentar extraer datos desde el catálogo precargado
+        catalog = getattr(target_card, "card_catalog", None)
+        if catalog:
+            resolved_name = getattr(catalog, "name", None)
+
+            if hasattr(catalog, "image_uris") and isinstance(catalog.image_uris, dict):
+                resolved_img = (
+                    catalog.image_uris.get("art_crop")
+                    or catalog.image_uris.get("normal")
+                )
+            elif hasattr(catalog, "card_faces") and isinstance(catalog.card_faces, list) and catalog.card_faces:
+                first_face = catalog.card_faces[0]
+                if isinstance(first_face, dict) and "image_uris" in first_face:
+                    resolved_img = (
+                        first_face["image_uris"].get("art_crop")
+                        or first_face["image_uris"].get("normal")
+                    )
+
+            if not resolved_img and getattr(catalog, "image_url", None):
+                resolved_img = catalog.image_url
+
+        # Solo construir URL a Scryfall si el ID es un UUID real para evitar 404 JSON (CORB)
+        if not resolved_img and _is_valid_uuid(scry_id):
+            resolved_img = f"https://api.scryfall.com/cards/{scry_id}?format=image&version=art_crop"
+
+    # Respaldo visual garantizado si no hay imagen asignada
+    if not resolved_img:
+        resolved_img = MTG_CARD_BACK_FALLBACK
+
+    deck.cover_image_url = resolved_img
+    deck.commander_image_url = resolved_img
+    if resolved_name:
+        deck.commander_name = resolved_name
+
+    return deck
+
 
 # ---------------------------------------------------------
-# 1. CREACIÓN, CONSULTA, DUPLICACIÓN Y ELIMINACIÓN DE MAZOS
+# 1. CREACIÓN, CONSULTAS PÚBLICAS Y PRIVADAS DE MAZOS
 # ---------------------------------------------------------
 @router.post(
     "/decks",
@@ -40,7 +129,8 @@ def create_deck(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return DeckService.create_deck(db=db, user_id=str(current_user.id), payload=payload)
+    deck = DeckService.create_deck(db=db, user_id=str(current_user.id), payload=payload)
+    return _enrich_deck_visuals(db, deck)
 
 
 @router.get(
@@ -52,7 +142,57 @@ def list_my_decks(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return DeckService.get_user_decks(db=db, user_id=str(current_user.id))
+    decks = DeckService.get_user_decks(db=db, user_id=str(current_user.id))
+    for d in decks:
+        _enrich_deck_visuals(db, d)
+    return decks
+
+
+@router.get(
+    "/decks/public",
+    response_model=List[DeckResponse],
+    summary="Listar mazos públicos de la comunidad"
+)
+@router.get(
+    "/decks",
+    response_model=List[DeckResponse],
+    summary="Listado general de mazos públicos con filtros"
+)
+def list_public_decks(
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    sort_by: str = Query("recent"),
+    format: Optional[str] = Query(None),
+    is_public: Optional[bool] = Query(True),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna los mazos públicos comunitarios con imágenes de portada enriquecidas.
+    """
+    query = db.query(Deck)
+    cols = Deck.__table__.columns.keys()
+
+    if "is_public" in cols and is_public is not None:
+        query = query.filter(Deck.is_public == is_public)
+
+    if format and "format" in cols:
+        query = query.filter(Deck.format.ilike(f"%{format}%"))
+
+    if sort_by == "upvotes" and "upvotes_count" in cols:
+        query = query.order_by(desc(Deck.upvotes_count))
+    elif sort_by == "likes" and "likes_count" in cols:
+        query = query.order_by(desc(Deck.likes_count))
+    elif "created_at" in cols:
+        query = query.order_by(desc(Deck.created_at))
+    elif "id" in cols:
+        query = query.order_by(desc(Deck.id))
+
+    decks = query.offset(skip).limit(limit).all()
+
+    for d in decks:
+        _enrich_deck_visuals(db, d)
+
+    return decks
 
 
 @router.get(
@@ -64,7 +204,8 @@ def get_deck_detail(
     deck_id: str,
     db: Session = Depends(get_db)
 ):
-    return DeckService.get_deck_or_fail(db=db, deck_id=deck_id)
+    deck = DeckService.get_deck_or_fail(db=db, deck_id=deck_id)
+    return _enrich_deck_visuals(db, deck)
 
 
 @router.get(
@@ -87,7 +228,10 @@ def list_user_decks(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario no encontrado."
         )
-    return DeckService.get_user_decks(db=db, user_id=user_id)
+    decks = DeckService.get_user_decks(db=db, user_id=user_id)
+    for d in decks:
+        _enrich_deck_visuals(db, d)
+    return decks
 
 
 @router.post(
@@ -102,12 +246,13 @@ def fork_deck(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return DeckService.fork_deck(
+    deck = DeckService.fork_deck(
         db=db,
         deck_id=deck_id,
         current_user_id=str(current_user.id),
         new_name=new_name
     )
+    return _enrich_deck_visuals(db, deck)
 
 
 @router.delete(

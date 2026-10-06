@@ -1,141 +1,94 @@
 // ---------------------------------------------------------
-// SERVICIO API: MAZOS Y DECKS (MTG)
+// SERVICIO API: MAZOS Y DECKS (MTG) - BLINDADO CONTRA BUCLES
 // ---------------------------------------------------------
 import apiClient from '@/api/client';
 
-/**
- * Obtiene los mazos públicos de un usuario específico por su ID.
- * @param {string|number} userId - Identificador del usuario.
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Array<Object>>}
- */
 export const getUserDecksApi = async (userId, options = {}) => {
   const response = await apiClient.get(`/decks/users/${userId}`, options);
   return response.data;
 };
 
-/**
- * Obtiene los mazos del usuario actualmente autenticado vía JWT.
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Array<Object>>}
- */
 export const getMyDecksApi = async (options = {}) => {
   const response = await apiClient.get('/decks/me', options);
   return response.data;
 };
 
-/**
- * Registra un nuevo mazo para el usuario en sesión.
- * @param {Object} deckData - Objeto con datos del mazo (name, format, description, is_public).
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Object>}
- */
 export const createDeckApi = async (deckData, options = {}) => {
   const response = await apiClient.post('/decks', deckData, options);
   return response.data;
 };
 
-/**
- * Actualiza la información base o configuración de privacidad de un mazo.
- * @param {string|number} deckId - ID del mazo a modificar.
- * @param {Object} deckData - Atributos a actualizar (name, description, is_public, format).
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Object>}
- */
 export const updateDeckApi = async (deckId, deckData, options = {}) => {
   const response = await apiClient.patch(`/decks/${deckId}`, deckData, options);
   return response.data;
 };
 
-/**
- * Obtiene el listado de barajas públicas de la comunidad.
- * @param {Object} [params] - Parámetros de consulta (format, search, skip, limit).
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Array<Object>>}
- */
 export const getPublicDecksApi = async (params = {}, options = {}) => {
-  const response = await apiClient.get('/decks/public', { params, ...options });
-  return response.data;
+  try {
+    const response = await apiClient.get('/decks/public', { params, ...options });
+    return response.data;
+  } catch (err) {
+    // Si la petición fue abortada intencionalmente, relanzar sin fallback
+    if (err.name === 'CanceledError' || err.name === 'AbortError' || options?.signal?.aborted) {
+      throw err;
+    }
+    if (err.response?.status === 404 || err.response?.status === 405) {
+      const fallback = await apiClient.get('/decks', {
+        params: { is_public: true, ...params },
+        ...options
+      });
+      return fallback.data;
+    }
+    throw err;
+  }
 };
 
-/**
- * Consulta el detalle público y lista de cartas de un mazo abierto de la comunidad.
- * @param {string|number} deckId - ID del mazo público.
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Object>}
- */
 export const getPublicDeckDetailApi = async (deckId, options = {}) => {
   const response = await apiClient.get(`/decks/${deckId}/public`, options);
   return response.data;
 };
 
-/**
- * Clona una baraja pública ajena hacia la biblioteca del usuario en sesión.
- * @param {string|number} deckId - ID del mazo público a duplicar.
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Object>}
- */
 export const forkDeckApi = async (deckId, options = {}) => {
   const response = await apiClient.post(`/decks/${deckId}/fork`, {}, options);
   return response.data;
 };
 
-/**
- * Agrega una carta a un mazo específico.
- * @param {string|number} deckId - ID del mazo destino.
- * @param {Object} payload - Objeto con scryfall_card_id, quantity y category.
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Object>}
- */
 export const addCardToDeckApi = async (deckId, payload, options = {}) => {
   const response = await apiClient.post(`/decks/${deckId}/cards`, payload, options);
   return response.data;
 };
 
-/**
- * Obtiene las cartas de un mazo auditadas contra el inventario físico en binders.
- * @param {string|number} deckId - ID del mazo a auditar.
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Array<Object>>}
- */
 export const getDeckCardsWithStatusApi = async (deckId, options = {}) => {
   const response = await apiClient.get(`/decks/${deckId}/cards`, options);
   return response.data;
 };
 
-/**
- * Actualiza los atributos de una carta dentro de un mazo (cantidad, categoría).
- * @param {string|number} deckId - ID del mazo.
- * @param {string|number} cardId - ID de la carta en el mazo.
- * @param {Object} payload - Datos actualizados.
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Object>}
- */
 export const updateDeckCardApi = async (deckId, cardId, payload, options = {}) => {
   const response = await apiClient.patch(`/decks/${deckId}/cards/${cardId}`, payload, options);
   return response.data;
 };
 
-/**
- * Elimina una carta asignada a un mazo.
- * @param {string|number} deckId - ID del mazo.
- * @param {string|number} cardId - ID de la carta en el mazo.
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<Object>}
- */
 export const removeCardFromDeckApi = async (deckId, cardId, options = {}) => {
   const response = await apiClient.delete(`/decks/${deckId}/cards/${cardId}`, options);
   return response.data;
 };
 
-/**
- * Agrega un lote masivo de cartas a un mazo.
- * @param {string|number} deckId
- * @param {Array<{ scryfall_card_id: string, quantity: number, category: string }>} cards
- * @param {import('axios').AxiosRequestConfig} [options]
- * @returns {Promise<{ message: string, added_count: number, failed_card_ids: string[] }>}
- */
 export const bulkAddCardsToDeckApi = async (deckId, cards, options = {}) => {
   const response = await apiClient.post(`/decks/${deckId}/cards/bulk`, { cards }, options);
   return response.data;
+};
+
+export default {
+  getUserDecksApi,
+  getMyDecksApi,
+  createDeckApi,
+  updateDeckApi,
+  getPublicDecksApi,
+  getPublicDeckDetailApi,
+  forkDeckApi,
+  addCardToDeckApi,
+  getDeckCardsWithStatusApi,
+  updateDeckCardApi,
+  removeCardFromDeckApi,
+  bulkAddCardsToDeckApi
 };

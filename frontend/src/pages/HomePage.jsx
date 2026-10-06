@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// PÁGINA: HOME (ORQUESTADOR MODULAR)
+// PÁGINA: HOME (ORQUESTADOR MODULAR SIN BUCLES DE ERROR)
 // ---------------------------------------------------------
 import React, { useState, useEffect } from 'react';
 import { getPublicDecksApi, getMyDecksApi } from '@/api/decks.api';
@@ -28,7 +28,7 @@ export default function HomePage({
   const [topDecks, setTopDecks] = useState([]);
   const [loadingDecks, setLoadingDecks] = useState(true);
 
-  // Carga y ordenamiento del Top 10 de Mazos
+  // Carga controlada del Top 10 de Mazos
   useEffect(() => {
     const ctrl = new AbortController();
     setLoadingDecks(true);
@@ -36,14 +36,15 @@ export default function HomePage({
     getPublicDecksApi({ limit: 20, sort_by: 'upvotes' }, { signal: ctrl.signal })
       .then(async (data) => {
         let list = Array.isArray(data) ? data : (data?.data || data?.items || []);
-        
-        if (list.length === 0) {
+
+        // Si no hay mazos públicos y hay un usuario logueado, consultar los propios
+        if (list.length === 0 && currentUser) {
           try {
             const myDecks = await getMyDecksApi({ signal: ctrl.signal });
             const myDecksList = Array.isArray(myDecks) ? myDecks : (myDecks?.data || []);
             list = myDecksList.filter((d) => d.is_public !== false);
           } catch {
-            // Sin fallback
+            list = [];
           }
         }
 
@@ -53,21 +54,16 @@ export default function HomePage({
 
         setTopDecks(sortedTop10);
       })
-      .catch(async (err) => {
+      .catch((err) => {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
           console.warn('[Home] Error cargando Top 10 de mazos:', parseApiError(err));
-          try {
-            const myDecks = await getMyDecksApi({ signal: ctrl.signal });
-            setTopDecks((Array.isArray(myDecks) ? myDecks : []).slice(0, 10));
-          } catch {
-            setTopDecks([]);
-          }
+          setTopDecks([]);
         }
       })
       .finally(() => setLoadingDecks(false));
 
     return () => ctrl.abort();
-  }, []);
+  }, [currentUser]);
 
   return (
     <div className={`min-h-[calc(100vh-4rem)] transition-colors duration-200 select-none ${
@@ -86,7 +82,7 @@ export default function HomePage({
 
       {/* 2. Contenido Central */}
       <div className="max-w-[1920px] mx-auto px-6 sm:px-12 py-10 space-y-14">
-        {/* 1°: Top 10 Cartas Más Buscadas (Interactivo con Filtros y Mana Font) */}
+        {/* 1°: Top 10 Cartas Más Buscadas */}
         <TopCardsSlider
           isLightMode={isLightMode}
           onOpenCard={openCard}
