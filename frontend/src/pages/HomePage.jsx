@@ -8,6 +8,7 @@ import { useCardModal } from '@/context/CardModalContext';
 import { parseApiError } from '@/utils/apiErrors';
 
 import HomeHeroBanner from '@/components/home/HomeHeroBanner';
+import TopCardsSlider from '@/components/home/TopCardsSlider';
 import TopDecksSlider from '@/components/home/TopDecksSlider';
 import HomeQuickShortcuts from '@/components/home/HomeQuickShortcuts';
 
@@ -27,7 +28,7 @@ export default function HomePage({
   const [topDecks, setTopDecks] = useState([]);
   const [loadingDecks, setLoadingDecks] = useState(true);
 
-  // Carga y ordenamiento del Top 10
+  // Carga y ordenamiento del Top 10 de Mazos
   useEffect(() => {
     const ctrl = new AbortController();
     setLoadingDecks(true);
@@ -54,7 +55,7 @@ export default function HomePage({
       })
       .catch(async (err) => {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.warn('[Home] Error cargando Top 10:', parseApiError(err));
+          console.warn('[Home] Error cargando Top 10 de mazos:', parseApiError(err));
           try {
             const myDecks = await getMyDecksApi({ signal: ctrl.signal });
             setTopDecks((Array.isArray(myDecks) ? myDecks : []).slice(0, 10));
@@ -84,15 +85,21 @@ export default function HomePage({
       />
 
       {/* 2. Contenido Central */}
-      <div className="max-w-[1920px] mx-auto px-6 sm:px-12 py-10 space-y-12">
-        {/* Slider Top 10 Crunchyroll */}
+      <div className="max-w-[1920px] mx-auto px-6 sm:px-12 py-10 space-y-14">
+        {/* 1°: Top 10 Cartas Más Buscadas (Interactivo con Filtros y Mana Font) */}
+        <TopCardsSlider
+          isLightMode={isLightMode}
+          onOpenCard={openCard}
+        />
+
+        {/* 2°: Top 10 Mazos Más Votados */}
         <TopDecksSlider
           topDecks={topDecks}
           loading={loadingDecks}
           onSelectDeck={onSelectDeck}
         />
 
-        {/* Accesos Directos */}
+        {/* 3°: Accesos Directos */}
         <HomeQuickShortcuts
           isLightMode={isLightMode}
           onNavigateToCatalog={onNavigateToCatalog}
