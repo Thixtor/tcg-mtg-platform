@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// COMPONENTE: TARJETA VISUAL DE COLECCIÓN CON MINIATURAS
+// COMPONENTE: TARJETA VISUAL DE COLECCIÓN CON BADGE DE TRADE
 // ---------------------------------------------------------
 import React, { useState, useRef, useEffect } from 'react';
 import { 
@@ -14,7 +14,8 @@ import {
   ExternalLink, 
   Edit2, 
   Share2, 
-  Trash2 
+  Trash2,
+  Repeat
 } from 'lucide-react';
 
 export function CollectionCard({
@@ -34,6 +35,7 @@ export function CollectionCard({
     name = 'Sin título',
     description = '',
     is_public_trade = false,
+    is_for_trade = false,
     is_favorite = false,
     card_count = 0,
     total_value = 0,
@@ -63,7 +65,7 @@ export function CollectionCard({
     currency: 'USD',
   }).format(total_value || 0);
 
-  // Lista de previsualización: si preview_cards tiene cartas las usa, de lo contrario usa el art_url
+  // Previsualizaciones de miniaturas usando recorte artístico (art_crop)
   const cardPreviews = preview_cards.length > 0 
     ? preview_cards.slice(0, 5) 
     : (art_url ? [art_url] : []);
@@ -102,7 +104,15 @@ export function CollectionCard({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Badge de Visibilidad */}
+            {/* Badge de Disponibilidad para Trade */}
+            {is_for_trade && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-mono font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm">
+                <Repeat className="w-3 h-3" />
+                <span>Trade</span>
+              </span>
+            )}
+
+            {/* Badge de Visibilidad Pública/Privada */}
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider ${
               is_public_trade
                 ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
@@ -171,12 +181,14 @@ export function CollectionCard({
           </div>
         </div>
 
-        {/* 2. CONTENIDO PRINCIPAL: MINIATURAS vs ESTADO VACÍO */}
+        {/* 2. CONTENIDO PRINCIPAL: MINIATURAS (PRIORIZANDO ART_CROP) */}
         <div className="py-2">
           {card_count > 0 ? (
             <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 h-24 sm:h-28 overflow-hidden rounded-2xl bg-black/30 p-2 border border-white/5">
               {cardPreviews.map((card, i) => {
-                const img = typeof card === 'string' ? card : card?.image_uris?.art_crop || card?.image_url;
+                const img = typeof card === 'string' 
+                  ? card 
+                  : (card?.image_uris?.art_crop || card?.card_faces?.[0]?.image_uris?.art_crop || card?.image_uris?.normal || card?.image_url);
                 return (
                   <div 
                     key={i} 

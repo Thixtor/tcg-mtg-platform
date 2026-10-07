@@ -20,6 +20,9 @@ import { isAuthenticated } from '@/services/session.service';
 
 function getArtCropUrl(card) {
   if (!card) return '';
+  const raw = card.scryfall_raw_data || card.card_catalog || card;
+  if (raw.image_uris?.art_crop) return raw.image_uris.art_crop;
+  if (raw.card_faces?.[0]?.image_uris?.art_crop) return raw.card_faces[0].image_uris.art_crop;
   if (card.image_uris?.art_crop) return card.image_uris.art_crop;
   if (card.card_faces?.[0]?.image_uris?.art_crop) return card.card_faces[0].image_uris.art_crop;
   if (card.image_url) {
@@ -48,13 +51,11 @@ export default function DeckHeaderBanner({
   const { isLightMode } = useTheme();
   const hasSession = isAuthenticated();
 
-  // Determinar si el usuario en sesión es el dueño del mazo
   const isOwner = Boolean(
     !activeDeck?.user_id || 
     (currentUserId && String(currentUserId) === String(activeDeck.user_id))
   );
 
-  // Estado local reactivo para la privacidad del mazo activo
   const [isPublic, setIsPublic] = useState(activeDeck?.is_public !== false);
   const [isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
   const [isForking, setIsForking] = useState(false);
@@ -77,7 +78,7 @@ export default function DeckHeaderBanner({
       await updateDeckApi(activeDeck.id, { is_public: nextPrivacy });
     } catch (err) {
       console.error('[DeckHeaderBanner] Error al actualizar privacidad:', err);
-      setIsPublic(!nextPrivacy); // Revertir en caso de error
+      setIsPublic(!nextPrivacy);
     } finally {
       setIsUpdatingPrivacy(false);
     }
@@ -107,7 +108,7 @@ export default function DeckHeaderBanner({
         isLightMode ? 'bg-[#EAE4D7]' : 'bg-[#111113]'
       }`}>
         
-        {/* Ilustración de fondo panorámica */}
+        {/* Ilustración de fondo panorámica recortada (art_crop) */}
         {artCropUrl && (
           <div
             className={`absolute right-0 top-0 bottom-0 w-3/4 sm:w-2/3 bg-cover bg-center pointer-events-none transition-opacity ${
@@ -121,7 +122,6 @@ export default function DeckHeaderBanner({
           />
         )}
 
-        {/* Degradados de fusión continua */}
         <div className={`absolute inset-0 pointer-events-none ${
           isLightMode 
             ? 'bg-gradient-to-r from-[#EAE4D7] via-[#EAE4D7]/85 to-transparent' 
@@ -134,11 +134,12 @@ export default function DeckHeaderBanner({
             : 'bg-gradient-to-t from-[#0B0B0B] to-transparent'
         }`} />
 
-        {/* FILA SUPERIOR: RETORNO A LA BIBLIOTECA */}
+        {/* Retorno a la biblioteca */}
         <div className="relative z-10">
           <button
+            type="button"
             onClick={onBackToLibrary}
-            className={`inline-flex items-center gap-1.5 text-xs font-mono font-bold transition rounded-lg px-2.5 py-1 ${
+            className={`inline-flex items-center gap-1.5 text-xs font-mono font-bold transition rounded-xl px-3 py-1.5 cursor-pointer ${
               isLightMode 
                 ? 'bg-[#DDD5C5]/70 hover:bg-[#DDD5C5] text-neutral-800' 
                 : 'bg-neutral-900/60 hover:bg-neutral-900 text-neutral-300 hover:text-amber-400'
@@ -149,24 +150,22 @@ export default function DeckHeaderBanner({
           </button>
         </div>
 
-        {/* FILA INFERIOR: TÍTULO DEL MAZO (IZQ) Y ACCIONES VISIBLES (DER) */}
+        {/* Título del mazo y acciones */}
         <div className="relative z-10 flex flex-wrap items-end justify-between gap-6 pt-3">
           
-          {/* LADO IZQUIERDO: METADATOS Y TÍTULO */}
           <div className="space-y-1.5 max-w-3xl">
             <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono font-bold tracking-wider">
-              <span className="px-2 py-0.5 rounded bg-amber-500 text-neutral-950 uppercase font-black">
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-neutral-950 uppercase font-black">
                 {activeDeck.format || 'COMMANDER'}
               </span>
 
-              {/* Selector interactivo de privacidad (Solo para el propietario) */}
               {isOwner ? (
                 <button
                   type="button"
                   onClick={handleTogglePrivacy}
                   disabled={isUpdatingPrivacy}
-                  title={isPublic ? 'Mazo público. Haz clic para cambiarlo a privado.' : 'Mazo privado. Haz clic para compartirlo con la comunidad.'}
-                  className={`px-2 py-0.5 rounded flex items-center gap-1 transition ${
+                  title={isPublic ? 'Mazo público. Clic para cambiar a privado.' : 'Mazo privado. Clic para compartir con la comunidad.'}
+                  className={`px-2.5 py-0.5 rounded-full flex items-center gap-1 transition cursor-pointer ${
                     isPublic 
                       ? (isLightMode ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-emerald-950/70 text-emerald-400 hover:bg-emerald-900/70')
                       : (isLightMode ? 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700')
@@ -176,7 +175,7 @@ export default function DeckHeaderBanner({
                   <span>{isPublic ? 'Público' : 'Privado'}</span>
                 </button>
               ) : (
-                <span className={`px-2 py-0.5 rounded flex items-center gap-1 font-mono text-[10px] ${
+                <span className={`px-2.5 py-0.5 rounded-full flex items-center gap-1 font-mono text-[10px] ${
                   isPublic 
                     ? (isLightMode ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-950/70 text-emerald-400')
                     : (isLightMode ? 'bg-neutral-200 text-neutral-700' : 'bg-neutral-800 text-neutral-300')
@@ -186,7 +185,7 @@ export default function DeckHeaderBanner({
                 </span>
               )}
 
-              <span className={`px-2 py-0.5 rounded flex items-center gap-1 ${
+              <span className={`px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
                 isLegal 
                   ? (isLightMode ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-950/70 text-emerald-400')
                   : (isLightMode ? 'bg-amber-100 text-amber-800' : 'bg-amber-950/70 text-amber-300')
@@ -200,7 +199,7 @@ export default function DeckHeaderBanner({
               </span>
             </div>
 
-            <h1 className={`text-3xl sm:text-4xl font-black uppercase tracking-tight ${
+            <h1 className={`text-3xl sm:text-4xl font-black uppercase tracking-tight break-words ${
               isLightMode ? 'text-[#1F1C19]' : 'text-white'
             }`}>
               {activeDeck.name}
@@ -217,15 +216,13 @@ export default function DeckHeaderBanner({
             </p>
           </div>
 
-          {/* EXTREMO DERECHO: BOTONES DE ACCIÓN */}
           <div className="flex flex-wrap items-center gap-2 pb-1">
-            
-            {/* Si NO es el dueño, desplegar botón CLONAR MAZO */}
             {!isOwner && (
               <button
+                type="button"
                 onClick={handleForkClick}
                 disabled={isForking}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm active:scale-95 disabled:opacity-50"
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
               >
                 {isForking ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -236,10 +233,10 @@ export default function DeckHeaderBanner({
               </button>
             )}
 
-            {/* 1. Playtest (disponible para todos) */}
             <button
+              type="button"
               onClick={onOpenPlaytest}
-              className={`px-3.5 py-2 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm active:scale-95 ${
+              className={`px-3.5 py-2 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm active:scale-95 cursor-pointer ${
                 isOwner 
                   ? 'bg-amber-500 hover:bg-amber-400 text-neutral-950' 
                   : (isLightMode ? 'bg-[#DDD5C5]/70 hover:bg-[#DDD5C5] text-neutral-800' : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200')
@@ -249,11 +246,11 @@ export default function DeckHeaderBanner({
               <span>Playtest</span>
             </button>
 
-            {/* 2. Importar (solo para el propietario) */}
             {isOwner && (
               <button
+                type="button"
                 onClick={onOpenImport}
-                className={`px-3 py-2 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm ${
+                className={`px-3 py-2 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer ${
                   isLightMode
                     ? 'bg-[#DDD5C5]/70 hover:bg-[#DDD5C5] text-neutral-800'
                     : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200'
@@ -264,10 +261,10 @@ export default function DeckHeaderBanner({
               </button>
             )}
 
-            {/* 3. Trade Wall */}
             <button
+              type="button"
               onClick={onNavigateToTradeWall}
-              className={`px-3 py-2 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm ${
+              className={`px-3 py-2 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer ${
                 isLightMode
                   ? 'bg-[#DDD5C5]/70 hover:bg-[#DDD5C5] text-emerald-800'
                   : 'bg-neutral-900/80 hover:bg-neutral-800 text-emerald-400'
@@ -276,7 +273,6 @@ export default function DeckHeaderBanner({
               <Flame className="w-3.5 h-3.5 text-emerald-500" />
               <span>Trade</span>
             </button>
-
           </div>
 
         </div>

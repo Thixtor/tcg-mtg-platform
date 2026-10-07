@@ -1,8 +1,8 @@
 // ---------------------------------------------------------
-// VISTA: DASHBOARD GENERAL (CON SELECTOR DE TIENDA GLOBAL)
+// VISTA: DASHBOARD GENERAL (CON FILTRO DE TRADE ACTIVO)
 // ---------------------------------------------------------
 import React, { useRef, useEffect } from 'react';
-import { Folder, RefreshCw, Search, Lock, Globe, Star, Loader2, Store } from 'lucide-react';
+import { Folder, RefreshCw, Search, Lock, Globe, Star, Loader2, Repeat } from 'lucide-react';
 import { CollectionStatsHeader } from '@/components/collections/CollectionStatsHeader';
 import { CreateCollectionCard } from '@/components/collections/CreateCollectionCard';
 import { CollectionCard } from '@/components/collections/CollectionCard';
@@ -46,7 +46,7 @@ export default function CollectionsDashboardView({
       {/* 1. Header con KPIs */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[11px] font-mono font-bold tracking-wider uppercase">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[11px] font-mono font-bold tracking-wider uppercase">
             <Folder className="w-3.5 h-3.5" />
             <span>Gestión de Inventario & Binders</span>
           </div>
@@ -124,7 +124,7 @@ export default function CollectionsDashboardView({
             </button>
           </div>
 
-          {/* Filtros de visibilidad */}
+          {/* Filtros de visibilidad y Trade */}
           <div className="flex items-center gap-1 p-1 rounded-xl bg-black/40 border border-white/5 text-xs font-mono">
             <button
               type="button"
@@ -136,6 +136,17 @@ export default function CollectionsDashboardView({
               }`}
             >
               Todas
+            </button>
+            <button
+              type="button"
+              onClick={() => onFilterChange('trade')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                activeFilter === 'trade'
+                  ? 'bg-emerald-500 text-neutral-950 font-bold'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Repeat className="w-3 h-3" /> Trade
             </button>
             <button
               type="button"

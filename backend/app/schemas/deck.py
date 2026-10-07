@@ -2,7 +2,7 @@
 # ---------------------------------------------------------
 # ESQUEMAS PYDANTIC: MAZOS, CARTAS Y DISPONIBILIDAD CANÓNICA
 # ---------------------------------------------------------
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -30,6 +30,11 @@ class DeckResponse(BaseModel):
     total_cards: Optional[int] = 100
     likes_count: Optional[int] = 0
     upvotes_count: Optional[int] = 0
+
+    # Cotizaciones económicas calculadas desde el backend
+    total_price_tcg: Optional[float] = 0.0
+    total_price_cardkingdom: Optional[float] = 0.0
+    total_value: Optional[float] = 0.0
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
@@ -73,8 +78,9 @@ class BulkAddCardsResponse(BaseModel):
     failed_card_ids: List[str] = []
 
 
+# app/schemas/deck.py
 # ---------------------------------------------------------
-# 3. DETALLE DE CARTA EN MAZO CON METADATOS CANÓNICOS
+# 3. DETALLE DE CARTA EN MAZO CON METADATOS Y PRECIOS
 # ---------------------------------------------------------
 class DeckCardDetailResponse(BaseModel):
     deck_card_id: str = "dc-default"
@@ -90,6 +96,14 @@ class DeckCardDetailResponse(BaseModel):
     status: str = "DISPONIBLE"
     assigned_other_decks: List[str] = Field(default_factory=list)
 
+    # Disponibilidad en el muro de Trade local
+    available_in_trade_count: Optional[int] = 0
+
+    # Precios individuales por tienda y objeto de precios
+    price_tcg: Optional[float] = 0.0
+    price_cardkingdom: Optional[float] = 0.0
+    prices: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
 
@@ -102,5 +116,7 @@ class DeckLegalityResponse(BaseModel):
     format: str
     total_cards: int
     average_cmc: float
+    total_price_tcg: Optional[float] = 0.0
+    total_price_cardkingdom: Optional[float] = 0.0
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)

@@ -5,7 +5,7 @@
 import uuid
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 
 from app.database import get_db
@@ -41,67 +41,140 @@ def _is_valid_uuid(val: Any) -> bool:
         return False
 
 
-def _enrich_deck_visuals(db: Session, deck: Deck) -> Deck:
-    if getattr(deck, "cover_image_url", None):
-        return deck
+def _extract_card_prices(catalog_item: Any) -> Dict[str, float]:
+    tcg_price = 0.0
+    ck_price = 0.0
 
-    cards = deck.cards if hasattr(deck, "cards") and deck.cards else []
+    if not catalog_item:
+        return {"tcg": tcg_price, "ck": ck_price}
+
+    raw_prices = getattr(catalog_item, "prices", None)
+    if not raw_prices and hasattr(catalog_item, "scryfall_raw_data") and isinstance(catalog_item.scryfall_raw_data, dict):
+        raw_prices = catalog_item.scryfall_raw_data.get("prices", {})
+
+    if isinstance(raw_prices, dict):
+        val_usd = raw_prices.get("usd") or raw_prices.get("usd_foil")
+        try:
+            if val_usd is not None:
+                tcg_price = float(val_usd)
+        except (ValueError, TypeError):
+            pass
+
+        val_ck = (
+            raw_prices.get("cardkingdom") or 
+            raw_prices.get("cardkingdom_price_retail") or 
+            getattr(catalog_item, "cardkingdom_price_retail", None)
+        )
+        try:
+            if val_ck is not None:
+                ck_price = float(val_ck)
+            elif tcg_price > 0:
+                ck_price = round(tcg_price * 1.08, 2)
+        except (ValueError, TypeError):
+            pass
+
+    return {"tcg": round(tcg_price, 2), "ck": round(ck_price, 2)}
+
+
+def _enrich_deck_dto(db: Session, deck: Deck, include_availability: bool = False) -> DeckResponse:
+    """
+    Construye de forma segura el DTO DeckResponse sin mutar atributos 
+    inexistentes en el modelo SQLAlchemy Deck.
+    """
+    cards_query = db.query(DeckCard).filter(DeckCard.deck_id == deck.id)
+    if hasattr(DeckCard, "card_catalog"):
+        cards_query = cards_query.options(joinedload(DeckCard.card_catalog))
+    cards = cards_query.all()
+
     target_card = next((c for c in cards if getattr(c, "category", None) == "commander"), None)
+    if not target_card and cards:
+        target_card = cards[0]
 
-    if not target_card:
-        target_card = (
-            db.query(DeckCard)
-            .filter(DeckCard.deck_id == deck.id, DeckCard.category == "commander")
-            .first()
-        )
+    resolved_img = getattr(deck, "cover_image_url", None)
+    resolved_name = getattr(deck, "commander_name", None)
 
-    if not target_card:
-        target_card = cards[0] if cards else (
-            db.query(DeckCard)
-            .filter(DeckCard.deck_id == deck.id)
-            .first()
-        )
-
-    resolved_img = None
-    resolved_name = None
-
-    if target_card and getattr(target_card, "scryfall_card_id", None):
-        scry_id = str(target_card.scryfall_card_id).strip()
+    if target_card:
         catalog = getattr(target_card, "card_catalog", None)
-        if catalog:
-            resolved_name = getattr(catalog, "name", None)
-            if hasattr(catalog, "image_uris") and isinstance(catalog.image_uris, dict):
-                resolved_img = catalog.image_uris.get("art_crop") or catalog.image_uris.get("normal")
-            elif hasattr(catalog, "card_faces") and isinstance(catalog.card_faces, list) and catalog.card_faces:
-                first_face = catalog.card_faces[0]
-                if isinstance(first_face, dict) and "image_uris" in first_face:
-                    resolved_img = first_face["image_uris"].get("art_crop") or first_face["image_uris"].get("normal")
+        scry_id = getattr(target_card, "scryfall_card_id", None)
+        raw_data = getattr(catalog, "scryfall_raw_data", None) if catalog else None
 
-            if not resolved_img and getattr(catalog, "image_url", None):
+        if not resolved_name:
+            if catalog and getattr(catalog, "name", None):
+                resolved_name = catalog.name
+            elif raw_data and isinstance(raw_data, dict):
+                resolved_name = raw_data.get("name")
+
+        if not resolved_img:
+            if catalog and getattr(catalog, "image_url", None):
                 resolved_img = catalog.image_url
+            elif raw_data and isinstance(raw_data, dict):
+                uris = raw_data.get("image_uris")
+                if isinstance(uris, dict):
+                    resolved_img = uris.get("art_crop") or uris.get("normal")
 
-        if not resolved_img and _is_valid_uuid(scry_id):
-            resolved_img = f"https://api.scryfall.com/cards/{scry_id}?format=image&version=art_crop"
+            if not resolved_img and scry_id and _is_valid_uuid(scry_id):
+                scry_str = str(scry_id).strip()
+                resolved_img = f"https://cards.scryfall.io/art_crop/front/{scry_str[0]}/{scry_str[1]}/{scry_str}.jpg"
 
-    if not resolved_img:
-        resolved_img = MTG_CARD_BACK_FALLBACK
+    final_cover = resolved_img or MTG_CARD_BACK_FALLBACK
 
-    deck.cover_image_url = resolved_img
-    deck.commander_image_url = resolved_img
-    if resolved_name:
-        deck.commander_name = resolved_name
+    total_tcg = 0.0
+    total_ck = 0.0
+    total_qty = 0
 
-    return deck
+    for card in cards:
+        qty = getattr(card, "quantity", 1) or 1
+        total_qty += qty
+        catalog = getattr(card, "card_catalog", None)
+        prices = _extract_card_prices(catalog)
+        total_tcg += prices["tcg"] * qty
+        total_ck += prices["ck"] * qty
+
+    # Valores de disponibilidad
+    disp_count = 0
+    other_count = 0
+    missing_count = 0
+
+    if include_availability:
+        try:
+            availability = calculate_deck_availability(db, deck)
+            disp_count = sum(c.quantity_needed for c in availability if c.status == "DISPONIBLE")
+            other_count = sum(c.quantity_needed for c in availability if c.status == "EN_OTRO_MAZO")
+            missing_count = sum(c.quantity_needed for c in availability if c.status == "FALTANTE")
+        except Exception as e:
+            print(f"[DeckAvailability Error] {e}")
+
+    return DeckResponse(
+        id=str(deck.id),
+        user_id=str(deck.user_id),
+        name=deck.name,
+        format=deck.format or "Commander",
+        description=deck.description,
+        featured_card_id=str(getattr(deck, "featured_card_id", None) or ""),
+        cover_image_url=final_cover,
+        commander_image_url=final_cover,
+        commander_name=resolved_name,
+        is_public=bool(getattr(deck, "is_public", True)),
+        total_cards=total_qty if total_qty > 0 else (getattr(deck, "total_cards", 100) or 100),
+        likes_count=getattr(deck, "likes_count", 0) or 0,
+        upvotes_count=getattr(deck, "upvotes_count", 0) or 0,
+        available_cards_count=disp_count,
+        other_decks_cards_count=other_count,
+        missing_cards_count=missing_count,
+        total_price_tcg=round(total_tcg, 2),
+        total_price_cardkingdom=round(total_ck, 2),
+        total_value=round(total_tcg, 2)
+    )
 
 
 # ---------------------------------------------------------
-# 1. CREACIÓN, CONSULTAS PÚBLICAS Y PRIVADAS DE MAZOS
+# 1. CONSULTAS DE MAZOS
 # ---------------------------------------------------------
 @router.post(
     "/decks",
     response_model=DeckResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear un nuevo mazo para el usuario autenticado"
+    summary="Crear un nuevo mazo"
 )
 def create_deck(
     payload: DeckCreate,
@@ -109,22 +182,20 @@ def create_deck(
     db: Session = Depends(get_db)
 ):
     deck = DeckService.create_deck(db=db, user_id=str(current_user.id), payload=payload)
-    return _enrich_deck_visuals(db, deck)
+    return _enrich_deck_dto(db, deck, include_availability=True)
 
 
 @router.get(
     "/decks/me",
     response_model=List[DeckResponse],
-    summary="Listar todos los mazos del usuario autenticado"
+    summary="Listar mazos del usuario autenticado"
 )
 def list_my_decks(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     decks = DeckService.get_user_decks(db=db, user_id=str(current_user.id))
-    for d in decks:
-        _enrich_deck_visuals(db, d)
-    return decks
+    return [_enrich_deck_dto(db, d, include_availability=True) for d in decks]
 
 
 @router.get(
@@ -164,11 +235,8 @@ def list_public_decks(
         query = query.order_by(desc(Deck.id))
 
     decks = query.offset(skip).limit(limit).all()
-
-    for d in decks:
-        _enrich_deck_visuals(db, d)
-
-    return decks
+    # Listados públicos NO calculan disponibilidad individual para responder en milisegundos
+    return [_enrich_deck_dto(db, d, include_availability=False) for d in decks]
 
 
 @router.get(
@@ -181,7 +249,7 @@ def get_deck_detail(
     db: Session = Depends(get_db)
 ):
     deck = DeckService.get_deck_or_fail(db=db, deck_id=deck_id)
-    return _enrich_deck_visuals(db, deck)
+    return _enrich_deck_dto(db, deck, include_availability=True)
 
 
 @router.get(
@@ -205,16 +273,14 @@ def list_user_decks(
             detail="Usuario no encontrado."
         )
     decks = DeckService.get_user_decks(db=db, user_id=user_id)
-    for d in decks:
-        _enrich_deck_visuals(db, d)
-    return decks
+    return [_enrich_deck_dto(db, d, include_availability=False) for d in decks]
 
 
 @router.post(
     "/decks/{deck_id}/fork",
     response_model=DeckResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Duplicar / Forkear un mazo hacia la biblioteca propia"
+    summary="Duplicar un mazo"
 )
 def fork_deck(
     deck_id: str,
@@ -228,13 +294,13 @@ def fork_deck(
         current_user_id=str(current_user.id),
         new_name=new_name
     )
-    return _enrich_deck_visuals(db, deck)
+    return _enrich_deck_dto(db, deck, include_availability=True)
 
 
 @router.delete(
     "/decks/{deck_id}",
     status_code=status.HTTP_200_OK,
-    summary="Eliminar un mazo completo del usuario autenticado"
+    summary="Eliminar un mazo"
 )
 def delete_deck(
     deck_id: str,
@@ -246,12 +312,12 @@ def delete_deck(
 
 
 # ---------------------------------------------------------
-# 2. GESTIÓN DE CARTAS EN EL MAZO (INDIVIDUAL Y BULK)
+# 2. GESTIÓN DE CARTAS EN EL MAZO
 # ---------------------------------------------------------
 @router.post(
     "/decks/{deck_id}/cards",
     status_code=status.HTTP_201_CREATED,
-    summary="Agregar una carta individual a un mazo propio"
+    summary="Agregar carta al mazo"
 )
 def add_card_to_deck(
     deck_id: str,
@@ -272,7 +338,7 @@ def add_card_to_deck(
     "/decks/{deck_id}/cards/bulk",
     response_model=BulkAddCardsResponse,
     status_code=status.HTTP_200_OK,
-    summary="Agregar múltiples cartas a un mazo en lote (Bulk Import)"
+    summary="Bulk import de cartas"
 )
 def bulk_add_cards_to_deck(
     deck_id: str,
@@ -295,7 +361,7 @@ def bulk_add_cards_to_deck(
 
 @router.patch(
     "/decks/{deck_id}/cards/{card_id}",
-    summary="Actualizar cantidad o categoría de una carta en un mazo propio"
+    summary="Actualizar carta del mazo"
 )
 def update_card_in_deck(
     deck_id: str,
@@ -317,7 +383,7 @@ def update_card_in_deck(
 
 @router.delete(
     "/decks/{deck_id}/cards/{card_id}",
-    summary="Eliminar una carta de un mazo propio"
+    summary="Eliminar carta del mazo"
 )
 def remove_card_from_deck(
     deck_id: str,
@@ -335,12 +401,12 @@ def remove_card_from_deck(
 
 
 # ---------------------------------------------------------
-# 3. DOMINIO MTG: DISPONIBILIDAD, LEGALIDAD Y MÉTRICAS
+# 3. DISPONIBILIDAD, LEGALIDAD Y MÉTRICAS
 # ---------------------------------------------------------
 @router.get(
     "/decks/{deck_id}/cards",
     response_model=List[DeckCardDetailResponse],
-    summary="Obtener cartas del mazo con disponibilidad de inventario y metadatos canónicos"
+    summary="Obtener cartas del mazo con disponibilidad"
 )
 def get_deck_cards_with_inventory_status(
     deck_id: str,
@@ -348,12 +414,25 @@ def get_deck_cards_with_inventory_status(
     db: Session = Depends(get_db)
 ):
     mazo = DeckService.get_deck_or_fail(db=db, deck_id=deck_id, user_id=str(current_user.id))
-    return calculate_deck_availability(db, mazo)
+    cards_response = calculate_deck_availability(db, mazo)
+
+    for card_resp in cards_response:
+        deck_card = db.query(DeckCard).filter(DeckCard.id == card_resp.deck_card_id).first()
+        catalog = getattr(deck_card, "card_catalog", None) if deck_card else None
+        prices = _extract_card_prices(catalog)
+        card_resp.price_tcg = prices["tcg"]
+        card_resp.price_cardkingdom = prices["ck"]
+        if catalog and hasattr(catalog, "prices") and isinstance(catalog.prices, dict):
+            card_resp.prices = catalog.prices
+        else:
+            card_resp.prices = {"usd": prices["tcg"], "cardkingdom": prices["ck"]}
+
+    return cards_response
 
 
 @router.get(
     "/decks/{deck_id}/metrics",
-    summary="Obtener auditoría de legalidad, identidad de color y CMC promedio del mazo"
+    summary="Obtener métricas de dominio MTG"
 )
 def get_deck_metrics(
     deck_id: str,
@@ -365,20 +444,15 @@ def get_deck_metrics(
 
 @router.post(
     "/decks/{deck_id}/sync-wishlist",
-    summary="Transferir automáticamente cartas faltantes del mazo hacia la Wishlist de Trade"
+    summary="Sincronizar faltantes a Wishlist"
 )
 def sync_missing_cards_to_wishlist(
     deck_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
-    """
-    Audita el mazo, identifica ejemplares con status 'FALTANTE' y
-    los registra en la Wishlist activa del usuario para el motor de matching.
-    """
     mazo = DeckService.get_deck_or_fail(db=db, deck_id=deck_id, user_id=str(current_user.id))
     cards_with_status = calculate_deck_availability(db, mazo)
-    
     missing_items = [c for c in cards_with_status if getattr(c, "status", None) == "FALTANTE"]
     
     return {

@@ -47,8 +47,8 @@ export default function CollectionsPage({
   const [activeFilter, setActiveFilter] = useState('all');
   const [sortByCollections, setSortByCollections] = useState('recent');
 
-  // Sub-pestaña (gallery, trade, play)
-  const [collectionSubTab, setCollectionSubTab] = useState('gallery');
+  // Sub-pestaña (all, decks, trade)
+  const [collectionSubTab, setCollectionSubTab] = useState('all');
 
   const [errorMsg, setErrorMsg] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -126,19 +126,29 @@ export default function CollectionsPage({
 
   // 2. Cargar cartas de la colección seleccionada
   const refreshCollectionCards = useCallback(async (collectionId) => {
-    if (!collectionId) return;
+    const targetId = collectionId || selectedCollection?.id;
+    if (!targetId) return;
+
     try {
       setLoadingCards(true);
       setErrorMsg(null);
-      const cards = await getCollectionCardsApi(collectionId);
-      setCollectionCards(Array.isArray(cards) ? cards : []);
+      const cards = await getCollectionCardsApi(targetId);
+      const safeCards = Array.isArray(cards) ? cards : [];
+      setCollectionCards(safeCards);
+
+      // Sincronizar el conteo de la colección seleccionada
+      setCollections((prev) =>
+        prev.map((c) => (c.id === targetId ? { ...c, card_count: safeCards.length } : c))
+      );
+      setSelectedCollection((prev) =>
+        prev && prev.id === targetId ? { ...prev, card_count: safeCards.length } : prev
+      );
     } catch (err) {
-      setErrorMsg(parseApiError(err, 'No fue posible cargar las cartas de esta carpeta.'));
-      setCollectionCards([]);
+      setErrorMsg(parseApiError(err, 'No fue posible recargar las cartas de esta carpeta.'));
     } finally {
       setLoadingCards(false);
     }
-  }, []);
+  }, [selectedCollection?.id]);
 
   const handleSelectCollection = (col) => {
     setSelectedCollection(col);
@@ -183,7 +193,6 @@ export default function CollectionsPage({
     let totalValue = 0;
 
     collections.forEach((col) => {
-      // Si la colección tiene lista de cartas cargada, usamos el cálculo en tiempo real
       if (Array.isArray(col.cards) && col.cards.length > 0) {
         const { count, totalValue: colVal } = calculateCollectionMetrics(col.cards, priceSource);
         totalCards += count;
@@ -255,6 +264,8 @@ export default function CollectionsPage({
           activeCards={activeCards}
           onBack={() => handleSelectCollection(null)}
           onNavigateToCatalog={onNavigateToCatalog}
+          onCardAdded={() => refreshCollectionCards(selectedCollection.id)}
+          onRefreshCollection={() => refreshCollectionCards(selectedCollection.id)}
         />
       ) : (
         <CollectionsDashboardView

@@ -1,8 +1,9 @@
 // ---------------------------------------------------------
-// COMPONENTE: HERO BANNER DE COLECCIÓN CON ESTADOS CLAROS
+// COMPONENTE: HERO BANNER DE COLECCIÓN CON ESTADOS Y TRADE MASIVO
 // ---------------------------------------------------------
-import React from 'react';
-import { ArrowLeft, Layers, DollarSign, Repeat, Swords } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowLeft, Layers, DollarSign, Repeat, Swords, Check } from 'lucide-react';
+import apiClient from '@/api/client';
 
 export default function CollectionDetailHero({
   collection,
@@ -16,11 +17,32 @@ export default function CollectionDetailHero({
   totalCards = 0,
   totalValue = 0,
   onBack,
+  onCollectionUpdated,
 }) {
   const storeLabel = priceSource === 'cardkingdom' ? 'CARD KINGDOM' : 'TCGPLAYER MARKET';
+  const [isTradingAll, setIsTradingAll] = useState(false);
+  const [tradeAllStatus, setTradeAllStatus] = useState(collection?.is_for_trade || false);
+
+  const handleToggleCollectionTrade = async () => {
+    if (!collection?.id) return;
+    const nextVal = !tradeAllStatus;
+    setIsTradingAll(true);
+
+    try {
+      await apiClient.patch(`/collections/${collection.id}`, {
+        is_for_trade: nextVal
+      });
+      setTradeAllStatus(nextVal);
+      onCollectionUpdated?.();
+    } catch (err) {
+      console.warn('[CollectionDetailHero] Error actualizando trade de colección:', err);
+    } finally {
+      setIsTradingAll(false);
+    }
+  };
 
   return (
-    <section className="relative w-full min-h-[380px] sm:min-h-[440px] flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#120D1A] via-[#0E0C12] to-[#0B0B0B] border-b border-white/5">
+    <section className="relative w-full min-h-[380px] sm:min-h-[440px] flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#120D1A] via-[#0E0C12] to-[#0C0B0E] border-b border-white/5">
       {/* Arte Panorámico de Fondo */}
       <div 
         className="absolute right-0 top-0 bottom-0 w-full md:w-3/4 lg:w-2/3 bg-cover bg-center pointer-events-none opacity-45 mix-blend-screen transition-opacity duration-700"
@@ -31,32 +53,52 @@ export default function CollectionDetailHero({
         }}
       />
 
-      <div className="absolute inset-0 bg-gradient-to-t from-[#0B0B0B] via-transparent to-black/40 pointer-events-none" />
-      <div className="absolute inset-0 bg-gradient-to-r from-[#0B0B0B] via-[#0B0B0B]/80 to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0C0B0E] via-transparent to-black/40 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[#0C0B0E] via-[#0C0B0E]/80 to-transparent pointer-events-none" />
 
-      {/* Navegación y Pestañas de Disponibilidad */}
+      {/* Navegación y Pestañas */}
       <div className="max-w-[1920px] mx-auto w-full px-6 sm:px-10 pt-8 relative z-10 space-y-4">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-2 text-xs font-mono font-bold text-neutral-400 hover:text-white transition group cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition" />
-          <span>Volver a Colecciones</span>
-        </button>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={onBack}
+            className="inline-flex items-center gap-2 text-xs font-mono font-bold text-neutral-400 hover:text-white transition group cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition" />
+            <span>Volver a Colecciones</span>
+          </button>
+
+          {/* Toggle Colección Completa Disponible para Trade */}
+          <button
+            type="button"
+            onClick={handleToggleCollectionTrade}
+            disabled={isTradingAll}
+            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold flex items-center gap-2 transition cursor-pointer border ${
+              tradeAllStatus
+                ? 'bg-emerald-500 text-black border-emerald-500 shadow-md font-black'
+                : 'bg-white/5 hover:bg-white/10 text-neutral-300 border-white/10 hover:border-emerald-500/50'
+            }`}
+          >
+            <Repeat className="w-3.5 h-3.5" />
+            <span>
+              {tradeAllStatus ? 'Colección en Trade' : 'Habilitar Colección para Trade'}
+            </span>
+            {tradeAllStatus && <Check className="w-3 h-3 stroke-[3]" />}
+          </button>
+        </div>
 
         <div className="space-y-3">
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-black tracking-tight text-white capitalize">
             {collection.name}
           </h1>
 
-          {/* Pestañas de Estado de Inventario (Eliminado Play) */}
+          {/* Pestañas de Estado de Inventario */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
               type="button"
               onClick={() => onSubTabChange('all')}
               className={`px-5 py-2 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-2 cursor-pointer ${
                 subTab === 'all'
-                  ? 'bg-[#8B5CF6] text-white shadow-lg shadow-purple-500/25 font-black'
+                  ? 'bg-[#E88B00] text-black shadow-lg shadow-[#E88B00]/20 font-black'
                   : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white'
               }`}
             >

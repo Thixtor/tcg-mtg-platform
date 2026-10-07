@@ -384,7 +384,7 @@ export default function DecksPage({
         {activeDeck && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pt-1">
             
-            {/* Panel de Inspección Fija con Auditoría de Inventario */}
+            {/* Panel de Inspección Fija con Auditoría de Inventario y Callback de Recarga */}
             <div className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-4 self-start">
               <CardShowcaseSidebar
                 displayCard={displayCard}
@@ -397,6 +397,7 @@ export default function DecksPage({
                 missingCount={missingCount}
                 statusFilter={statusFilter}
                 setStatusFilter={setStatusFilter}
+                onCardObtained={refreshCurrentDeckCards}
                 isLightMode={isLightMode}
               />
             </div>

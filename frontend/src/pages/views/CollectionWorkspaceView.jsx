@@ -1,10 +1,11 @@
 // ---------------------------------------------------------
-// VISTA: WORKSPACE DE COLECCIÓN (ESTADOS CLAROS Y TIENDAS)
+// VISTA: WORKSPACE DE COLECCIÓN (CON COMMAND BAR Y TRADE)
 // ---------------------------------------------------------
 import React, { useMemo } from 'react';
 import { Search, SlidersHorizontal, ChevronDown, Loader2 } from 'lucide-react';
 import CollectionDetailHero from '@/components/collections/CollectionDetailHero';
 import CollectionCardItem from '@/components/collections/CollectionCardItem';
+import AddCardToCollectionInline from '@/components/collections/AddCardToCollectionInline';
 import { useCardModal } from '@/context/CardModalContext';
 import { calculateCollectionMetrics, getCardPriceBySource } from '@/utils/pricing';
 
@@ -24,6 +25,8 @@ export default function CollectionWorkspaceView({
   onCardSortChange,
   onBack,
   onNavigateToCatalog,
+  onCardAdded,
+  onRefreshCollection,
 }) {
   const { openCard } = useCardModal();
 
@@ -63,12 +66,11 @@ export default function CollectionWorkspaceView({
       });
   }, [cardsByAvailability, cardSearchQuery, onlyFoils, cardSortBy, priceSource]);
 
-  // Cálculos de métricas globales según tienda
+  // Métricas globales
   const { count: totalCardsCount, totalValue: totalMarketValue } = useMemo(() => {
     return calculateCollectionMetrics(collectionCards, priceSource);
   }, [collectionCards, priceSource]);
 
-  // Conteo de cartas por estado
   const deckCardsCount = useMemo(() => {
     return collectionCards.filter((c) => Boolean(c.in_decks_count || c.is_in_deck)).length;
   }, [collectionCards]);
@@ -78,19 +80,30 @@ export default function CollectionWorkspaceView({
   }, [collectionCards]);
 
   const heroArt = useMemo(() => {
-    if (collection?.art_url) return collection.art_url;
-    if (collectionCards.length > 0) {
-      const sorted = [...collectionCards].sort(
-        (a, b) => getCardPriceBySource(b, priceSource) - getCardPriceBySource(a, priceSource)
-      );
-      return sorted[0]?.card_catalog?.image_url || sorted[0]?.image_url;
-    }
-    return 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop';
+      if (collection?.art_url) return collection.art_url;
+      if (collectionCards.length > 0) {
+        const sorted = [...collectionCards].sort(
+          (a, b) => getCardPriceBySource(b, priceSource) - getCardPriceBySource(a, priceSource)
+        );
+        const topCard = sorted[0]?.card_catalog || sorted[0];
+        const raw = topCard?.scryfall_raw_data || topCard;
+
+        // Priorizar el recorte artístico puro sin marcos ni bordes negros
+        return (
+          raw?.image_uris?.art_crop ||
+          raw?.card_faces?.[0]?.image_uris?.art_crop ||
+          topCard?.image_uris?.art_crop ||
+          topCard?.art_crop_url ||
+          topCard?.image_url ||
+          'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop'
+        );
+      }
+      return 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop';
   }, [collection, collectionCards, priceSource]);
 
   return (
-    <div className="w-full space-y-8 pb-16">
-      {/* 1. Hero Banner Cinematográfico */}
+    <div className="w-full space-y-6 pb-16">
+      {/* 1. Hero Banner */}
       <CollectionDetailHero
         collection={collection}
         heroArt={heroArt}
@@ -103,9 +116,18 @@ export default function CollectionWorkspaceView({
         totalCards={totalCardsCount}
         totalValue={totalMarketValue}
         onBack={onBack}
+        onCollectionUpdated={onRefreshCollection}
       />
 
-      {/* 2. Barra de Herramientas de la Galería */}
+      {/* 2. Barra para Añadir Nuevas Cartas Directamente */}
+      <div className="max-w-[1920px] mx-auto w-full px-6 sm:px-10">
+        <AddCardToCollectionInline
+          collectionId={collection.id}
+          onCardAdded={onCardAdded || onRefreshCollection}
+        />
+      </div>
+
+      {/* 3. Filtros y Búsqueda sobre las cartas ya añadidas */}
       <div className="max-w-[1920px] mx-auto w-full px-6 sm:px-10">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 py-3 border-b border-white/5">
           <div className="relative flex-1 max-w-md">
@@ -114,13 +136,13 @@ export default function CollectionWorkspaceView({
               type="text"
               value={cardSearchQuery}
               onChange={(e) => onCardSearchChange(e.target.value)}
-              placeholder="Buscar cartas en esta colección..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141318] border border-white/5 text-xs font-mono text-neutral-200 placeholder-neutral-500 outline-none focus:border-purple-500 transition"
+              placeholder="Filtrar cartas en esta colección..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141318] border border-white/5 text-xs font-mono text-neutral-200 placeholder-neutral-500 outline-none focus:border-amber-500 transition"
             />
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Selector de Tienda de Referencia */}
+            {/* Tienda */}
             <div className="flex items-center gap-1 p-1 rounded-xl bg-[#141318] border border-white/5 text-xs font-mono">
               <button
                 type="button"
@@ -151,12 +173,12 @@ export default function CollectionWorkspaceView({
               onClick={onToggleFoils}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-mono font-bold transition border cursor-pointer ${
                 onlyFoils
-                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/50'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
                   : 'bg-[#141318] text-neutral-400 border-white/5 hover:text-white'
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Filter {onlyFoils && '(Foil)'}</span>
+              <span>Foil</span>
             </button>
 
             <div className="relative">
@@ -175,11 +197,11 @@ export default function CollectionWorkspaceView({
         </div>
       </div>
 
-      {/* 3. Galería de Cartas */}
+      {/* 4. Galería de Cartas */}
       <div className="max-w-[1920px] mx-auto w-full px-6 sm:px-10">
         {loadingCards ? (
           <div className="py-24 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
-            <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+            <Loader2 className="w-5 h-5 animate-spin text-amber-500" />
             <span>Cargando inventario de cartas...</span>
           </div>
         ) : processedCards.length === 0 ? (
@@ -196,7 +218,7 @@ export default function CollectionWorkspaceView({
             <button
               type="button"
               onClick={onNavigateToCatalog}
-              className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs font-mono transition cursor-pointer shadow-lg shadow-purple-600/25"
+              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs font-mono transition cursor-pointer shadow-lg shadow-amber-500/25"
             >
               Explorar Catálogo de Cartas
             </button>
@@ -209,6 +231,7 @@ export default function CollectionWorkspaceView({
                 item={item}
                 priceSource={priceSource}
                 onClick={openCard}
+                onToggleTrade={onRefreshCollection}
               />
             ))}
           </div>
