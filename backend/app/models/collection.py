@@ -1,6 +1,6 @@
 # app/models/collection.py
 # ---------------------------------------------------------
-# ENTIDAD INTERNA: CARTA FÍSICA EN COLECCIÓN
+# ENTIDAD INTERNA: CARTA FÍSICA EN COLECCIÓN CON ESTADOS
 # ---------------------------------------------------------
 import uuid
 from datetime import datetime, timezone
@@ -12,10 +12,10 @@ from app.database import Base
 
 
 class CardCondition(str, Enum):
-    NM = "NM"  # Near Mint
-    LP = "LP"  # Lightly Played
-    MP = "MP"  # Moderately Played
-    HP = "HP"  # Heavily Played
+    NM = "NM"    # Near Mint
+    LP = "LP"    # Lightly Played
+    MP = "MP"    # Moderately Played
+    HP = "HP"    # Heavily Played
     DMG = "DMG"  # Damaged
 
 
@@ -36,7 +36,7 @@ class CardLanguage(str, Enum):
 class UserCard(Base):
     """
     Instancia física de una carta MTG en posesión del usuario.
-    Encapsula atributos de conservación física y estado de intercambio P2P.
+    Encapsula atributos de conservación física, asignación a mazos y estado para trade.
     """
     __tablename__ = 'user_cards'
 
@@ -49,7 +49,7 @@ class UserCard(Base):
     language = Column(String, default=CardLanguage.EN.value, nullable=False)
     is_foil = Column(Boolean, default=False, nullable=False)
 
-    # Flags para el muro de intercambio P2P / TradeWall
+    # Estado de asignación y disponibilidad P2P
     is_for_trade = Column(Boolean, default=False, index=True, nullable=False)
     trade_notes = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -79,6 +79,11 @@ class UserCard(Base):
         self.is_for_trade = is_for_trade
         if trade_notes is not None:
             self.trade_notes = trade_notes.strip() if trade_notes else None
+
+    @property
+    def is_in_deck(self) -> bool:
+        """Determina si alguna copia de este ejemplar está asignada a un mazo activo."""
+        return getattr(self, "_in_decks_count", 0) > 0
 
 
 # ---------------------------------------------------------

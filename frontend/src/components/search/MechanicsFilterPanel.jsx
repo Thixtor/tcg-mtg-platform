@@ -1,240 +1,192 @@
 // ---------------------------------------------------------
-// COMPONENTE: LISTA EXHAUSTIVA DE MECÁNICAS Y EFECTOS CLAVE
+// COMPONENTE: PANEL DE MECÁNICAS (PALETA UNIFICADA)
 // ---------------------------------------------------------
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
-  Wind, 
-  Zap, 
-  Skull, 
-  ShieldAlert, 
-  HeartHandshake, 
-  Eye, 
-  Flame, 
-  RefreshCw, 
-  Sparkles, 
-  Crosshair, 
-  Layers, 
-  Swords, 
-  Lock, 
+  Search, 
   ChevronDown, 
-  ChevronUp,
-  Search,
-  Activity,
-  BellRing,
+  ChevronUp, 
+  Shield, 
+  Swords, 
+  Zap, 
+  RotateCcw, 
+  Sparkles, 
+  Skull,
   Coins,
-  Repeat
+  TrendingUp,
+  Eye,
+  Layers
 } from 'lucide-react';
 
-export const MECHANICS_CATALOG = [
-  // --- NATURALEZA Y TIPO DE HABILIDAD ---
-  { 
-    id: 'ability_activated', 
-    label: 'Habilidad Activada (Coste: Efecto)', 
-    category: 'Tipo de Habilidad', 
-    customQuery: 'o:/:/', 
-    icon: Activity 
-  },
-  { 
-    id: 'ability_triggered', 
-    label: 'Habilidad Disparada (Al entrar / Cuando...)', 
-    category: 'Tipo de Habilidad', 
-    customQuery: '(o:"when " or o:"whenever " or o:"at ")', 
-    icon: BellRing 
-  },
-  { 
-    id: 'ability_mana', 
-    label: 'Habilidad de Maná (Agrega maná)', 
-    category: 'Tipo de Habilidad', 
-    customQuery: 'o:"add "', 
-    icon: Coins 
-  },
-  { 
-    id: 'ability_replacement', 
-    label: 'Efecto de Reemplazo (En vez de / Si fuera a...)', 
-    category: 'Tipo de Habilidad', 
-    customQuery: '(o:"if" o:"instead")', 
-    icon: Repeat 
-  },
+export const MECHANICS_DATA = [
+  // --- COMBATE ---
+  { id: 'flying', label: 'Vuela (Flying)', category: 'combat', scryfallKw: 'flying', icon: Zap },
+  { id: 'trample', label: 'Arrolla (Trample)', category: 'combat', scryfallKw: 'trample', icon: Zap },
+  { id: 'deathtouch', label: 'Toque mortal (Deathtouch)', category: 'combat', scryfallKw: 'deathtouch', icon: Skull },
+  { id: 'haste', label: 'Prisa (Haste)', category: 'combat', scryfallKw: 'haste', icon: Zap },
+  { id: 'first_strike', label: 'Daña primero (First Strike)', category: 'combat', scryfallKw: 'first strike', icon: Swords },
+  { id: 'double_strike', label: 'Doble golpe (Double Strike)', category: 'combat', scryfallKw: 'double strike', icon: Swords },
+  { id: 'menace', label: 'Amenaza (Menace)', category: 'combat', scryfallKw: 'menace', icon: Shield },
+  { id: 'vigilance', label: 'Vigilancia (Vigilance)', category: 'combat', scryfallKw: 'vigilance', icon: Shield },
+  { id: 'reach', label: 'Alcance (Reach)', category: 'combat', scryfallKw: 'reach', icon: Shield },
+  { id: 'lifelink', label: 'Vínculo vital (Lifelink)', category: 'combat', scryfallKw: 'lifelink', icon: TrendingUp },
 
-  // --- COMBATE Y EVASIÓN ---
-  { id: 'flying', label: 'Vuela (Flying)', category: 'Combate', scryfallKw: 'Flying', icon: Wind },
-  { id: 'trample', label: 'Arrolla (Trample)', category: 'Combate', scryfallKw: 'Trample', icon: Zap },
-  { id: 'deathtouch', label: 'Toque mortal (Deathtouch)', category: 'Combate', scryfallKw: 'Deathtouch', icon: Skull },
-  { id: 'haste', label: 'Prisa (Haste)', category: 'Combate', scryfallKw: 'Haste', icon: Zap },
-  { id: 'first_strike', label: 'Daña primero (First Strike)', category: 'Combate', scryfallKw: 'First strike', icon: Swords },
-  { id: 'double_strike', label: 'Doble golpe (Double Strike)', category: 'Combate', scryfallKw: 'Double strike', icon: Swords },
-  { id: 'menace', label: 'Amenaza (Menace)', category: 'Combate', scryfallKw: 'Menace', icon: ShieldAlert },
-  { id: 'vigilance', label: 'Vigilancia (Vigilance)', category: 'Combate', scryfallKw: 'Vigilance', icon: ShieldAlert },
-  { id: 'reach', label: 'Alcance (Reach)', category: 'Combate', scryfallKw: 'Reach', icon: Crosshair },
+  // --- PROTECCIÓN ---
+  { id: 'hexproof', label: 'Antimaleficio (Hexproof)', category: 'protection', scryfallKw: 'hexproof', icon: Shield },
+  { id: 'indestructible', label: 'Indestructible', category: 'protection', scryfallKw: 'indestructible', icon: Shield },
+  { id: 'ward', label: 'Protección (Ward)', category: 'protection', scryfallKw: 'ward', icon: Shield },
+  { id: 'shroud', label: 'Velo (Shroud)', category: 'protection', scryfallKw: 'shroud', icon: Shield },
+  { id: 'protection_from', label: 'Protección contra...', category: 'protection', customQuery: 'o:"protection from"', icon: Shield },
 
-  // --- PROTECCIÓN Y DEFENSA ---
-  { id: 'hexproof', label: 'Antimaleficio (Hexproof)', category: 'Protección', scryfallKw: 'Hexproof', icon: Lock },
-  { id: 'ward', label: 'Protección con coste (Ward)', category: 'Protección', scryfallKw: 'Ward', icon: Lock },
-  { id: 'indestructible', label: 'Indestructible', category: 'Protección', scryfallKw: 'Indestructible', icon: ShieldAlert },
-  { id: 'protection', label: 'Protección (Protection)', category: 'Protección', customQuery: 'o:"protection from"', icon: Lock },
+  // --- CONTROL ---
+  { id: 'counterspell', label: 'Contrarrestar hechizo', category: 'control', customQuery: 'o:"counter target"', icon: Shield },
+  { id: 'board_wipe', label: 'Ira / Board Wipe', category: 'control', customQuery: '(o:"destroy all" or o:"exile all")', icon: Skull },
+  { id: 'bounce', label: 'Regresar a la mano (Bounce)', category: 'control', customQuery: 'o:"return target" and o:"to its owner\'s hand"', icon: RotateCcw },
+  { id: 'exile_target', label: 'Exiliar objetivo', category: 'control', customQuery: 'o:"exile target"', icon: Eye },
 
-  // --- CONTROL, REMOVAL Y DISRUPCIÓN ---
-  { id: 'removal_destroy', label: 'Destruir permanente/criatura', category: 'Control', customQuery: 'o:"destroy target"', icon: Skull },
-  { id: 'removal_exile', label: 'Exiliar permanente/carta', category: 'Control', customQuery: 'o:"exile target"', icon: Flame },
-  { id: 'counterspell', label: 'Contrarrestar hechizo', category: 'Control', customQuery: 'o:"counter target spell"', icon: ShieldAlert },
-  { id: 'board_wipe', label: 'Limpieza de mesa (Wipe)', category: 'Control', customQuery: '(o:"destroy all" or o:"exile all")', icon: Skull },
-  { id: 'bounce', label: 'Regresar a la mano (Bounce)', category: 'Control', customQuery: 'o:"return target" o:"to its owner\'s hand"', icon: RefreshCw },
-  { id: 'discard', label: 'Descarte forzado', category: 'Control', customQuery: 'o:"discards a card" or o:"discard target"', icon: Eye },
+  // --- VENTAJA ---
+  { id: 'card_draw', label: 'Robo de cartas (Draw)', category: 'advantage', customQuery: '(o:"draw a card" or o:"draws a card")', icon: Eye },
+  { id: 'scry', label: 'Adivinar (Scry)', category: 'advantage', scryfallKw: 'scry', icon: Eye },
+  { id: 'surveil', label: 'Vigilar (Surveil)', category: 'advantage', scryfallKw: 'surveil', icon: Eye },
+  { id: 'tutor', label: 'Tutor (Buscar en biblioteca)', category: 'advantage', customQuery: 'o:"search your library for"', icon: Search },
 
-  // --- VENTAJA DE RECURSOS, MANÁ Y ROBO ---
-  { id: 'card_draw', label: 'Robar cartas (Card Draw)', category: 'Ventaja', customQuery: 'o:"draw a card"', icon: Eye },
-  { id: 'ramp', label: 'Búsqueda de tierras (Ramp)', category: 'Ventaja', customQuery: 'o:"search your library for a" (o:"land card" or o:"basic land")', icon: Layers },
-  { id: 'scry', label: 'Adivinar (Scry)', category: 'Ventaja', customQuery: 'o:"scry"', icon: Eye },
-  { id: 'tutor', label: 'Buscar cualquier carta (Tutor)', category: 'Ventaja', customQuery: 'o:"search your library for a card"', icon: Search },
-  { id: 'lifelink', label: 'Vínculo vital (Lifelink)', category: 'Ventaja', scryfallKw: 'Lifelink', icon: HeartHandshake },
-  { id: 'treasure', label: 'Fichas de Tesoro (Treasures)', category: 'Ventaja', customQuery: 'o:"treasure token"', icon: Sparkles },
+  // --- CEMENTERIO ---
+  { id: 'flashback', label: 'Retrospectiva (Flashback)', category: 'graveyard', scryfallKw: 'flashback', icon: RotateCcw },
+  { id: 'reanimate', label: 'Reanimar criatura', category: 'graveyard', customQuery: 'o:"return" and o:"from your graveyard to the battlefield"', icon: Skull },
+  { id: 'dredge', label: 'Dragar (Dredge)', category: 'graveyard', scryfallKw: 'dredge', icon: Skull },
+  { id: 'escape', label: 'Escapatoria (Escape)', category: 'graveyard', scryfallKw: 'escape', icon: RotateCcw },
+  { id: 'mill', label: 'Dañar biblioteca (Mill)', category: 'graveyard', scryfallKw: 'mill', icon: Layers },
 
-  // --- CEMENTERIO Y RECURSIÓN ---
-  { id: 'graveyard_recur', label: 'Recuperar del cementerio', category: 'Cementerio', customQuery: 'o:"return" o:"from your graveyard"', icon: RefreshCw },
-  { id: 'flashback', label: 'Retrospectiva (Flashback)', category: 'Cementerio', scryfallKw: 'Flashback', icon: RefreshCw },
-  { id: 'dredge', label: 'Dragar (Dredge)', category: 'Cementerio', scryfallKw: 'Dredge', icon: RefreshCw },
-  { id: 'mill', label: 'Moler cartas (Mill)', category: 'Cementerio', customQuery: 'o:"mill" or o:"put the top" o:"cards of your library into your graveyard"', icon: Layers },
+  // --- SINERGIAS (CON CONTADORES -1/-1 Y ARQUETIPOS) ---
+  { id: 'minus_counters', label: 'Contadores -1/-1', category: 'synergy', customQuery: 'o:"-1/-1 counter"', icon: Skull },
+  { id: 'plus_counters', label: 'Contadores +1/+1', category: 'synergy', customQuery: 'o:"+1/+1 counter"', icon: TrendingUp },
+  { id: 'proliferate', label: 'Proliferar (Proliferate)', category: 'synergy', scryfallKw: 'proliferate', icon: Sparkles },
+  { id: 'aristocrats', label: 'Sacrificio / Aristocrats', category: 'synergy', customQuery: '(o:"sacrifice a creature" or o:"whenever a creature dies")', icon: Skull },
+  { id: 'tokens', label: 'Fichas de Criatura (Tokens)', category: 'synergy', customQuery: 'o:"create" and (o:"token" or o:"tokens")', icon: Layers },
+  { id: 'treasures', label: 'Tesoros (Treasure)', category: 'synergy', customQuery: 'o:"Treasure token"', icon: Coins },
+  { id: 'ramp', label: 'Rampa de tierras (Ramp)', category: 'synergy', customQuery: '(o:"search your library for a" and o:"land card")', icon: TrendingUp },
+  { id: 'blink', label: 'Blink / Flicker', category: 'synergy', customQuery: '(o:"exile" and o:"return it to the battlefield")', icon: RotateCcw },
+  { id: 'spellslinger', label: 'Spellslinger / Magecraft', category: 'synergy', customQuery: '(o:"whenever you cast an instant or sorcery" or o:"magecraft")', icon: Sparkles },
+  { id: 'lifegain', label: 'Ganancia de Vidas', category: 'synergy', customQuery: '(o:"whenever you gain life" or o:"gains that much life")', icon: TrendingUp },
+  { id: 'infect', label: 'Infectar / Tóxico', category: 'synergy', customQuery: '(kw:infect or kw:toxic)', icon: Skull },
+  { id: 'landfall', label: 'Aterrizaje (Landfall)', category: 'synergy', scryfallKw: 'landfall', icon: Layers }
+];
 
-  // --- ARQUETIPOS Y SINERGIAS POPULARES ---
-  { id: 'tokens', label: 'Crear Fichas (Tokens)', category: 'Sinergia', customQuery: 'o:"create" o:"token"', icon: Sparkles },
-  { id: 'counters_11', label: 'Contadores +1/+1', category: 'Sinergia', customQuery: 'o:"+1/+1 counter"', icon: Zap },
-  { id: 'landfall', label: 'Aterrizaje (Landfall)', category: 'Sinergia', customQuery: 'o:"landfall"', icon: Layers },
-  { id: 'cascade', label: 'Cascada (Cascade)', category: 'Sinergia', scryfallKw: 'Cascade', icon: Zap },
-  { id: 'proliferate', label: 'Proliferar (Proliferate)', category: 'Sinergia', customQuery: 'o:"proliferate"', icon: Sparkles },
-  { id: 'prowess', label: 'Destreza (Prowess)', category: 'Sinergia', scryfallKw: 'Prowess', icon: Flame },
+const CATEGORIES = [
+  { id: 'all', label: 'Todas' },
+  { id: 'combat', label: 'Combate' },
+  { id: 'protection', label: 'Protección' },
+  { id: 'control', label: 'Control' },
+  { id: 'advantage', label: 'Ventaja' },
+  { id: 'graveyard', label: 'Cementerio' },
+  { id: 'synergy', label: 'Sinergia' }
 ];
 
 export default function MechanicsFilterPanel({
   selectedMechanics = [],
   onToggleMechanic,
-  isLightMode = false,
 }) {
-  const [filterQuery, setFilterQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('Todas');
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [searchFilter, setSearchFilter] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const categories = [
-    'Todas', 
-    'Tipo de Habilidad', 
-    'Combate', 
-    'Protección', 
-    'Control', 
-    'Ventaja', 
-    'Cementerio', 
-    'Sinergia'
-  ];
+  const filteredMechanics = useMemo(() => {
+    return MECHANICS_DATA.filter((m) => {
+      const matchCategory = activeCategory === 'all' || m.category === activeCategory;
+      const matchSearch = searchFilter.trim() === '' || 
+        m.label.toLowerCase().includes(searchFilter.toLowerCase());
+      return matchCategory && matchSearch;
+    });
+  }, [activeCategory, searchFilter]);
 
-  const filteredMechanics = MECHANICS_CATALOG.filter((m) => {
-    const matchesCat = activeCategory === 'Todas' || m.category === activeCategory;
-    const matchesText = m.label.toLowerCase().includes(filterQuery.toLowerCase());
-    return matchesCat && matchesText;
-  });
-
-  const displayedMechanics = isExpanded ? filteredMechanics : filteredMechanics.slice(0, 12);
+  const visibleMechanics = isExpanded ? filteredMechanics : filteredMechanics.slice(0, 12);
 
   return (
-    <div className={`rounded-3xl p-6 shadow-2xl backdrop-blur-md space-y-4 transition-all ${
-      isLightMode ? 'bg-white/80 shadow-neutral-200/60' : 'bg-[#111113]/90 shadow-black/60'
-    }`}>
-      {/* Cabecera */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/5">
+    <div className="p-6 border border-[#2A2733] bg-[#131217] rounded-2xl font-mono text-xs space-y-4 shadow-xl">
+      
+      {/* CABECERA */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#2A2733] pb-3">
         <div>
-          <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-amber-500 block">
+          <span className="text-[10px] font-bold text-[#E88B00] uppercase tracking-wider block">
             Mecánicas y Efectos Clave
           </span>
-          <h3 className={`text-base font-bold ${isLightMode ? 'text-neutral-900' : 'text-white'}`}>
+          <h3 className="text-sm font-black text-white tracking-tight">
             Filtra cartas por lo que hacen en el campo de batalla
           </h3>
         </div>
 
-        {/* Buscador de mecánicas */}
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+        {/* Buscador de efectos */}
+        <div className="relative w-full sm:w-64">
+          <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
             placeholder="Buscar efecto o habilidad..."
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            className={`w-full sm:w-64 pl-8 pr-3 py-1.5 rounded-xl text-xs font-mono outline-none transition ${
-              isLightMode 
-                ? 'bg-[#FAF7F2] text-neutral-900 placeholder-neutral-400 focus:ring-1 focus:ring-amber-500' 
-                : 'bg-black/40 text-neutral-200 placeholder-neutral-500 focus:ring-1 focus:ring-amber-500/80'
-            }`}
+            className="w-full pl-9 pr-3 py-2 bg-[#0C0B0E] border border-[#2A2733] focus:border-[#E88B00] text-xs text-white placeholder-neutral-500 outline-none rounded-xl"
           />
         </div>
       </div>
 
-      {/* Selector de Categorías */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            type="button"
-            onClick={() => setActiveCategory(cat)}
-            className={`px-3 py-1 rounded-xl font-mono text-[11px] transition-all cursor-pointer shrink-0 ${
-              activeCategory === cat
-                ? 'bg-amber-500 text-neutral-950 font-bold shadow-md shadow-amber-500/20'
-                : isLightMode
-                  ? 'bg-[#FAF7F2] text-neutral-600 hover:text-neutral-950'
-                  : 'bg-black/30 text-neutral-400 hover:text-white'
-            }`}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
-
-      {/* Cuadrícula de Mecánicas */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
-        {displayedMechanics.map((m) => {
-          const Icon = m.icon;
-          const active = selectedMechanics.includes(m.id);
+      {/* PESTAÑAS TIPO PASTILLA */}
+      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+        {CATEGORIES.map((cat) => {
+          const isActive = activeCategory === cat.id;
           return (
             <button
-              key={m.id}
+              key={cat.id}
               type="button"
-              onClick={() => onToggleMechanic(m)}
-              className={`flex items-center gap-2 px-3 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer text-left ${
-                active
-                  ? 'bg-amber-500 text-neutral-950 font-bold shadow-lg shadow-amber-500/25 scale-[1.02]'
-                  : isLightMode
-                    ? 'bg-[#FAF7F2] text-neutral-700 hover:bg-[#EAE4D7] hover:text-neutral-950'
-                    : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-800 hover:text-white'
+              onClick={() => setActiveCategory(cat.id)}
+              className={`px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-full transition cursor-pointer border ${
+                isActive
+                  ? 'bg-[#E88B00] text-black border-[#E88B00] font-black shadow-sm'
+                  : 'bg-[#0C0B0E] text-neutral-400 border-[#2A2733] hover:text-white hover:border-neutral-500'
               }`}
             >
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{m.label}</span>
+              {cat.label}
             </button>
           );
         })}
       </div>
 
-      {/* Botón Ver Más / Menos */}
+      {/* BOTONES DE EFECTOS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 pt-1">
+        {visibleMechanics.map((mech) => {
+          const isSelected = selectedMechanics.includes(mech.id);
+          const IconComponent = mech.icon || Zap;
+
+          return (
+            <button
+              key={mech.id}
+              type="button"
+              onClick={() => onToggleMechanic?.(mech)}
+              className={`px-3 py-2 text-left border rounded-xl flex items-center gap-2.5 transition cursor-pointer ${
+                isSelected
+                  ? 'bg-[#1F170E] border-[#E88B00] text-[#E88B00] shadow-sm'
+                  : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500 hover:text-white'
+              }`}
+            >
+              <IconComponent className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-[#E88B00]' : 'text-neutral-500'}`} />
+              <span className="truncate text-[11px] font-bold">{mech.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* BOTÓN EXPANDIR / COLAPSAR */}
       {filteredMechanics.length > 12 && (
-        <div className="pt-2 flex justify-center">
+        <div className="text-center pt-2">
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-mono font-bold transition cursor-pointer ${
-              isLightMode 
-                ? 'bg-[#EAE4D7] hover:bg-[#DDD5C5] text-neutral-800' 
-                : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 hover:text-amber-400'
-            }`}
+            className="text-[11px] text-neutral-400 hover:text-white inline-flex items-center gap-1 font-bold tracking-wider uppercase cursor-pointer"
           >
-            {isExpanded ? (
-              <>
-                <span>Mostrar menos efectos</span>
-                <ChevronUp className="w-3.5 h-3.5" />
-              </>
-            ) : (
-              <>
-                <span>Ver todos los efectos ({filteredMechanics.length})</span>
-                <ChevronDown className="w-3.5 h-3.5" />
-              </>
-            )}
+            <span>{isExpanded ? 'Ver menos' : `Ver todos los efectos (${filteredMechanics.length})`}</span>
+            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
         </div>
       )}
+
     </div>
   );
 }

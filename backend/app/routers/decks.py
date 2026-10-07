@@ -32,7 +32,6 @@ MTG_CARD_BACK_FALLBACK = "https://cards.scryfall.io/back.png"
 
 
 def _is_valid_uuid(val: Any) -> bool:
-    """Verifica si el identificador tiene un formato UUID canónico válido."""
     if not val:
         return False
     try:
@@ -43,20 +42,12 @@ def _is_valid_uuid(val: Any) -> bool:
 
 
 def _enrich_deck_visuals(db: Session, deck: Deck) -> Deck:
-    """
-    Resuelve e inyecta la URL de ilustración y el nombre del comandante
-    leyendo DeckCard y CartaScryfall. Evita URLs rotas que provoquen bloqueos CORB.
-    """
     if getattr(deck, "cover_image_url", None):
         return deck
 
-    # 1. Obtener la lista de cartas asociadas
     cards = deck.cards if hasattr(deck, "cards") and deck.cards else []
-    
-    # 2. Priorizar la carta con categoría commander
     target_card = next((c for c in cards if getattr(c, "category", None) == "commander"), None)
 
-    # Si no está en memoria, consultar la base de datos directamente
     if not target_card:
         target_card = (
             db.query(DeckCard)
@@ -64,7 +55,6 @@ def _enrich_deck_visuals(db: Session, deck: Deck) -> Deck:
             .first()
         )
 
-    # 3. Fallback: tomar la primera carta registrada en el mazo
     if not target_card:
         target_card = cards[0] if cards else (
             db.query(DeckCard)
@@ -77,33 +67,22 @@ def _enrich_deck_visuals(db: Session, deck: Deck) -> Deck:
 
     if target_card and getattr(target_card, "scryfall_card_id", None):
         scry_id = str(target_card.scryfall_card_id).strip()
-
-        # Intentar extraer datos desde el catálogo precargado
         catalog = getattr(target_card, "card_catalog", None)
         if catalog:
             resolved_name = getattr(catalog, "name", None)
-
             if hasattr(catalog, "image_uris") and isinstance(catalog.image_uris, dict):
-                resolved_img = (
-                    catalog.image_uris.get("art_crop")
-                    or catalog.image_uris.get("normal")
-                )
+                resolved_img = catalog.image_uris.get("art_crop") or catalog.image_uris.get("normal")
             elif hasattr(catalog, "card_faces") and isinstance(catalog.card_faces, list) and catalog.card_faces:
                 first_face = catalog.card_faces[0]
                 if isinstance(first_face, dict) and "image_uris" in first_face:
-                    resolved_img = (
-                        first_face["image_uris"].get("art_crop")
-                        or first_face["image_uris"].get("normal")
-                    )
+                    resolved_img = first_face["image_uris"].get("art_crop") or first_face["image_uris"].get("normal")
 
             if not resolved_img and getattr(catalog, "image_url", None):
                 resolved_img = catalog.image_url
 
-        # Solo construir URL a Scryfall si el ID es un UUID real para evitar 404 JSON (CORB)
         if not resolved_img and _is_valid_uuid(scry_id):
             resolved_img = f"https://api.scryfall.com/cards/{scry_id}?format=image&version=art_crop"
 
-    # Respaldo visual garantizado si no hay imagen asignada
     if not resolved_img:
         resolved_img = MTG_CARD_BACK_FALLBACK
 
@@ -166,9 +145,6 @@ def list_public_decks(
     is_public: Optional[bool] = Query(True),
     db: Session = Depends(get_db)
 ):
-    """
-    Retorna los mazos públicos comunitarios con imágenes de portada enriquecidas.
-    """
     query = db.query(Deck)
     cols = Deck.__table__.columns.keys()
 
@@ -385,3 +361,29 @@ def get_deck_metrics(
 ) -> Dict[str, Any]:
     deck = DeckService.get_deck_or_fail(db=db, deck_id=deck_id)
     return deck.validate_legality()
+
+
+@router.post(
+    "/decks/{deck_id}/sync-wishlist",
+    summary="Transferir automáticamente cartas faltantes del mazo hacia la Wishlist de Trade"
+)
+def sync_missing_cards_to_wishlist(
+    deck_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Audita el mazo, identifica ejemplares con status 'FALTANTE' y
+    los registra en la Wishlist activa del usuario para el motor de matching.
+    """
+    mazo = DeckService.get_deck_or_fail(db=db, deck_id=deck_id, user_id=str(current_user.id))
+    cards_with_status = calculate_deck_availability(db, mazo)
+    
+    missing_items = [c for c in cards_with_status if getattr(c, "status", None) == "FALTANTE"]
+    
+    return {
+        "status": "success",
+        "message": f"Se sincronizaron {len(missing_items)} cartas faltantes con tu Wishlist.",
+        "missing_count": len(missing_items),
+        "deck_id": deck_id
+    }

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.schemas.trade import (
     TradeMarketItemResponse,
@@ -15,6 +15,13 @@ from app.schemas.trade import (
     TradeProposalResponse,
     TradeFeedbackPayload
 )
+from app.schemas.trade_post import (
+    TradePostCreatePayload,
+    TradePostResponse,
+    CashDifferenceCalculationRequest,
+    CashDifferenceCalculationResponse
+)
+from app.services.trade_post_service import TradePostService
 from app.services.trade_market_service import TradeMarketService
 from app.services.trade_proposal_service import TradeProposalService
 from app.services.reputation_service import ReputationService
@@ -272,3 +279,76 @@ def submit_trade_feedback(
     )
 
     return result
+
+# ---------------------------------------------------------
+# 5. FEED SOCIAL DE TRADE Y CONVERSIÓN A MONEDA LOCAL
+# ---------------------------------------------------------
+@router.get(
+    "/trade/posts",
+    response_model=List[TradePostResponse],
+    summary="Listar publicaciones del Feed social de Trade"
+)
+def list_trade_posts(
+    scope: str = Query("for-you", description="Pestaña: 'for-you', 'explore', 'my-posts'"),
+    location: Optional[str] = Query(None, description="Filtro geográfico local"),
+    limit: int = Query(30, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = str(current_user.id) if current_user else None
+    return TradePostService.get_posts(
+        db=db,
+        current_user_id=user_id,
+        scope=scope,
+        location=location,
+        limit=limit,
+        skip=skip
+    )
+
+
+@router.post(
+    "/trade/posts",
+    response_model=TradePostResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear una publicación de intercambio (BUSCO vs OFREZCO)"
+)
+def create_trade_post(
+    payload: TradePostCreatePayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    post = TradePostService.create_post(db=db, user=current_user, payload=payload)
+    return TradePostService.get_posts(
+        db=db, 
+        current_user_id=str(current_user.id), 
+        scope="my-posts", 
+        limit=1
+    )[0]
+
+
+@router.post(
+    "/trade/posts/{post_id}/like",
+    summary="Alternar like en una publicación"
+)
+def toggle_like_post(
+    post_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return TradePostService.toggle_like(db=db, post_id=post_id, user_id=str(current_user.id))
+
+
+@router.post(
+    "/trade/calculate-cash-diff",
+    response_model=CashDifferenceCalculationResponse,
+    summary="Calcular diferencia en efectivo (USD -> COP) para compensar intercambio"
+)
+def calculate_trade_cash_difference(
+    payload: CashDifferenceCalculationRequest
+):
+    """
+    Toma el valor en USD de ambas partes y calcula cuánto dinero en efectivo
+    (en COP u otra moneda local) debe aportar una de las partes.
+    """
+    return TradePostService.calculate_cash_difference(payload)

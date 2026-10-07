@@ -1,40 +1,26 @@
 // ---------------------------------------------------------
-// COMPONENTE: PANEL DE FILTROS VISUALES (TCGPLAYER & DUAL SLIDERS)
+// COMPONENTE: PANEL DE FILTROS VISUALES (PALETA UNIFICADA)
 // ---------------------------------------------------------
 import React from 'react';
-import { 
-  Swords, 
-  Zap, 
-  Flame, 
-  Shield, 
-  Sparkles, 
-  Layers, 
-  RotateCcw,
-  Check,
-  Crown,
-  DollarSign,
-  Store
-} from 'lucide-react';
-import { ManaGlyph } from '@/components/common/ManaSymbol';
-import DualRangeSlider from '@/components/common/DualRangeSlider';
+import { RotateCcw } from 'lucide-react';
 
-const TYPES = [
-  { id: 'creature', label: 'Criatura', icon: Swords },
-  { id: 'instant', label: 'Instantáneo', icon: Zap },
-  { id: 'sorcery', label: 'Conjuro', icon: Flame },
-  { id: 'artifact', label: 'Artefacto', icon: Shield },
-  { id: 'enchantment', label: 'Encantamiento', icon: Sparkles },
-  { id: 'planeswalker', label: 'Planeswalker', icon: Layers },
-  { id: 'land', label: 'Tierra', icon: Layers },
+const CARD_TYPES = [
+  { id: 'creature', label: 'Criatura' },
+  { id: 'instant', label: 'Instantáneo' },
+  { id: 'sorcery', label: 'Conjuro' },
+  { id: 'artifact', label: 'Artefacto' },
+  { id: 'enchantment', label: 'Encantamiento' },
+  { id: 'planeswalker', label: 'Planeswalker' },
+  { id: 'land', label: 'Tierra' },
 ];
 
 const COLORS = [
-  { id: 'w', sym: 'w', label: 'Blanco' },
-  { id: 'u', sym: 'u', label: 'Azul' },
-  { id: 'b', sym: 'b', label: 'Negro' },
-  { id: 'r', sym: 'r', label: 'Rojo' },
-  { id: 'g', sym: 'g', label: 'Verde' },
-  { id: 'c', sym: 'c', label: 'Incoloro' },
+  { id: 'w', label: 'Blanco', iconClass: 'ms ms-w ms-cost' },
+  { id: 'u', label: 'Azul', iconClass: 'ms ms-u ms-cost' },
+  { id: 'b', label: 'Negro', iconClass: 'ms ms-b ms-cost' },
+  { id: 'r', label: 'Rojo', iconClass: 'ms ms-r ms-cost' },
+  { id: 'g', label: 'Verde', iconClass: 'ms ms-g ms-cost' },
+  { id: 'c', label: 'Incoloro', iconClass: 'ms ms-c ms-cost' },
 ];
 
 const FORMATS = [
@@ -61,178 +47,165 @@ export default function VisualFilterPanel({
   onSelectFormat,
   selectedRarities = [],
   onToggleRarity,
+  isLegendary,
+  onToggleLegendary,
   cmcMin = 0,
   onChangeCmcMin,
   cmcMax = 16,
   onChangeCmcMax,
-  isLegendary = null,
-  onToggleLegendary,
   priceMin = 0,
   onChangePriceMin,
   priceMax = 100,
   onChangePriceMax,
-  priceSource = 'tcgplayer', // 'tcgplayer' | 'cardkingdom'
+  priceSource = 'tcgplayer',
   onChangePriceSource,
   onResetFilters,
-  isLightMode = false,
 }) {
-  const isCmcFiltered = cmcMin > 0 || cmcMax < 16;
-  const isPriceFiltered = priceMin > 0 || priceMax < 100;
-
   return (
-    <div className={`rounded-3xl p-6 shadow-2xl backdrop-blur-md space-y-6 transition-all ${
-      isLightMode ? 'bg-white/80 shadow-neutral-200/60' : 'bg-[#111113]/90 shadow-black/60'
-    }`}>
-      {/* Cabecera */}
-      <div className="flex items-center justify-between pb-3 border-b border-white/5">
-        <div className="space-y-0.5">
-          <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-amber-500 block">
+    <div className="p-6 border border-[#2A2733] bg-[#131217] rounded-2xl font-mono text-xs space-y-6 shadow-xl">
+
+      {/* CABECERA */}
+      <div className="flex items-center justify-between border-b border-[#2A2733] pb-3">
+        <div>
+          <span className="text-[10px] font-bold text-[#E88B00] uppercase tracking-wider block">
             Filtros Visuales
           </span>
-          <h3 className={`text-base font-bold ${isLightMode ? 'text-neutral-900' : 'text-white'}`}>
+          <h3 className="text-sm font-black text-white tracking-tight">
             Selección Rápida e Intuitiva
           </h3>
         </div>
         <button
           type="button"
           onClick={onResetFilters}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono text-neutral-400 hover:text-amber-500 hover:bg-amber-500/10 transition cursor-pointer"
+          className="text-neutral-400 hover:text-[#E88B00] flex items-center gap-1.5 font-bold uppercase text-[10px] tracking-wider transition cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span>Restablecer</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        {/* Columna 1: Tipos y Legendarias */}
+      {/* CONTENIDO EN COLUMNAS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+        {/* 1. TIPO DE CARTA & LEGENDARIA */}
         <div className="space-y-4">
           <div className="space-y-2">
-            <span className="text-xs font-mono font-semibold text-neutral-400 uppercase tracking-wider block">
-              Tipo de carta
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+              Tipo de Carta
             </span>
             <div className="flex flex-col gap-1.5">
-              {TYPES.map((t) => {
-                const Icon = t.icon;
-                const active = selectedTypes.includes(t.id);
+              {CARD_TYPES.map((t) => {
+                const isSelected = selectedTypes.includes(t.id);
                 return (
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => onToggleType(t.id)}
-                    className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
-                      active
-                        ? 'bg-amber-500 text-neutral-950 font-bold shadow-md shadow-amber-500/20'
-                        : isLightMode
-                          ? 'bg-[#FAF7F2] text-neutral-700 hover:bg-[#EAE4D7]'
-                          : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-800 hover:text-white'
+                    onClick={() => onToggleType?.(t.id)}
+                    className={`px-3 py-2 text-left border rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-[#1F170E] border-[#E88B00] text-[#E88B00] shadow-sm'
+                        : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500 hover:text-white'
                     }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <Icon className="w-3.5 h-3.5" />
-                      <span>{t.label}</span>
-                    </div>
-                    {active && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                    <span>{t.label}</span>
+                    {isSelected && <span className="text-[#E88B00] font-black">✓</span>}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Filtro Legendaria */}
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-mono font-semibold text-neutral-400 uppercase tracking-wider block">
+          {/* Selector de Legendaria */}
+          <div className="space-y-2 pt-1 border-t border-[#2A2733]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
               ¿Es Legendaria?
             </span>
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
-                onClick={() => onToggleLegendary(isLegendary === true ? null : true)}
-                className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                onClick={() => onToggleLegendary?.(isLegendary === true ? null : true)}
+                className={`py-2 text-center border rounded-xl text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
                   isLegendary === true
-                    ? 'bg-amber-500 text-neutral-950 font-bold shadow-md shadow-amber-500/20'
-                    : isLightMode
-                      ? 'bg-[#FAF7F2] text-neutral-700 hover:bg-[#EAE4D7]'
-                      : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-800'
+                    ? 'bg-[#E88B00] text-black border-[#E88B00] font-black shadow-sm'
+                    : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500'
                 }`}
               >
-                <Crown className="w-3 h-3 text-amber-400" />
-                <span>Legendaria</span>
+                ★ Legendaria
               </button>
-
               <button
                 type="button"
-                onClick={() => onToggleLegendary(isLegendary === false ? null : false)}
-                className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                onClick={() => onToggleLegendary?.(isLegendary === false ? null : false)}
+                className={`py-2 text-center border rounded-xl text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
                   isLegendary === false
-                    ? 'bg-amber-500 text-neutral-950 font-bold shadow-md shadow-amber-500/20'
-                    : isLightMode
-                      ? 'bg-[#FAF7F2] text-neutral-700 hover:bg-[#EAE4D7]'
-                      : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-800'
+                    ? 'bg-[#E88B00] text-black border-[#E88B00] font-black shadow-sm'
+                    : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500'
                 }`}
               >
-                <span>No Legendaria</span>
+                No Legendaria
               </button>
             </div>
           </div>
         </div>
 
-        {/* Columna 2: Identidad de Color */}
-        <div className="space-y-2.5">
-          <span className="text-xs font-mono font-semibold text-neutral-400 uppercase tracking-wider block">
+        {/* 2. COLOR O MANÁ */}
+        <div className="space-y-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
             Color o Maná
           </span>
           <div className="flex flex-col gap-1.5">
             {COLORS.map((c) => {
-              const active = selectedColors.includes(c.id);
+              const isSelected = selectedColors.includes(c.id);
               return (
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => onToggleColor(c.id)}
-                  className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
-                    active
-                      ? 'bg-amber-500 text-neutral-950 font-bold shadow-md shadow-amber-500/20'
-                      : isLightMode
-                        ? 'bg-[#FAF7F2] text-neutral-700 hover:bg-[#EAE4D7]'
-                        : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-800 hover:text-white'
+                  onClick={() => onToggleColor?.(c.id)}
+                  className={`px-3 py-2 text-left border rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-between ${
+                    isSelected
+                      ? 'bg-[#1F170E] border-[#E88B00] text-[#E88B00] shadow-sm'
+                      : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500 hover:text-white'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <ManaGlyph symbol={c.sym} size="text-[13px]" cost={true} shadow={true} />
+                    <i className={c.iconClass} />
                     <span>{c.label}</span>
                   </div>
-                  {active && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                  {isSelected && <span className="text-[#E88B00] font-black">✓</span>}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Columna 3: Sliders de Doble Punto (CMC y Precio) */}
-        <div className="space-y-6">
-          {/* Barra Dual de Coste de Maná (CMC) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-neutral-400 font-semibold uppercase tracking-wider">Coste de Maná</span>
-              <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-500 font-bold">
-                {!isCmcFiltered 
-                  ? 'Cualquier coste' 
-                  : `${cmcMin} a ${cmcMax >= 16 ? '16+' : cmcMax} CMC`}
+        {/* 3. COSTE DE MANÁ & PRECIO DE MERCADO */}
+        <div className="space-y-5">
+          {/* Slider CMC */}
+          <div className="p-3.5 bg-[#0C0B0E] border border-[#2A2733] rounded-xl space-y-2">
+            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
+              <span className="text-neutral-400">Coste de Maná</span>
+              <span className="text-[#E88B00] font-bold">
+                {cmcMin === 0 && cmcMax >= 16 ? 'Cualquier coste' : `${cmcMin} - ${cmcMax >= 16 ? '16+' : cmcMax}`}
               </span>
             </div>
-            
-            <DualRangeSlider
-              min={0}
-              max={16}
-              step={1}
-              valueMin={cmcMin}
-              valueMax={cmcMax}
-              onChangeMin={onChangeCmcMin}
-              onChangeMax={onChangeCmcMax}
-              accentColor="amber"
-            />
-
-            <div className="flex items-center justify-between text-[10px] font-mono text-neutral-500 px-0.5">
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="range"
+                min="0"
+                max="16"
+                value={cmcMin}
+                onChange={(e) => onChangeCmcMin?.(Number(e.target.value))}
+                className="w-full accent-[#E88B00]"
+              />
+              <input
+                type="range"
+                min="0"
+                max="16"
+                value={cmcMax}
+                onChange={(e) => onChangeCmcMax?.(Number(e.target.value))}
+                className="w-full accent-[#E88B00]"
+              />
+            </div>
+            <div className="flex justify-between text-[9px] text-neutral-500 font-mono">
               <span>0</span>
               <span>4</span>
               <span>8</span>
@@ -241,133 +214,131 @@ export default function VisualFilterPanel({
             </div>
           </div>
 
-          {/* Barra Dual de Rango de Precio (USD) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-neutral-400 font-semibold uppercase tracking-wider flex items-center gap-1">
-                <DollarSign className="w-3.5 h-3.5 text-emerald-400" /> Rango de Precio
-              </span>
-              <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 font-bold">
-                {!isPriceFiltered 
-                  ? 'Cualquier precio' 
-                  : `$${priceMin} - ${priceMax >= 100 ? 'Sin límite' : `$${priceMax}`}`}
+          {/* Slider Precio */}
+          <div className="p-3.5 bg-[#0C0B0E] border border-[#2A2733] rounded-xl space-y-2">
+            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
+              <span className="text-neutral-400">$ Rango de Precio</span>
+              <span className="text-[#E88B00] font-bold">
+                {priceMin === 0 && priceMax >= 100 ? 'Cualquier precio' : `$${priceMin} - ${priceMax >= 100 ? 'Max' : `$${priceMax}`}`}
               </span>
             </div>
-
-            <DualRangeSlider
-              min={0}
-              max={100}
-              step={1}
-              valueMin={priceMin}
-              valueMax={priceMax}
-              onChangeMin={onChangePriceMin}
-              onChangeMax={onChangePriceMax}
-              accentColor="emerald"
-            />
-
-            <div className="flex items-center justify-between text-[10px] font-mono text-neutral-500 px-0.5">
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={priceMin}
+                onChange={(e) => onChangePriceMin?.(Number(e.target.value))}
+                className="w-full accent-[#E88B00]"
+              />
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={priceMax}
+                onChange={(e) => onChangePriceMax?.(Number(e.target.value))}
+                className="w-full accent-[#E88B00]"
+              />
+            </div>
+            <div className="flex justify-between text-[9px] text-neutral-500 font-mono">
               <span>$0</span>
               <span>$25</span>
               <span>$50</span>
               <span>$75</span>
               <span>$100+</span>
             </div>
+          </div>
 
-            {/* Selector de Tienda / Fuente de Precios */}
-            <div className="pt-2 space-y-1.5">
-              <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider flex items-center gap-1">
-                <Store className="w-3 h-3 text-amber-500" /> Fuente de Cotización
-              </span>
-              <div className="grid grid-cols-2 gap-1 text-[11px] font-mono">
-                <button
-                  type="button"
-                  onClick={() => onChangePriceSource('tcgplayer')}
-                  className={`py-1 px-2 rounded-lg transition cursor-pointer text-center ${
-                    priceSource === 'tcgplayer'
-                      ? 'bg-amber-500 text-neutral-950 font-bold shadow-sm'
-                      : isLightMode
-                        ? 'bg-[#FAF7F2] text-neutral-600 hover:text-neutral-900'
-                        : 'bg-black/30 text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  TCGplayer Market
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChangePriceSource('cardkingdom')}
-                  className={`py-1 px-2 rounded-lg transition cursor-pointer text-center ${
-                    priceSource === 'cardkingdom'
-                      ? 'bg-amber-500 text-neutral-950 font-bold shadow-sm'
-                      : isLightMode
-                        ? 'bg-[#FAF7F2] text-neutral-600 hover:text-neutral-900'
-                        : 'bg-black/30 text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  Card Kingdom
-                </button>
-              </div>
+          {/* Fuente de Cotización */}
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+              Fuente de Cotización
+            </span>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => onChangePriceSource?.('tcgplayer')}
+                className={`py-2 text-center border rounded-xl text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                  priceSource === 'tcgplayer'
+                    ? 'bg-[#E88B00] text-black border-[#E88B00] font-black shadow-sm'
+                    : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-400 hover:text-white hover:border-neutral-500'
+                }`}
+              >
+                TCGplayer Market
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangePriceSource?.('cardkingdom')}
+                className={`py-2 text-center border rounded-xl text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                  priceSource === 'cardkingdom'
+                    ? 'bg-[#E88B00] text-black border-[#E88B00] font-black shadow-sm'
+                    : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-400 hover:text-white hover:border-neutral-500'
+                }`}
+              >
+                Card Kingdom
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Columna 4: Formato Legal y Rareza */}
+        {/* 4. FORMATO OFICIAL & RAREZA */}
         <div className="space-y-4">
+          {/* Formato Oficial */}
           <div className="space-y-2">
-            <span className="text-xs font-mono font-semibold text-neutral-400 uppercase tracking-wider block">
-              Formato oficial
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+              Formato Oficial
             </span>
             <div className="flex flex-col gap-1.5">
               {FORMATS.map((f) => {
-                const active = selectedFormat === f.id;
+                const isSelected = selectedFormat === f.id;
                 return (
                   <button
                     key={f.id}
                     type="button"
-                    onClick={() => onSelectFormat(active ? '' : f.id)}
-                    className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
-                      active
-                        ? 'bg-amber-500 text-neutral-950 font-bold shadow-md shadow-amber-500/20'
-                        : isLightMode
-                          ? 'bg-[#FAF7F2] text-neutral-700 hover:bg-[#EAE4D7]'
-                          : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-800 hover:text-white'
+                    onClick={() => onSelectFormat?.(isSelected ? '' : f.id)}
+                    className={`px-3 py-1.5 text-left border rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-[#1F170E] border-[#E88B00] text-[#E88B00] shadow-sm'
+                        : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500 hover:text-white'
                     }`}
                   >
                     <span>{f.label}</span>
-                    {active && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                    {isSelected && <span className="text-[#E88B00] font-black">✓</span>}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <span className="text-xs font-mono font-semibold text-neutral-400 uppercase tracking-wider block">
+          {/* Rareza */}
+          <div className="space-y-2 pt-1 border-t border-[#2A2733]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
               Rareza
             </span>
             <div className="grid grid-cols-2 gap-1.5">
               {RARITIES.map((r) => {
-                const active = selectedRarities.includes(r.id);
+                const isSelected = selectedRarities.includes(r.id);
                 return (
                   <button
                     key={r.id}
                     type="button"
-                    onClick={() => onToggleRarity(r.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer text-center ${
-                      active
-                        ? 'bg-amber-500 text-neutral-950 font-bold shadow-md shadow-amber-500/20'
-                        : isLightMode
-                          ? 'bg-[#FAF7F2] text-neutral-700 hover:bg-[#EAE4D7]'
-                          : 'bg-neutral-900/60 text-neutral-300 hover:bg-neutral-800'
+                    onClick={() => onToggleRarity?.(r.id)}
+                    className={`py-1.5 text-center border rounded-xl text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#E88B00] text-black border-[#E88B00] font-black shadow-sm'
+                        : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500 hover:text-white'
                     }`}
                   >
-                    <span>{r.label}</span>
+                    {r.label}
                   </button>
                 );
               })}
             </div>
           </div>
         </div>
+
       </div>
+
     </div>
   );
 }

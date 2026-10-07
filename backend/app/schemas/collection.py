@@ -2,7 +2,7 @@
 # ---------------------------------------------------------
 # ESQUEMAS PYDANTIC: BINDERS, CARTAS DE USUARIO Y BÚSQUEDA
 # ---------------------------------------------------------
-from typing import List, Optional
+from typing import List, Optional, Any
 from pydantic import BaseModel, Field
 from app.schemas.card import CardResponse
 
@@ -14,14 +14,25 @@ class CollectionCreate(BaseModel):
     """Creación de carpetas o binders de inventario (hasta 10 por usuario)."""
     name: str = Field(min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
+    is_public_trade: bool = True
+    art_url: Optional[str] = None
 
 
 class CollectionResponse(BaseModel):
-    """Metadatos de una colección o carpeta de cartas."""
+    """Metadatos de una colección con KPIs calculados."""
     id: str
     user_id: str
     name: str
     description: Optional[str] = None
+    is_public_trade: bool = True
+    art_url: Optional[str] = None
+    
+    # KPIs dinámicos calculados en backend
+    card_count: int = 0
+    total_value: float = 0.0          # TCGplayer Market por defecto
+    total_value_tcg: float = 0.0      # TCGplayer Market
+    total_value_ck: float = 0.0       # Card Kingdom
+    preview_cards: List[str] = []     # URLs de arte para las miniaturas
 
     model_config = {"from_attributes": True}
 
@@ -41,7 +52,7 @@ class AddCardToCollectionPayload(BaseModel):
 
 
 class UserCardResponse(BaseModel):
-    """Detalle de una carta física registrada en el inventario del usuario."""
+    """Detalle de una carta física registrada en el inventario del usuario con precios calculados."""
     id: str
     collection_id: str
     scryfall_card_id: str
@@ -51,6 +62,12 @@ class UserCardResponse(BaseModel):
     is_foil: bool
     is_for_trade: bool
     trade_notes: Optional[str] = None
+    
+    # Precios unitarios calculados en backend según acabado y tienda
+    price_usd: float = 0.0
+    price_tcg: float = 0.0
+    price_ck: float = 0.0
+    
     card_catalog: Optional[CardResponse] = None
 
     model_config = {"from_attributes": True}

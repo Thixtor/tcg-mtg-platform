@@ -2,6 +2,7 @@
 # ---------------------------------------------------------
 # SERVICIO DE DOMINIO: COLECCIONES, BINDERS E INVENTARIO
 # ---------------------------------------------------------
+import json
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session, joinedload, defer
 from sqlalchemy import or_
@@ -12,10 +13,81 @@ from app.models.card import CartaScryfall
 from app.schemas import CollectionCreate, AddCardToCollectionPayload
 
 
+def _extract_prices_from_catalog(card_catalog: Optional[CartaScryfall], is_foil: bool) -> Dict[str, float]:
+    """
+    Extrae de forma segura los precios unitarios (TCGplayer y Card Kingdom)
+    revisando tanto columnas del modelo como estructuras JSON.
+    """
+    if not card_catalog:
+        return {"tcg": 0.0, "ck": 0.0}
+
+    prices_dict = {}
+    
+    # 1. Intentar leer atributo prices
+    raw_prices = getattr(card_catalog, "prices", None)
+    if isinstance(raw_prices, dict):
+        prices_dict = raw_prices
+    elif isinstance(raw_prices, str):
+        try:
+            prices_dict = json.loads(raw_prices)
+        except Exception:
+            prices_dict = {}
+
+    # 2. Si no hay prices, revisar scryfall_raw_data si existe
+    if not prices_dict and hasattr(card_catalog, "scryfall_raw_data"):
+        raw_data = getattr(card_catalog, "scryfall_raw_data", None)
+        if isinstance(raw_data, dict):
+            prices_dict = raw_data.get("prices") or {}
+        elif isinstance(raw_data, str):
+            try:
+                parsed_data = json.loads(raw_data)
+                prices_dict = parsed_data.get("prices") or {}
+            except Exception:
+                pass
+
+    def _to_float(v) -> float:
+        if v is None:
+            return 0.0
+        try:
+            cleaned = str(v).replace("$", "").replace("€", "").strip()
+            val = float(cleaned)
+            return 0.0 if val < 0 else val
+        except (ValueError, TypeError):
+            return 0.0
+
+    # TCGplayer Market
+    tcg_val = 0.0
+    if is_foil:
+        tcg_val = _to_float(prices_dict.get("usd_foil")) or _to_float(prices_dict.get("usd"))
+    else:
+        tcg_val = _to_float(prices_dict.get("usd")) or _to_float(prices_dict.get("usd_foil"))
+
+    # Fallback a columnas directas del modelo si existieran
+    if tcg_val == 0.0:
+        tcg_val = _to_float(getattr(card_catalog, "price_usd", None))
+
+    # Card Kingdom
+    ck_val = 0.0
+    if is_foil:
+        ck_val = (
+            _to_float(prices_dict.get("cardkingdom_foil")) 
+            or _to_float(prices_dict.get("ck_foil"))
+            or tcg_val
+        )
+    else:
+        ck_val = (
+            _to_float(prices_dict.get("cardkingdom")) 
+            or _to_float(prices_dict.get("ck"))
+            or tcg_val
+        )
+
+    return {"tcg": tcg_val, "ck": ck_val}
+
+
 class CollectionService:
     """
     Servicio de Dominio para orquestar carpetas físicas/binders y ejemplares de usuario.
-    Maneja cuotas máximas, control de privacidad, persistencia atómica y búsqueda facetada.
+    Maneja cuotas máximas, control de privacidad, persistencia atómica y cálculo de valores.
     """
 
     MAX_COLLECTIONS_PER_USER: int = 10
@@ -25,7 +97,47 @@ class CollectionService:
         query = db.query(Collection).filter(Collection.user_id == user_id)
         if only_public:
             query = query.filter(Collection.is_public_trade.is_(True))
-        return query.all()
+
+        collections = query.all()
+
+        # Calcular métricas para cada colección
+        for col in collections:
+            user_cards = (
+                db.query(UserCard)
+                .filter(UserCard.collection_id == col.id)
+                .options(joinedload(UserCard.card_catalog))
+                .all()
+            )
+
+            total_cards = 0
+            val_tcg = 0.0
+            val_ck = 0.0
+            previews = []
+
+            for uc in user_cards:
+                qty = uc.quantity or 1
+                total_cards += qty
+
+                prices = _extract_prices_from_catalog(uc.card_catalog, uc.is_foil)
+                val_tcg += prices["tcg"] * qty
+                val_ck += prices["ck"] * qty
+
+                # Previsualización de arte (hasta 5)
+                if len(previews) < 5 and uc.card_catalog:
+                    art = (
+                        getattr(uc.card_catalog, "image_url", None)
+                        or (uc.card_catalog.image_uris.get("art_crop") if isinstance(getattr(uc.card_catalog, "image_uris", None), dict) else None)
+                    )
+                    if art and art not in previews:
+                        previews.append(art)
+
+            col.card_count = total_cards
+            col.total_value = round(val_tcg, 2)
+            col.total_value_tcg = round(val_tcg, 2)
+            col.total_value_ck = round(val_ck, 2)
+            col.preview_cards = previews
+
+        return collections
 
     @classmethod
     def get_collection_or_fail(cls, db: Session, collection_id: str, user_id: Optional[str] = None) -> Collection:
@@ -60,6 +172,13 @@ class CollectionService:
         db.add(new_collection)
         db.commit()
         db.refresh(new_collection)
+
+        new_collection.card_count = 0
+        new_collection.total_value = 0.0
+        new_collection.total_value_tcg = 0.0
+        new_collection.total_value_ck = 0.0
+        new_collection.preview_cards = []
+
         return new_collection
 
     @classmethod
@@ -91,6 +210,14 @@ class CollectionService:
             )
             db.commit()
             db.refresh(user_card)
+
+            # Inyectar precios unitarios
+            prices = _extract_prices_from_catalog(card_catalog, user_card.is_foil)
+            user_card.price_usd = prices["tcg"]
+            user_card.price_tcg = prices["tcg"]
+            user_card.price_ck = prices["ck"]
+            user_card.card_catalog = card_catalog
+
             return user_card
         except ValueError as err:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
@@ -115,7 +242,6 @@ class CollectionService:
     ) -> List[UserCard]:
         collection = cls.get_collection_or_fail(db, collection_id=collection_id)
 
-        # Regla de privacidad anti-enumeración
         is_owner = current_user_id is not None and str(collection.user_id) == str(current_user_id)
         if not collection.is_public_trade and not is_owner:
             raise HTTPException(
@@ -127,7 +253,7 @@ class CollectionService:
         query = (
             db.query(UserCard)
             .filter(UserCard.collection_id == collection_id)
-            .options(joinedload(UserCard.card_catalog).defer(CartaScryfall.scryfall_raw_data))
+            .options(joinedload(UserCard.card_catalog))
         )
 
         if hasattr(UserCard, "created_at"):
@@ -135,7 +261,16 @@ class CollectionService:
         else:
             query = query.order_by(UserCard.id.desc())
 
-        return query.offset(offset).limit(page_size).all()
+        cards = query.offset(offset).limit(page_size).all()
+
+        # Inyectar precios calculados en cada UserCard
+        for uc in cards:
+            prices = _extract_prices_from_catalog(uc.card_catalog, uc.is_foil)
+            uc.price_usd = prices["tcg"]
+            uc.price_tcg = prices["tcg"]
+            uc.price_ck = prices["ck"]
+
+        return cards
 
     @classmethod
     def search_user_cards(
@@ -152,10 +287,6 @@ class CollectionService:
         page: int = 1,
         limit: int = 50,
     ) -> Dict[str, Any]:
-        """
-        Búsqueda facetada en el inventario/binders del usuario autenticado.
-        Combina datos físicos de UserCard con atributos canónicos de CartaScryfall.
-        """
         base_query = (
             db.query(
                 UserCard.id.label("id"),

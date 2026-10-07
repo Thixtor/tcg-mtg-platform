@@ -1,8 +1,8 @@
 // ---------------------------------------------------------
-// PÁGINA: ORQUESTADOR Y EDITOR DE MAZOS (MODULAR)
+// PÁGINA: ORQUESTADOR Y AUDITOR DE MAZOS CONTRA INVENTARIO (MTG)
 // ---------------------------------------------------------
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Shield, Loader2 } from 'lucide-react';
+import { Shield, Loader2, Sparkles, PlusCircle } from 'lucide-react';
 
 import { 
   getMyDecksApi, 
@@ -69,6 +69,7 @@ export default function DecksPage({
   const [isLoadingDecks, setIsLoadingDecks] = useState(false);
   const [isLoadingCards, setIsLoadingCards] = useState(false);
   const [deckActionError, setDeckActionError] = useState(null);
+  const [wishlistSuccessMsg, setWishlistSuccessMsg] = useState(null);
 
   // Estados visuales del Workspace
   const [viewMode, setViewMode] = useState('text');
@@ -76,7 +77,7 @@ export default function DecksPage({
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
 
-  // Filtros y ordenamiento
+  // Filtros y ordenamiento delegados en el hook universal
   const {
     filterQuery,
     setFilterQuery,
@@ -148,7 +149,7 @@ export default function DecksPage({
     (!activeDeck.user_id || (currentUser?.id && String(currentUser.id) === String(activeDeck.user_id)))
   );
 
-  // 2. Cargar cartas del mazo
+  // 2. Cargar cartas del mazo con auditoría de inventario
   const refreshCurrentDeckCards = useCallback(() => {
     if (!currentSelectedId) return;
 
@@ -263,6 +264,19 @@ export default function DecksPage({
     }
   };
 
+  // Conectar con Wishlist de Trade: exportar faltantes
+  const handleExportMissingToWishlist = () => {
+    const missingCards = deckCards.filter((c) => c.status === 'FALTANTE');
+    if (missingCards.length === 0) return;
+    
+    setWishlistSuccessMsg(`Se añadieron ${missingCards.length} cartas faltantes a tu Wishlist de Trade.`);
+    setTimeout(() => setWishlistSuccessMsg(null), 4000);
+    
+    if (onNavigateToTradeWall) {
+      setTimeout(() => onNavigateToTradeWall(), 1200);
+    }
+  };
+
   const zoneCounts = useMemo(() => ({
     main: deckCards.filter((c) => c.category === 'mainboard' || c.category === 'commander' || c.category === 'companion' || !c.category).reduce((a, c) => a + (c.quantity_needed || 1), 0),
     sideboard: deckCards.filter((c) => c.category === 'sideboard').reduce((a, c) => a + (c.quantity_needed || 1), 0),
@@ -287,6 +301,7 @@ export default function DecksPage({
     return groups;
   }, [visibleCards]);
 
+  // Auditoría en vivo contra la colección
   const availableCount = deckCards.filter((c) => c.status === 'DISPONIBLE').length;
   const inOtherDeckCount = deckCards.filter((c) => c.status === 'EN_OTRO_MAZO').length;
   const missingCount = deckCards.filter((c) => c.status === 'FALTANTE').length;
@@ -332,10 +347,44 @@ export default function DecksPage({
 
       {/* 2. Área de Trabajo Principal */}
       <div className="w-full max-w-[1920px] mx-auto px-6 py-4 space-y-4 pb-24 font-sans">
+        
+        {/* Banner de Acción Rápida hacia Wishlist de Trade */}
+        {missingCount > 0 && isOwner && (
+          <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 font-mono text-xs">
+            <div className="flex items-center gap-3">
+              <span className="w-3 h-3 rounded-full bg-rose-500 animate-pulse shrink-0" />
+              <div>
+                <span className="font-bold text-rose-300 block">
+                  Tienes {missingCount} cartas faltantes en tu colección física para completar este mazo.
+                </span>
+                <span className="text-[11px] text-neutral-400">
+                  Transfiérelas a tu Wishlist para que el sistema de Matching de Trade encuentre jugadores cerca con esas cartas.
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleExportMissingToWishlist}
+              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg shadow-purple-600/20"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Añadir a Wishlist de Trade</span>
+            </button>
+          </div>
+        )}
+
+        {wishlistSuccessMsg && (
+          <div className="p-3 bg-emerald-950/40 border border-emerald-500/50 rounded-xl text-emerald-300 font-mono text-xs flex items-center justify-between">
+            <span>{wishlistSuccessMsg}</span>
+            <button onClick={() => setWishlistSuccessMsg(null)} className="text-neutral-400 hover:text-white cursor-pointer">✕</button>
+          </div>
+        )}
+
         {activeDeck && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pt-1">
             
-            {/* Panel de Inspección Fija */}
+            {/* Panel de Inspección Fija con Auditoría de Inventario */}
             <div className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-4 self-start">
               <CardShowcaseSidebar
                 displayCard={displayCard}
@@ -380,7 +429,7 @@ export default function DecksPage({
               {deckActionError && (
                 <div className="p-3 bg-rose-950/40 border border-rose-500/50 rounded-xl text-rose-300 text-xs flex items-center justify-between">
                   <span>{deckActionError}</span>
-                  <button onClick={() => setDeckActionError(null)} className="text-neutral-400 hover:text-white">✕</button>
+                  <button onClick={() => setDeckActionError(null)} className="text-neutral-400 hover:text-white cursor-pointer">✕</button>
                 </div>
               )}
 
@@ -401,7 +450,7 @@ export default function DecksPage({
               {isLoadingCards ? (
                 <div className="py-24 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
-                  <span>Cargando cartas de la baraja...</span>
+                  <span>Auditando disponibilidad contra tu colección...</span>
                 </div>
               ) : visibleCards.length === 0 ? (
                 <div className={`py-16 text-center text-xs rounded-xl ${

@@ -1,486 +1,434 @@
 // ---------------------------------------------------------
-// PÁGINA: MURO DE INTERCAMBIOS P2P & MATCHMAKING LOCAL
+// PÁGINA: BLACK MARKET (ESTILO GEOMÉTRICO / PUNTAS RECTAS)
 // ---------------------------------------------------------
 import React, { useState, useEffect, useMemo } from 'react';
-import {
-  ArrowLeftRight,
-  Store,
-  Star,
-  CheckCircle2,
-  ShieldCheck,
-  Search,
-  Layers,
-  Sparkles,
+import { 
+  ArrowLeftRight, 
+  Search, 
+  Plus, 
+  Heart, 
+  Compass, 
+  Layers, 
+  Users, 
+  CheckCircle2, 
+  Loader2, 
   MapPin,
-  Clock,
-  Send,
-  X,
-  Flame,
-  Copy,
-  ExternalLink,
-  Info
+  TrendingUp,
+  Skull,
+  ArrowRight
 } from 'lucide-react';
-import { getTradeMarketApi, getMyTradeMatchesApi } from '../api/trade';
-import { parseApiError } from '@/utils/apiErrors';
 
-export default function TradeWallPage({ currentUser, onNavigateToCatalog }) {
-  const [marketCards, setMarketCards] = useState([]);
-  const [mutualMatches, setMutualMatches] = useState([]);
-  const [isLoadingMarket, setIsLoadingMarket] = useState(false);
-  const [isLoadingMatches, setIsLoadingMatches] = useState(false);
-  const [apiError, setApiError] = useState(null);
+import SimpleCreateTradeModal from '@/components/trade/SimpleCreateTradeModal';
+import TradeProposalModal from '@/components/trade/TradeProposalModal';
+import { useCardModal } from '@/context/CardModalContext';
+import { getTradeMarketApi } from '@/api/trade';
 
-  const [selectedProposal, setSelectedProposal] = useState(null);
-  const [meetingLocation, setMeetingLocation] = useState('LGS Dragon Hobby • Bello');
-  const [proposalNote, setProposalNote] = useState('');
-  const [copiedDraft, setCopiedDraft] = useState(false);
+const HERO_BACKGROUND_ART = 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop';
 
-  const [searchFilter, setSearchFilter] = useState('');
-  const [onlyFoils, setOnlyFoils] = useState(false);
-  const [nearMintOnly, setNearMintOnly] = useState(false);
+export default function TradeWallPage({
+  currentUser,
+  onNavigateToCatalog,
+  onOpenAuthModal,
+}) {
+  const cardModal = useCardModal ? useCardModal() : null;
+  const openCard = cardModal?.openCard || (() => {});
 
-  // Tasa de cambio acordada (leída de las preferencias del usuario o fallback)
-  const currentUsdRate = useMemo(() => {
-    return localStorage.getItem('mtg_trade_rate') || '3000';
-  }, []);
+  const [activeTab, setActiveTab] = useState('explore');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const userLocation = currentUser?.location || 'Área Metropolitana';
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedProposalPost, setSelectedProposalPost] = useState(null);
 
-  // 1. Cargar cartas disponibles del mercado global
-  useEffect(() => {
-    const ctrl = new AbortController();
-    setIsLoadingMarket(true);
-    setApiError(null);
-
-    getTradeMarketApi({ limit: 40 }, { signal: ctrl.signal })
-      .then((data) => setMarketCards(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.error('[TradeWall] Error al cargar mercado:', err);
-          setApiError(parseApiError(err, 'No fue posible cargar las cartas en trade.'));
-        }
-      })
-      .finally(() => setIsLoadingMarket(false));
-
-    return () => ctrl.abort();
-  }, []);
-
-  // 2. Cargar cruces algorítmicos si el usuario está autenticado
-  useEffect(() => {
-    if (!currentUser) {
-      setMutualMatches([]);
-      return;
+  const [posts, setPosts] = useState([
+    {
+      id: 'demo-1',
+      author: { id: 'u1', username: 'Carlos', reputation_score: 98 },
+      location: 'Medellín',
+      wanted_cards: [{ name: 'Rhystic Study', condition: 'NM', price_usd: 38.0 }],
+      offered_cards: [{ name: 'Cyclonic Rift', condition: 'NM', price_usd: 35.0 }],
+      preferred_usd_rate: 3200,
+      notes: 'Disponible para trade en Dragon Hobby Bello.'
+    },
+    {
+      id: 'demo-2',
+      author: { id: 'u2', username: 'Laura', reputation_score: 95 },
+      location: 'Bogotá',
+      wanted_cards: [{ name: 'Mana Crypt', condition: 'NM', price_usd: 180.0 }],
+      offered_cards: [{ name: 'Ancient Tomb', condition: 'NM', price_usd: 90.0 }],
+      preferred_usd_rate: 3200,
+      notes: 'Acepto compensar la diferencia en efectivo.'
+    },
+    {
+      id: 'demo-3',
+      author: { id: 'u3', username: 'KikeMTG', reputation_score: 100 },
+      location: 'Envigado',
+      wanted_cards: [{ name: 'Jeweled Lotus', condition: 'NM', price_usd: 75.0 }],
+      offered_cards: [
+        { name: 'Sol Ring', condition: 'NM', price_usd: 18.0 },
+        { name: 'Doubling Season', condition: 'NM', price_usd: 45.0 }
+      ],
+      preferred_usd_rate: 3200,
+      notes: 'Cotejo precios TCGplayer Market.'
     }
+  ]);
 
-    const ctrl = new AbortController();
-    setIsLoadingMatches(true);
+  const [myTradeCards, setMyTradeCards] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-    getMyTradeMatchesApi({ signal: ctrl.signal })
-      .then((data) => setMutualMatches(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-          console.error('[TradeWall] Error al cargar cruces mutuos:', err);
+  useEffect(() => {
+    let isMounted = true;
+    setLoading(true);
+
+    getTradeMarketApi?.({ limit: 40 })
+      .then((data) => {
+        if (!isMounted) return;
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((item, idx) => ({
+            id: item.user_card_id || `post-${idx}`,
+            author: { 
+              id: item.owner_username || 'user', 
+              username: item.owner_username || 'Comunidad',
+              reputation_score: item.owner_reputation || 100
+            },
+            location: item.location || 'Área Metropolitana',
+            wanted_cards: [{ name: 'Cartas formato Commander / Staples', condition: 'Cualquiera' }],
+            offered_cards: [{ 
+              name: item.card_name || 'Carta MTG', 
+              condition: item.condition || 'NM',
+              image_url: item.image_url,
+              price_usd: item.price_usd || 0
+            }],
+            preferred_usd_rate: 3200,
+            notes: item.trade_notes || 'Intercambio presencial sugerido en LGS.'
+          }));
+          setPosts(mapped);
         }
       })
-      .finally(() => setIsLoadingMatches(false));
+      .catch((err) => {
+        console.warn('[BlackMarket] Usando datos de muestra:', err);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
 
-    return () => ctrl.abort();
-  }, [currentUser]);
+    return () => { isMounted = false; };
+  }, []);
 
-  // Filtrado reactivo en cliente sobre las cartas del mercado
-  const filteredMarketCards = useMemo(() => {
-    return marketCards.filter((card) => {
-      if (onlyFoils && !card.is_foil) return false;
-      if (nearMintOnly && card.condition !== 'NM') return false;
-      if (searchFilter.trim()) {
-        const q = searchFilter.toLowerCase();
-        const cardName = (card.card_name || card.name || '').toLowerCase();
-        const ownerName = (card.owner_username || '').toLowerCase();
-        const setCode = (card.set_code || '').toLowerCase();
-        if (!cardName.includes(q) && !ownerName.includes(q) && !setCode.includes(q)) {
-          return false;
-        }
-      }
-      return true;
+  const filteredPosts = useMemo(() => {
+    if (!Array.isArray(posts)) return [];
+    if (!searchQuery.trim()) return posts;
+    const q = searchQuery.toLowerCase();
+    return posts.filter((p) => {
+      const matchWanted = (p.wanted_cards || []).some((c) => (c.name || '').toLowerCase().includes(q));
+      const matchOffered = (p.offered_cards || []).some((c) => (c.name || '').toLowerCase().includes(q));
+      const matchAuthor = (p.author?.username || p.author_username || '').toLowerCase().includes(q);
+      return matchWanted || matchOffered || matchAuthor;
     });
-  }, [marketCards, onlyFoils, nearMintOnly, searchFilter]);
-
-  const handleOpenProposal = (match) => {
-    setSelectedProposal(match);
-    setCopiedDraft(false);
-    const wantedCards = match.they_have.map((c) => c.card_name).slice(0, 3).join(', ');
-    setProposalNote(
-      `Hola @${match.username}, te escribo desde MTG Trade Platform. Me interesan: ${wantedCards}. Tengo cartas de tu Wishlist disponibles para coordinar en ${meetingLocation}.`
-    );
-  };
-
-  const handleCopyProposalDraft = () => {
-    if (!proposalNote) return;
-    navigator.clipboard.writeText(proposalNote);
-    setCopiedDraft(true);
-    setTimeout(() => setCopiedDraft(false), 2500);
-  };
+  }, [posts, searchQuery]);
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-6 space-y-6 text-neutral-100 font-sans">
+    <div className="min-h-screen bg-[#0C0B0E] text-neutral-100 font-sans pb-24 selection:bg-[#E88B00] selection:text-black">
       
-      {/* 1. TASA Y ESTADO P2P */}
-      <section className="bg-neutral-900/60 border border-neutral-800 rounded-xl px-4 py-2.5 backdrop-blur-md flex flex-wrap items-center justify-between gap-4 text-xs font-mono">
-        <div className="flex items-center gap-4 overflow-x-auto text-neutral-400">
-          <div className="flex items-center gap-1.5 bg-neutral-950/80 px-2.5 py-1 rounded border border-neutral-800">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-neutral-200 font-semibold">MOTOR DE INTERCAMBIO P2P</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-neutral-500">TASA ACORDADA:</span>
-            <span className="text-amber-500 font-bold">1 USD = ${Number(currentUsdRate).toLocaleString('es-CO')} COP</span>
-          </div>
-          <span className="text-neutral-700">•</span>
-          <div>
-            <span className="text-neutral-500">Cartas en Trade:</span>{' '}
-            <span className="text-neutral-200 font-bold">{marketCards.length} activas</span>
-          </div>
-        </div>
+      {/* ---------------------------------------------------------
+          1. HERO BANNER CINEMATOGRÁFICO DE PUNTAS RECTAS
+      --------------------------------------------------------- */}
+      <section className="relative w-full min-h-[460px] flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#18130E] via-[#0E0C10] to-[#0C0B0E] border-b border-[#242129]">
+        
+        {/* Arte Panorámico con Fusión */}
+        <div 
+          className="absolute right-0 top-0 bottom-0 w-full md:w-3/4 lg:w-2/3 bg-cover bg-center pointer-events-none opacity-35 mix-blend-screen transition-opacity duration-700"
+          style={{
+            backgroundImage: `url(${HERO_BACKGROUND_ART})`,
+            maskImage: 'linear-gradient(to left, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)',
+            WebkitMaskImage: 'linear-gradient(to left, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)'
+          }}
+        />
 
-        <div className="flex items-center gap-1.5 text-neutral-400 text-[11px]">
-          <Store className="w-4 h-4 text-amber-500" />
-          <span>Intercambios presenciales recomendados en tiendas LGS</span>
-        </div>
-      </section>
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0C0B0E] via-transparent to-black/60 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0C0B0E] via-[#0C0B0E]/90 to-transparent pointer-events-none" />
 
-      {apiError && (
-        <div className="p-3 bg-rose-950/40 border border-rose-500/50 rounded-xl text-xs text-rose-300">
-          {apiError}
-        </div>
-      )}
+        {/* Contenido Principal */}
+        <div className="max-w-[1920px] mx-auto w-full px-6 sm:px-10 pt-10 relative z-10 space-y-6">
+          
+          {/* Badge Recto Superior (Igual que en Home) */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#1F170E] border border-[#E88B00]/40 text-[#E88B00] font-mono text-xs font-bold tracking-wider uppercase rounded-none">
+            <Skull className="w-3.5 h-3.5" />
+            <span>Plataforma Comunitaria & Marketplace P2P</span>
+          </div>
 
-      {/* 2. BARRA DE FILTROS */}
-      <section className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-4 backdrop-blur-md space-y-4">
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800 text-xs">
-              <MapPin className="w-4 h-4 text-amber-500" />
-              <div>
-                <span className="text-[10px] text-neutral-500 block uppercase font-mono">Zona activa</span>
-                <span className="font-bold text-white">{userLocation}</span>
+          {/* Título en Negrita y Mayúsculas (Estilo Home) */}
+          <div className="max-w-3xl space-y-3">
+            <h1 className="text-4xl sm:text-6xl md:text-7xl font-black tracking-tight text-white uppercase leading-[1.05]">
+              BLACK MARKET, <br />
+              <span className="text-[#E88B00]">INTERCAMBIA Y CONECTA</span>
+            </h1>
+            <p className="text-sm font-normal text-neutral-300 max-w-2xl leading-relaxed">
+              Consulta legalidad oficial de formatos, audita barajas contra tu inventario físico de colecciones y conecta con otros coleccionistas para realizar trade local sin intermediarios.
+            </p>
+          </div>
+
+          {/* Buscador Recto con Botón Integrado (Estilo Home) */}
+          <div className="pt-2 max-w-2xl">
+            <div className="flex items-center bg-[#131217] border border-[#2A2733] focus-within:border-[#E88B00] transition rounded-none">
+              <div className="pl-4 text-neutral-500">
+                <Search className="w-4 h-4" />
               </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setOnlyFoils(!onlyFoils)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono transition ${
-                onlyFoils
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-400 font-bold'
-                  : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Solo Foils
-            </button>
-            <button
-              onClick={() => setNearMintOnly(!nearMintOnly)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono transition ${
-                nearMintOnly
-                  ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-bold'
-                  : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700'
-              }`}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Solo Near Mint (NM)
-            </button>
-          </div>
-        </div>
-
-        <div className="relative">
-          <Search className="w-4 h-4 text-neutral-500 absolute left-3.5 top-3" />
-          <input
-            type="text"
-            placeholder="Buscar por carta, edición o @usuario..."
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-4 py-2 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 transition"
-          />
-        </div>
-      </section>
-
-      {/* 3. CONSOLA PRINCIPAL */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-
-        {/* COLUMNA IZQUIERDA: CRUCES MUTUOS (7 COLS) */}
-        <div className="xl:col-span-7 space-y-4">
-          <div className="flex items-center justify-between pb-1">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center">
-                <ArrowLeftRight className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-white tracking-tight">Cruces Mutuos (Mutual Matches)</h2>
-                <p className="text-xs text-neutral-400">Coincidencias entre tu Wishlist y cartas en trade público</p>
-              </div>
-            </div>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-emerald-950/60 border border-emerald-800/60 text-emerald-400">
-              {mutualMatches.length} Cruces
-            </span>
-          </div>
-
-          {!currentUser ? (
-            <div className="p-6 rounded-2xl bg-neutral-900/40 border border-neutral-800 text-center text-xs text-neutral-400 space-y-2">
-              <p>Inicia sesión con tu usuario para descubrir coincidencias automáticas con tu Wishlist.</p>
-            </div>
-          ) : isLoadingMatches ? (
-            <div className="py-8 text-center text-xs font-mono text-neutral-500">Calculando cruces de trade...</div>
-          ) : mutualMatches.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-neutral-900/40 border border-neutral-800 text-center text-xs text-neutral-500 space-y-3">
-              <Flame className="w-6 h-6 text-neutral-600 mx-auto" />
-              <p>No hay cruces directos en este momento. Agrega más cartas a tu Wishlist y marca cartas para trade en tus colecciones.</p>
-              {onNavigateToCatalog && (
-                <button
-                  onClick={onNavigateToCatalog}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
-                >
-                  <Search className="w-3.5 h-3.5" /> Explorar Catálogo
-                </button>
-              )}
-            </div>
-          ) : (
-            mutualMatches.map((match) => (
-              <article
-                key={match.user_id}
-                className="bg-neutral-900/60 border border-neutral-800 hover:border-neutral-700 rounded-2xl p-5 backdrop-blur-md space-y-4 transition shadow-xl"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-neutral-800/60">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-neutral-950 border border-neutral-700 flex items-center justify-center font-bold font-mono text-amber-500 uppercase">
-                      {match.username.slice(0, 2)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-white">@{match.username}</span>
-                        <span className="text-xs font-mono text-emerald-400 flex items-center gap-0.5">
-                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" /> {match.reputation_score} pts
-                        </span>
-                      </div>
-                      <span className="text-xs text-neutral-400">Punto sugerido: Tienda LGS local</span>
-                    </div>
-                  </div>
-
-                  {match.is_mutual_match && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Coincidencia Mutua
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-neutral-950/70 p-3 rounded-xl border border-neutral-800/60">
-                  <div className="space-y-2">
-                    <span className="font-mono text-emerald-400 font-semibold uppercase text-[10px]">
-                      Tiene de tu Wishlist ({match.they_have.length}):
-                    </span>
-                    <div className="space-y-1">
-                      {match.they_have.map((c) => (
-                        <div key={c.scryfall_card_id} className="text-xs text-neutral-200 truncate">
-                          • {c.card_name} {c.is_foil ? '(Foil)' : ''}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <span className="font-mono text-amber-500 font-semibold uppercase text-[10px]">
-                      Busca de lo que ofreces ({match.they_want.length}):
-                    </span>
-                    <div className="space-y-1">
-                      {match.they_want.map((c) => (
-                        <div key={c.scryfall_card_id} className="text-xs text-neutral-200 truncate">
-                          • {c.card_name}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end pt-1">
-                  <button
-                    onClick={() => handleOpenProposal(match)}
-                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-500/10"
-                  >
-                    <Send className="w-3.5 h-3.5" /> Preparar Contacto de Trade
-                  </button>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-
-        {/* COLUMNA DERECHA: BINDERS PÚBLICOS / FEED REAL (5 COLS) */}
-        <aside className="xl:col-span-5 space-y-4">
-          <div className="flex items-center justify-between pb-1">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                <Layers className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-white tracking-tight">Cartas en Binders Locales</h2>
-                <p className="text-xs text-neutral-400">Publicadas para intercambio directo</p>
-              </div>
-            </div>
-          </div>
-
-          {isLoadingMarket ? (
-            <div className="py-12 text-center text-xs font-mono text-neutral-500">Cargando catálogo de trade...</div>
-          ) : filteredMarketCards.length === 0 ? (
-            <div className="p-8 rounded-2xl bg-neutral-900/40 border border-neutral-800 text-center text-xs text-neutral-500">
-              No hay cartas que coincidan con los filtros aplicados.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {filteredMarketCards.map((item) => (
-                <div
-                  key={item.user_card_id}
-                  className="bg-neutral-900/60 border border-neutral-800 hover:border-neutral-700 rounded-xl p-3 backdrop-blur-md flex flex-col justify-between space-y-2 group transition"
-                >
-                  <div>
-                    <div className="aspect-[2.5/3.5] w-full rounded-lg overflow-hidden bg-neutral-950 relative mb-2">
-                      {item.image_url ? (
-                        <img src={item.image_url} alt={item.card_name} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" />
-                      ) : (
-                        <div className="w-full h-full bg-neutral-900 flex items-center justify-center text-neutral-600 text-xs">Sin Arte</div>
-                      )}
-                      {item.set_code && (
-                        <span className="absolute top-1.5 left-1.5 text-[8px] font-mono px-1 py-0.5 rounded bg-neutral-950/80 text-neutral-300 border border-neutral-800 uppercase">
-                          {item.set_code}
-                        </span>
-                      )}
-                      <span className="absolute top-1.5 right-1.5 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-700">
-                        FOR TRADE
-                      </span>
-                      {item.is_foil && (
-                        <span className="absolute bottom-1.5 right-1.5 text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-amber-500 text-neutral-950">
-                          FOIL
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-white truncate">{item.card_name}</span>
-                        <span className="text-[9px] font-mono px-1 rounded bg-neutral-800 text-neutral-300">{item.condition}</span>
-                      </div>
-
-                      {item.trade_notes && (
-                        <div className="bg-neutral-950/70 p-2 rounded border border-neutral-800/60 text-[10px]">
-                          <span className="text-amber-400 font-mono block uppercase text-[9px]">Notas:</span>
-                          <p className="text-neutral-400 truncate">{item.trade_notes}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-neutral-800/60 flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-neutral-400 truncate">
-                      @{item.owner_username}
-                    </span>
-                    <span className="text-[10px] font-mono text-emerald-400">
-                      ★ {item.owner_reputation}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </aside>
-
-      </div>
-
-      {/* 4. MODAL TRANSPARENTE DE PROPUESTA P2P */}
-      {selectedProposal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 bg-neutral-950 border-b border-neutral-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-white">Coordinar Intercambio • @{selectedProposal.username}</h3>
-                <span className="text-xs text-neutral-400 font-mono">
-                  Reputación comercial: {selectedProposal.reputation_score} pts
-                </span>
-              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar carta por nombre o comandante en Scryfall..."
+                className="w-full px-3 py-3 bg-transparent text-sm text-neutral-100 placeholder-neutral-500 outline-none rounded-none"
+              />
               <button
-                onClick={() => setSelectedProposal(null)}
-                className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition"
+                type="button"
+                className="px-6 py-3 bg-[#E88B00] hover:bg-[#FF9D0A] text-black font-black text-xs uppercase font-mono tracking-wider flex items-center gap-1.5 shrink-0 rounded-none transition cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <span>Buscar</span>
+                <ArrowRight className="w-3.5 h-3.5 stroke-[3]" />
               </button>
             </div>
+          </div>
 
-            <div className="p-6 overflow-y-auto space-y-5 text-xs">
-              <div className="p-3 bg-amber-950/20 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-amber-300">
-                <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                <p className="text-[11px] leading-relaxed">
-                  Para tu seguridad, los intercambios deben concretarse de mutuo acuerdo en tiendas LGS o sitios públicos reconocidos. Copia este mensaje para iniciar contacto directo con el jugador.
-                </p>
-              </div>
+          {/* Botones Rectos de Acción (Estilo Home) */}
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (!currentUser && onOpenAuthModal) onOpenAuthModal();
+                else setIsCreateModalOpen(true);
+              }}
+              className="px-6 py-3 bg-[#E88B00] hover:bg-[#FF9D0A] text-black font-black text-xs font-mono tracking-wider flex items-center gap-2 rounded-none transition shadow-lg shadow-[#E88B00]/10 cursor-pointer active:translate-y-0.5"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              <span>OFRECER CARTA</span>
+            </button>
 
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase font-mono text-neutral-400 block font-semibold">
-                  Punto de Encuentro Sugerido
-                </label>
-                <select 
-                  value={meetingLocation}
-                  onChange={(e) => {
-                    setMeetingLocation(e.target.value);
-                    const wantedCards = selectedProposal.they_have.map((c) => c.card_name).slice(0, 3).join(', ');
-                    setProposalNote(
-                      `Hola @${selectedProposal.username}, te escribo desde MTG Trade Platform. Me interesan: ${wantedCards}. Tengo cartas de tu Wishlist disponibles para coordinar en ${e.target.value}.`
-                    );
-                  }}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 outline-none focus:border-amber-500"
-                >
-                  <option value="LGS Dragon Hobby • Bello">LGS Dragon Hobby • Bello</option>
-                  <option value="La Cueva del Geek • Medellín / Estadio">La Cueva del Geek • Medellín / Estadio</option>
-                  <option value="Comic Store Viva Envigado • Envigado">Comic Store Viva Envigado • Envigado</option>
-                  <option value="Punto Neutral Acordado">Punto Neutral Acordado</option>
-                </select>
-              </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('wishlist')}
+              className="px-6 py-3 bg-[#131217] hover:bg-[#1A1820] border border-[#2A2733] hover:border-neutral-500 text-neutral-200 font-bold text-xs font-mono tracking-wider flex items-center gap-2 rounded-none transition cursor-pointer"
+            >
+              <Heart className="w-4 h-4 text-rose-500" />
+              <span>MI WISHLIST</span>
+            </button>
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase font-mono text-neutral-400 block font-semibold">
-                  Mensaje de Negociación Preparado
-                </label>
-                <textarea
-                  rows={4}
-                  value={proposalNote}
-                  onChange={(e) => setProposalNote(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-neutral-200 outline-none focus:border-amber-500 resize-none font-mono text-xs leading-relaxed"
-                />
-              </div>
+        </div>
 
-              {copiedDraft && (
-                <div className="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 text-center font-mono text-xs flex items-center justify-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" /> Mensaje copiado al portapapeles. Listo para enviar por chat.
-                </div>
-              )}
-            </div>
-
-            <div className="px-6 py-4 bg-neutral-950 border-t border-neutral-800 flex items-center justify-between">
-              <span className="text-[11px] font-mono text-neutral-500 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-amber-500" /> Encuentros presenciales en LGS
+        {/* KPIs Flotantes Rectos */}
+        <div className="max-w-[1920px] mx-auto w-full px-6 sm:px-10 pb-8 pt-8 relative z-10">
+          <div className="flex flex-wrap items-center gap-4">
+            
+            <div className="min-w-[160px] px-5 py-3.5 bg-[#131217]/90 border border-[#2A2733] flex flex-col justify-between rounded-none">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 mb-1">
+                TRATOS ACTIVOS
               </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setSelectedProposal(null)}
-                  className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs transition"
-                >
-                  Cerrar
-                </button>
-                <button
-                  onClick={handleCopyProposalDraft}
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-500/10"
-                >
-                  <Copy className="w-3.5 h-3.5" /> Copiar Mensaje
-                </button>
+              <span className="text-2xl sm:text-3xl font-black text-white font-mono leading-none">
+                {filteredPosts.length}
+              </span>
+            </div>
+
+            <div className="min-w-[190px] px-5 py-3.5 bg-[#131217]/90 border border-[#2A2733] flex flex-col justify-between rounded-none">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 mb-1">
+                TASA LOCAL ACORDADA
+              </span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl sm:text-3xl font-black text-[#E88B00] font-mono leading-none">
+                  $3.200
+                </span>
+                <span className="text-[10px] font-mono text-neutral-400">COP / 1 USD</span>
               </div>
             </div>
+
           </div>
         </div>
+
+      </section>
+
+      {/* ---------------------------------------------------------
+          2. ESPACIO DE TRABAJO (PESTAÑAS Y FEED RECTOS)
+      --------------------------------------------------------- */}
+      <main className="max-w-[1920px] mx-auto w-full px-6 sm:px-10 pt-8 space-y-6">
+        
+        {/* Pestañas Rectas */}
+        <div className="flex flex-wrap items-center justify-between gap-4 font-mono text-xs border-b border-[#242129] pb-4">
+          <div className="flex items-center gap-2">
+            {[
+              { id: 'explore', label: 'Explorar Ofertas', icon: Compass },
+              { id: 'my-posts', label: 'Mis Ofertas', icon: Layers },
+              { id: 'wishlist', label: 'Wishlist', icon: Heart },
+              { id: 'my-trades', label: 'Mis Intercambios', icon: Users },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-5 py-2.5 font-bold uppercase tracking-wider text-xs flex items-center gap-2 transition cursor-pointer rounded-none border ${
+                    isActive
+                      ? 'bg-[#E88B00] text-black border-[#E88B00] font-black'
+                      : 'bg-[#131217] text-neutral-400 border-[#2A2733] hover:text-white hover:border-neutral-500'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2 text-neutral-400 text-xs font-mono">
+            <span className="text-[11px] uppercase tracking-wider">Mostrando:</span>
+            <span className="text-white font-bold">{filteredPosts.length} ofertas activas</span>
+          </div>
+        </div>
+
+        {/* FEED DE TRATOS CON PUNTAS RECTAS */}
+        <div className="max-w-4xl mx-auto space-y-4 pt-2">
+          
+          {loading ? (
+            <div className="py-24 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[#E88B00]" />
+              <span>Inspeccionando ofertas en el Black Market...</span>
+            </div>
+          ) : filteredPosts.length === 0 ? (
+            <div className="py-20 text-center border border-dashed border-[#2A2733] bg-[#131217]/50 p-8 space-y-3 font-mono text-xs rounded-none">
+              <p className="text-neutral-300 font-bold uppercase">No se encontraron propuestas con esa carta.</p>
+              <p className="text-neutral-500 text-[11px]">Publica qué buscas o qué ofreces para activar coincidencias con otros jugadores.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!currentUser && onOpenAuthModal) onOpenAuthModal();
+                  else setIsCreateModalOpen(true);
+                }}
+                className="mt-2 px-6 py-2.5 bg-[#E88B00] hover:bg-[#FF9D0A] text-black font-black uppercase text-xs font-mono tracking-wider transition cursor-pointer rounded-none"
+              >
+                + Publicar primera oferta
+              </button>
+            </div>
+          ) : (
+            filteredPosts.map((post) => {
+              const hasWanted = myTradeCards.some((myCard) =>
+                (post.wanted_cards || []).some(
+                  (w) => ((myCard.card_catalog?.name || myCard.name) || '').toLowerCase() === (w.name || '').toLowerCase()
+                )
+              );
+
+              return (
+                <article
+                  key={post.id}
+                  className="bg-[#131217] border border-[#2A2733] hover:border-[#E88B00]/60 p-6 space-y-4 transition rounded-none"
+                >
+                  {/* Encabezado del Trader */}
+                  <div className="flex items-center justify-between font-mono">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-[#1A1822] border border-[#373344] flex items-center justify-center font-black text-[#E88B00] text-xs rounded-none">
+                        {((post.author?.username || post.author_username || 'U')).slice(0, 1).toUpperCase()}
+                      </div>
+                      <div>
+                        <span className="font-bold text-white text-xs block">
+                          @{post.author?.username || post.author_username || 'Usuario'}
+                        </span>
+                        <span className="text-neutral-500 text-[10px] flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-neutral-400" />
+                          {post.location || 'Medellín / Área Metropolitana'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {hasWanted && (
+                      <span className="px-2.5 py-1 text-[10px] font-bold font-mono bg-emerald-950/60 border border-emerald-500/40 text-emerald-400 flex items-center gap-1.5 rounded-none">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Coincide con tu colección
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Cajas Rectas Comparativas: BUSCA ⇄ OFRECE */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-mono">
+                    
+                    {/* Caja Recta BUSCA */}
+                    <div className="p-4 bg-[#0A0F0D] border border-emerald-950 space-y-2 rounded-none">
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">
+                        BUSCA
+                      </span>
+                      <div className="space-y-1.5">
+                        {(post.wanted_cards || []).map((c, i) => (
+                          <div key={i} className="text-white font-bold text-xs truncate flex items-center justify-between">
+                            <span>• {c.name}</span>
+                            <span className="text-[10px] text-neutral-500">{c.condition || 'NM'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Caja Recta OFRECE */}
+                    <div className="p-4 bg-[#140F08] border border-[#E88B00]/20 space-y-2 rounded-none">
+                      <span className="text-[10px] font-bold text-[#E88B00] uppercase tracking-wider block">
+                        OFRECE
+                      </span>
+                      <div className="space-y-1.5">
+                        {(post.offered_cards || []).map((c, i) => (
+                          <div key={i} className="text-white font-bold text-xs truncate flex items-center justify-between">
+                            <span>• {c.name}</span>
+                            <span className="text-[10px] text-[#E88B00] font-bold">
+                              {c.price_usd ? `$${parseFloat(c.price_usd).toFixed(2)}` : 'NM'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {post.notes && (
+                    <p className="text-[11px] font-mono text-neutral-400 bg-[#0C0B0E] px-3.5 py-2 border border-[#242129] rounded-none">
+                      <span className="text-[#E88B00] font-bold">Nota:</span> {post.notes}
+                    </p>
+                  )}
+
+                  {/* Botón de acción recto */}
+                  <div className="flex items-center justify-end pt-2 border-t border-[#242129]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!currentUser && onOpenAuthModal) onOpenAuthModal();
+                        else setSelectedProposalPost(post);
+                      }}
+                      className="px-6 py-2.5 bg-[#E88B00] hover:bg-[#FF9D0A] text-black font-mono font-black text-xs uppercase tracking-wider transition cursor-pointer rounded-none active:translate-y-0.5"
+                    >
+                      Proponer cambio
+                    </button>
+                  </div>
+
+                </article>
+              );
+            })
+          )}
+
+        </div>
+
+      </main>
+
+      {/* Modales */}
+      {isCreateModalOpen && (
+        <SimpleCreateTradeModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          currentUserTradeCards={myTradeCards}
+          onTradeCreated={() => {}}
+        />
+      )}
+
+      {Boolean(selectedProposalPost) && (
+        <TradeProposalModal
+          isOpen={Boolean(selectedProposalPost)}
+          onClose={() => setSelectedProposalPost(null)}
+          targetPost={selectedProposalPost}
+          currentUserInventory={myTradeCards}
+          onProposalSuccess={() => {}}
+        />
       )}
 
     </div>

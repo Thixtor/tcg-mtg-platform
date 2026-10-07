@@ -11,6 +11,7 @@ from app.models.wishlist import WishlistItem
 from app.models.price import HistoricoPrecio
 from app.models.trade_proposal import TradeProposal, TradeProposalItem
 from app.models.notification import Notification
+from app.models.trade_post import TradePost, TradePostLike
 
 __all__ = [
     "Base",
@@ -24,5 +25,7 @@ __all__ = [
     "HistoricoPrecio",
     "TradeProposal",
     "TradeProposalItem",
-    "Notification"
+    "Notification",
+    "TradePost",
+    "TradePostLike"
 ]

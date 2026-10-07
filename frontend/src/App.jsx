@@ -9,7 +9,7 @@ import GlobalModals from '@/components/layout/GlobalModals';
 
 import HomePage from '@/pages/HomePage';
 import { CatalogPage } from '@/pages/CatalogPage';
-import BindersPage from '@/pages/BindersPage';
+import BindersPage from '@/pages/CollectionsPage';
 import DecksPage from '@/pages/DecksPage';
 import ProfilePage from '@/pages/ProfilePage';
 import PublicProfilePage from '@/pages/PublicProfilePage';
@@ -187,6 +187,10 @@ function AppContent() {
             openCreateTrigger={refreshBindersTrigger}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onNavigateToTradeWall={() => setActiveTab('tradewall')} 
+            onNavigateToCatalog={() => {
+              setCatalogSearchQuery('');
+              setActiveTab('catalog');
+            }}
           />
         )}
 

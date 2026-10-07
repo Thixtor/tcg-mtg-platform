@@ -222,8 +222,8 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
       isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0B0B0B] text-neutral-100'
     }`}>
       
-      {/* 1. HERO BANNER FULL-BLEED */}
-      <section className="relative w-full overflow-hidden select-none">
+      {/* 1. HERO BANNER FULL-BLEED (BORDES RECTOS) */}
+      <section className="relative w-full overflow-hidden select-none border-b border-[#242129]">
         <div 
           className="absolute right-0 top-0 bottom-0 w-full sm:w-2/3 md:w-1/2 bg-cover bg-center pointer-events-none opacity-20"
           style={{
@@ -236,7 +236,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0B0B0B]/80 pointer-events-none" />
 
         <div className="max-w-[1920px] mx-auto px-6 sm:px-8 pt-10 pb-8 relative z-10 space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[11px] font-mono font-bold tracking-wider uppercase">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#1F170E] border border-[#E88B00]/40 text-[#E88B00] text-[11px] font-mono font-bold tracking-wider uppercase rounded-none">
             <Compass className="w-3.5 h-3.5" />
             <span>Catálogo Oficial & Cotizaciones en Tiempo Real</span>
           </div>
@@ -256,10 +256,10 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
             <button
               type="button"
               onClick={() => setSearchMode('quick')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold transition-all cursor-pointer rounded-none border ${
                 searchMode === 'quick'
-                  ? 'bg-amber-500 text-neutral-950 font-extrabold shadow-lg shadow-amber-500/20'
-                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
+                  ? 'bg-[#E88B00] text-black font-extrabold border-[#E88B00] shadow-lg shadow-[#E88B00]/20'
+                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
               }`}
             >
               <Search className="w-3.5 h-3.5" />
@@ -269,10 +269,10 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
             <button
               type="button"
               onClick={() => setSearchMode('advanced')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold transition-all cursor-pointer rounded-none border ${
                 searchMode === 'advanced'
-                  ? 'bg-amber-500 text-neutral-950 font-extrabold shadow-lg shadow-amber-500/20'
-                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
+                  ? 'bg-[#E88B00] text-black font-extrabold border-[#E88B00] shadow-lg shadow-[#E88B00]/20'
+                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -283,9 +283,9 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
       </section>
 
       {/* 2. ÁREA DE TRABAJO */}
-      <div className="flex-1 max-w-[1920px] mx-auto w-full px-6 sm:px-8 pb-12 space-y-6">
+      <div className="flex-1 max-w-[1920px] mx-auto w-full px-6 sm:px-8 pb-12 space-y-6 pt-6">
         
-        {/* MODO 1: BÚSQUEDA RÁPIDA */}
+        {/* MODO 1: BÚSQUEDA RÁPIDA (COMPONENTES ORIGINALES PRESERVADOS) */}
         {searchMode === 'quick' ? (
           <div className="space-y-6">
             <SmartSearchBar
@@ -302,11 +302,11 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
             />
           </div>
         ) : (
-          /* MODO 2: BÚSQUEDA AVANZADA INTEGRAL */
+          /* MODO 2: BÚSQUEDA AVANZADA INTEGRAL (COMPONENTES ORIGINALES PRESERVADOS) */
           <div className="space-y-6">
             
-            {/* Input por nombre */}
-            <div className="flex items-center gap-3 bg-neutral-900/80 border border-neutral-800 rounded-xl px-4 py-3 shadow-lg focus-within:border-amber-500 transition-all">
+            {/* Input por nombre (BORDES RECTOS) */}
+            <div className="flex items-center gap-3 bg-neutral-900/80 border border-neutral-800 rounded-none px-4 py-3 shadow-lg focus-within:border-[#E88B00] transition-all">
               <Search className="w-4 h-4 text-neutral-400 flex-shrink-0" />
               <input
                 id="advanced-catalog-search-input"
@@ -315,7 +315,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                 value={inputQuery}
                 onChange={(e) => setInputQuery(e.target.value)}
                 placeholder="Buscar por nombre en inglés (ej. Lightning Bolt, Rhystic Study)..."
-                className="w-full bg-transparent text-xs sm:text-sm outline-none font-mono text-neutral-100 placeholder-neutral-500"
+                className="w-full bg-transparent text-xs sm:text-sm outline-none font-mono text-neutral-100 placeholder-neutral-500 rounded-none"
               />
               {inputQuery && (
                 <button
@@ -329,14 +329,14 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
               <button
                 type="button"
                 onClick={() => setSearchTerm(compiledAdvancedQuery)}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase tracking-wider text-neutral-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition shadow-md active:scale-95 flex-shrink-0 cursor-pointer"
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase tracking-wider text-black bg-[#E88B00] hover:bg-[#FF9D0A] rounded-none transition shadow-md active:scale-95 flex-shrink-0 cursor-pointer"
               >
                 <span>Buscar</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            {/* Panel de Filtros Visuales con Sliders Duales (CMC y Precio) */}
+            {/* Panel de Filtros Visuales Original */}
             <VisualFilterPanel
               selectedTypes={selectedTypes}
               onToggleType={(t) => setSelectedTypes((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
@@ -362,31 +362,31 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
               isLightMode={isLightMode}
             />
 
-            {/* Panel de Mecánicas */}
+            {/* Panel de Mecánicas Original */}
             <MechanicsFilterPanel
               selectedMechanics={selectedMechanics.map((m) => m.id)}
               onToggleMechanic={handleToggleMechanic}
               isLightMode={isLightMode}
             />
 
-            {/* Banner en Lenguaje Natural */}
+            {/* Banner en Lenguaje Natural Original */}
             <QueryExplanationBanner
               explanationText={hasActiveFilters ? naturalExplanation : 'Mostrando cartas populares de Magic: The Gathering.'}
               scryfallQuery={compiledAdvancedQuery}
               isLightMode={isLightMode}
             />
 
-            {/* Barra de Estado & Chips Activos */}
+            {/* Barra de Estado & Chips Activos (BORDES RECTOS) */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 pb-2 border-b border-neutral-800 font-mono text-xs">
               <div className="flex items-center gap-3">
                 <span className="text-neutral-400">
-                  <strong className="text-amber-400 font-bold">{results.length}</strong> cartas encontradas
+                  <strong className="text-[#E88B00] font-bold">{results.length}</strong> cartas encontradas
                 </span>
                 {hasActiveFilters && (
                   <button
                     type="button"
                     onClick={handleResetAllFilters}
-                    className="text-amber-500 hover:text-amber-400 flex items-center gap-1 cursor-pointer"
+                    className="text-[#E88B00] hover:text-[#FF9D0A] flex items-center gap-1 cursor-pointer font-bold"
                   >
                     <RotateCcw className="w-3 h-3" />
                     <span>Restablecer todo</span>
@@ -394,20 +394,20 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                 )}
               </div>
 
-              {/* Chips de filtros activos */}
+              {/* Chips de filtros activos (BORDES RECTOS) */}
               {hasActiveFilters && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {isLegendary !== null && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-400">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1F170E] border border-[#E88B00]/40 text-[11px] text-[#E88B00] rounded-none">
                       <span>{isLegendary ? 'Solo Legendarias' : 'No Legendarias'}</span>
                       <button type="button" onClick={() => setIsLegendary(null)}>
-                        <X className="w-2.5 h-2.5 text-amber-400 hover:text-white" />
+                        <X className="w-2.5 h-2.5 text-[#E88B00] hover:text-white" />
                       </button>
                     </span>
                   )}
 
                   {selectedColors.map((c) => (
-                    <span key={c} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200">
+                    <span key={c} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200 rounded-none">
                       <i className={`ms ms-${c} ms-cost text-[10px]`} />
                       <button type="button" onClick={() => setSelectedColors(prev => prev.filter(x => x !== c))}>
                         <X className="w-2.5 h-2.5 text-neutral-400 hover:text-white" />
@@ -416,7 +416,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   ))}
 
                   {selectedTypes.map((t) => (
-                    <span key={t} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200 capitalize">
+                    <span key={t} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200 capitalize rounded-none">
                       <span>{t}</span>
                       <button type="button" onClick={() => setSelectedTypes(prev => prev.filter(x => x !== t))}>
                         <X className="w-2.5 h-2.5 text-neutral-400 hover:text-white" />
@@ -425,7 +425,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   ))}
 
                   {(cmcMin > 0 || cmcMax < 16) && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200 font-mono">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200 font-mono rounded-none">
                       <span>{`CMC: ${cmcMin} - ${cmcMax >= 16 ? '16+' : cmcMax}`}</span>
                       <button type="button" onClick={() => { setCmcMin(0); setCmcMax(16); }}>
                         <X className="w-2.5 h-2.5 text-neutral-400 hover:text-white" />
@@ -434,7 +434,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   )}
 
                   {(priceMin > 0 || priceMax < 100) && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-950/60 border border-emerald-800/40 text-[11px] text-emerald-400 font-mono">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-950/60 border border-emerald-800/40 text-[11px] text-emerald-400 font-mono rounded-none">
                       <span>{`Precio: $${priceMin} - ${priceMax >= 100 ? 'Max' : `$${priceMax}`} USD (${priceSource === 'cardkingdom' ? 'CK' : 'TCG'})`}</span>
                       <button type="button" onClick={() => { setPriceMin(0); setPriceMax(100); }}>
                         <X className="w-2.5 h-2.5 text-emerald-400 hover:text-white" />
@@ -443,10 +443,10 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   )}
 
                   {selectedMechanics.map((m) => (
-                    <span key={m.id} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-400">
+                    <span key={m.id} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1F170E] border border-[#E88B00]/40 text-[11px] text-[#E88B00] rounded-none">
                       <span>{m.label}</span>
                       <button type="button" onClick={() => handleToggleMechanic(m)}>
-                        <X className="w-2.5 h-2.5 text-amber-400 hover:text-white" />
+                        <X className="w-2.5 h-2.5 text-[#E88B00] hover:text-white" />
                       </button>
                     </span>
                   ))}
@@ -454,16 +454,16 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
               )}
             </div>
 
-            {/* Grilla a Pantalla Completa */}
+            {/* Grilla a Pantalla Completa Original */}
             <section className="w-full space-y-4">
               {error && (
-                <div className="text-center py-6 px-4 text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 rounded-xl font-mono">
+                <div className="text-center py-6 px-4 text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 rounded-none font-mono">
                   {error}
                 </div>
               )}
 
               {!loading && !error && results.length === 0 && (
-                <div className="text-center py-20 text-xs text-neutral-500 font-mono">
+                <div className="text-center py-20 text-xs text-neutral-500 font-mono border border-dashed border-neutral-800 rounded-none">
                   No se encontraron cartas que coincidan con los criterios seleccionados.
                 </div>
               )}

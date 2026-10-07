@@ -1,39 +1,26 @@
 // ---------------------------------------------------------
-// COMPONENTE: TRADUCTOR INTELIGENTE EN LENGUAJE NATURAL
+// COMPONENTE: QUERY EXPLANATION BANNER (PALETA UNIFICADA)
 // ---------------------------------------------------------
 import React from 'react';
-import { Sparkles, Terminal } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 export default function QueryExplanationBanner({
-  explanationText = '',
-  scryfallQuery = '',
-  isLightMode = false,
+  explanationText,
+  scryfallQuery,
 }) {
-  if (!explanationText && !scryfallQuery) return null;
-
   return (
-    <div className={`rounded-2xl p-4 shadow-lg backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-3 transition-all ${
-      isLightMode ? 'bg-amber-500/10 text-neutral-900' : 'bg-neutral-900/70 text-neutral-100'
-    }`}>
-      <div className="flex items-start gap-3">
-        <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0 mt-0.5">
-          <Sparkles className="w-4 h-4" />
-        </div>
-        <div className="space-y-0.5">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500 font-bold block">
-            ¿Qué estás buscando?
-          </span>
-          <p className="text-xs sm:text-sm font-medium">
-            {explanationText || 'Mostrando todas las cartas que coinciden con los filtros.'}
-          </p>
-        </div>
+    <div className="p-4 border border-[#2A2733] bg-[#131217] rounded-2xl font-mono text-xs space-y-1.5 shadow-md">
+      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#E88B00]">
+        <Sparkles className="w-3.5 h-3.5" />
+        <span>¿Qué estás buscando?</span>
       </div>
-
+      <p className="text-neutral-200 text-xs font-bold leading-relaxed">
+        {explanationText}
+      </p>
       {scryfallQuery && (
-        <div className="flex items-center gap-2 self-start md:self-auto px-3 py-1.5 rounded-xl bg-black/40 text-[11px] font-mono text-neutral-400 shrink-0">
-          <Terminal className="w-3.5 h-3.5 text-amber-500" />
-          <span className="truncate max-w-xs">{scryfallQuery}</span>
-        </div>
+        <p className="text-[11px] text-neutral-400 truncate">
+          <span className="text-[#E88B00] font-bold">Query:</span> {scryfallQuery}
+        </p>
       )}
     </div>
   );
