@@ -1,6 +1,12 @@
-// ---------------------------------------------------------
-// COMPONENTE: NAVBAR CINEMATOGRÁFICO PLANO (ESTILO CRUNCHYROLL)
-// ---------------------------------------------------------
+// ============================================================================
+// COMPONENTE: NAVBAR CINEMATOGRÁFICO PLANO (BLACK MARKET & NAVEGACIÓN GLOBAL)
+// ============================================================================
+// ARQUITECTURA & REGLAS:
+// - Controla la navegación global de la aplicación entre vistas principales.
+// - Menú central con acceso directo a 'blackmarket' (Black Market / Trade).
+// - Manejo de sesión, perfil de usuario, tema (claro/oscuro) y estado de conectividad.
+// ============================================================================
+
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Home as HomeIcon,
@@ -46,7 +52,7 @@ export default function Navbar({
     { key: 'catalog', label: 'Catálogo', icon: Search },
     { key: 'binders', label: 'Colecciones', icon: Layers },
     { key: 'decks', label: 'Mazos', icon: Shield },
-    { key: 'tradewall', label: 'Muro Trade', icon: ArrowLeftRight },
+    { key: 'tradewall', label: 'Black Market', icon: ArrowLeftRight },
     { key: 'profile', label: 'Mi Perfil', icon: UserIcon }
   ];
 
@@ -78,27 +84,31 @@ export default function Navbar({
 
         {/* Menú de Navegación Central Recto */}
         <nav className="flex items-center gap-0.5 h-full">
-          {navItems.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => onNavigateTab(key)}
-              className={`flex items-center gap-2 px-4 h-16 text-xs uppercase tracking-wider font-bold transition-all relative border-b-2 ${
-                activeTab === key
-                  ? 'border-amber-500 text-amber-400 bg-neutral-900/40'
-                  : 'border-transparent text-neutral-400 hover:text-white hover:bg-neutral-900/20'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span className="hidden sm:inline">{label}</span>
-            </button>
-          ))}
+          {navItems.map(({ key, label, icon: Icon }) => {
+            const isActive = activeTab === key || (key === 'tradewall' && activeTab === 'blackmarket');
+
+            return (
+              <button
+                key={key}
+                onClick={() => onNavigateTab(key)}
+                className={`flex items-center gap-2 px-4 h-16 text-xs uppercase tracking-wider font-bold transition-all relative border-b-2 cursor-pointer ${
+                  isActive
+                    ? 'border-amber-500 text-amber-400 bg-neutral-900/40'
+                    : 'border-transparent text-neutral-400 hover:text-white hover:bg-neutral-900/20'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            );
+          })}
         </nav>
 
         {/* Menú de Usuario / Sesión + Selector de Tema */}
         <div className="flex items-center gap-3">
           <button
             onClick={onToggleTheme}
-            className={`px-3 py-2 transition flex items-center gap-1.5 text-xs font-mono font-bold border ${
+            className={`px-3 py-2 transition flex items-center gap-1.5 text-xs font-mono font-bold border cursor-pointer ${
               isLightMode
                 ? 'bg-neutral-100 border-[#D8CEBC] text-neutral-700 hover:bg-[#DDD5C5]'
                 : 'bg-neutral-900/80 border-neutral-800 text-neutral-300 hover:border-amber-500 hover:text-white'
@@ -113,7 +123,7 @@ export default function Navbar({
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
-                className={`flex items-center gap-2.5 px-3 py-2 transition text-xs border group ${
+                className={`flex items-center gap-2.5 px-3 py-2 transition text-xs border group cursor-pointer ${
                   isLightMode 
                     ? 'bg-white border-[#D8CEBC] hover:border-amber-500' 
                     : 'bg-neutral-900/80 border-neutral-800 hover:border-amber-500'
@@ -152,7 +162,7 @@ export default function Navbar({
                       setIsUserDropdownOpen(false);
                       onNavigateTab('profile');
                     }}
-                    className={`w-full flex items-center gap-2.5 px-4 py-2.5 transition font-semibold ${
+                    className={`w-full flex items-center gap-2.5 px-4 py-2.5 transition font-semibold cursor-pointer ${
                       isLightMode ? 'hover:bg-[#EAE4D7]' : 'hover:bg-neutral-800 hover:text-white'
                     }`}
                   >
@@ -165,7 +175,7 @@ export default function Navbar({
                       setIsUserDropdownOpen(false);
                       onOpenEditProfileModal();
                     }}
-                    className={`w-full flex items-center gap-2.5 px-4 py-2.5 transition font-semibold ${
+                    className={`w-full flex items-center gap-2.5 px-4 py-2.5 transition font-semibold cursor-pointer ${
                       isLightMode ? 'hover:bg-[#EAE4D7]' : 'hover:bg-neutral-800 hover:text-white'
                     }`}
                   >
@@ -178,12 +188,12 @@ export default function Navbar({
                       setIsUserDropdownOpen(false);
                       onNavigateTab('tradewall');
                     }}
-                    className={`w-full flex items-center gap-2.5 px-4 py-2.5 transition font-semibold ${
+                    className={`w-full flex items-center gap-2.5 px-4 py-2.5 transition font-semibold cursor-pointer ${
                       isLightMode ? 'hover:bg-[#EAE4D7]' : 'hover:bg-neutral-800 hover:text-white'
                     }`}
                   >
                     <Settings className="w-4 h-4 text-neutral-400" />
-                    <span>Preferencias Trade</span>
+                    <span>Preferencias Black Market</span>
                   </button>
 
                   <div className={`border-t my-1 ${
@@ -195,7 +205,7 @@ export default function Navbar({
                       setIsUserDropdownOpen(false);
                       onLogout();
                     }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-rose-500 hover:bg-rose-950/20 transition font-bold"
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-rose-500 hover:bg-rose-950/20 transition font-bold cursor-pointer"
                   >
                     <LogOut className="w-4 h-4" />
                     <span>Cerrar Sesión</span>
@@ -206,7 +216,7 @@ export default function Navbar({
           ) : (
             <button
               onClick={onOpenAuthModal}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-xs uppercase tracking-wider transition shadow-md active:scale-95"
+              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-xs uppercase tracking-wider transition shadow-md active:scale-95 cursor-pointer"
             >
               <UserIcon className="w-3.5 h-3.5" />
               <span>Ingresar</span>

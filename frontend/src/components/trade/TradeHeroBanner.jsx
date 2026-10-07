@@ -1,15 +1,15 @@
 // ============================================================================
 // COMPONENTE: BANNER HERO & BARRA DE BÚSQUEDA DEL BLACK MARKET
 // ============================================================================
-// DESCRIPCIÓN:
+// ARQUITECTURA & REGLAS:
 // - Encabezado visual cinematográfico con temática Dark / Ámbar (#E88B00).
-// - Contiene el buscador reactivo de cartas y comandantes.
-// - Botones de acción rápida: Publicar oferta y atajo a Mi Wishlist.
-// - Métricas en tiempo real (KPIs): Tratos activos, cartas deseadas y tasa COP/USD.
+// - Botones de acción rápida: 'OFRECER CARTA', 'BUSCO CARTAS' y 'MI WISHLIST'.
+// - Se retira la tasa acordada global: cada publicación define su propia tasa.
+// - KPIs en tiempo real: Tratos activos y cartas deseadas en Wishlist.
 // ============================================================================
 
 import React from 'react';
-import { Skull, Search, ArrowRight, Plus, Heart } from 'lucide-react';
+import { Skull, Search, ArrowRight, Plus, Heart, HelpCircle } from 'lucide-react';
 
 const HERO_BACKGROUND_ART = 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop';
 
@@ -20,11 +20,10 @@ export default function TradeHeroBanner({
   onTabChange,
   onOpenCreate,
   wishlistCount,
-  activeTradesCount,
-  preferredRate = 3200
+  activeTradesCount
 }) {
   return (
-    <section className="relative w-full min-h-[460px] flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#18130E] via-[#0E0C10] to-[#0C0B0E] border-b border-[#242129]">
+    <section className="relative w-full min-h-[440px] flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#18130E] via-[#0E0C10] to-[#0C0B0E] border-b border-[#242129]">
       {/* Capa de arte panorámico fusionado con máscara de degradado */}
       <div 
         className="absolute right-0 top-0 bottom-0 w-full md:w-3/4 lg:w-2/3 bg-cover bg-center pointer-events-none opacity-35 mix-blend-screen transition-opacity duration-700"
@@ -54,7 +53,7 @@ export default function TradeHeroBanner({
           </p>
         </div>
 
-        {/* Bloque: Barra de Búsqueda Integrada */}
+        {/* Barra de Búsqueda Integrada */}
         <div className="pt-2 max-w-2xl">
           <div className="flex items-center bg-[#131217] border border-[#2A2733] focus-within:border-[#E88B00] transition rounded-2xl overflow-hidden p-1">
             <div className="pl-3 text-neutral-500">
@@ -77,15 +76,24 @@ export default function TradeHeroBanner({
           </div>
         </div>
 
-        {/* Bloque: Botones de Acción Primaria */}
+        {/* Botones de Acción Primaria */}
         <div className="flex flex-wrap items-center gap-3 pt-2 font-mono">
           <button
             type="button"
-            onClick={onOpenCreate}
+            onClick={() => onOpenCreate?.('offer')}
             className="px-6 py-3 bg-[#E88B00] hover:bg-[#FF9D0A] text-black font-black text-xs tracking-wider flex items-center gap-2 rounded-xl transition shadow-lg shadow-[#E88B00]/10 cursor-pointer active:translate-y-0.5"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
             <span>OFRECER CARTA</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onOpenCreate?.('want')}
+            className="px-6 py-3 bg-[#1A1822] hover:bg-[#252230] border border-[#E88B00]/50 text-[#E88B00] hover:text-white font-bold text-xs tracking-wider flex items-center gap-2 rounded-xl transition cursor-pointer active:translate-y-0.5"
+          >
+            <HelpCircle className="w-4 h-4 text-[#E88B00]" />
+            <span>BUSCO CARTAS</span>
           </button>
 
           <button
@@ -103,27 +111,17 @@ export default function TradeHeroBanner({
         </div>
       </div>
 
-      {/* Bloque: Indicadores Clave de Desempeño (KPIs) */}
+      {/* Indicadores Clave de Desempeño (KPIs) */}
       <div className="max-w-[1920px] mx-auto w-full px-6 sm:px-10 pb-8 pt-8 relative z-10 font-mono">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="min-w-[160px] px-5 py-3.5 bg-[#131217]/90 border border-[#2A2733] flex flex-col justify-between rounded-2xl">
+          <div className="min-w-[170px] px-5 py-3.5 bg-[#131217]/90 border border-[#2A2733] flex flex-col justify-between rounded-2xl">
             <span className="text-[10px] uppercase tracking-wider text-neutral-400 mb-1">TRATOS ACTIVOS</span>
             <span className="text-2xl sm:text-3xl font-black text-white leading-none">{activeTradesCount}</span>
           </div>
 
-          <div className="min-w-[160px] px-5 py-3.5 bg-[#131217]/90 border border-[#2A2733] flex flex-col justify-between rounded-2xl">
+          <div className="min-w-[170px] px-5 py-3.5 bg-[#131217]/90 border border-[#2A2733] flex flex-col justify-between rounded-2xl">
             <span className="text-[10px] uppercase tracking-wider text-neutral-400 mb-1">EN MI WISHLIST</span>
             <span className="text-2xl sm:text-3xl font-black text-rose-400 leading-none">{wishlistCount}</span>
-          </div>
-
-          <div className="min-w-[190px] px-5 py-3.5 bg-[#131217]/90 border border-[#2A2733] flex flex-col justify-between rounded-2xl">
-            <span className="text-[10px] uppercase tracking-wider text-neutral-400 mb-1">TASA LOCAL ACORDADA</span>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl sm:text-3xl font-black text-[#E88B00] leading-none">
-                ${preferredRate.toLocaleString('es-CO')}
-              </span>
-              <span className="text-[10px] text-neutral-400">COP / 1 USD</span>
-            </div>
           </div>
         </div>
       </div>

@@ -69,7 +69,6 @@ def create_proposal(
         payload=payload
     )
 
-    # Notificar al receptor sobre la nueva propuesta
     background_tasks.add_task(
         dispatch_notification_task,
         user_id=str(proposal.receiver_id),
@@ -138,7 +137,6 @@ def accept_proposal(
         user_id=str(current_user.id)
     )
 
-    # Notificar al proponente que su oferta fue aceptada
     background_tasks.add_task(
         dispatch_notification_task,
         user_id=str(proposal.proposer_id),
@@ -168,7 +166,6 @@ def reject_proposal(
         user_id=str(current_user.id)
     )
 
-    # Determinar la contraparte a alertar
     target_id = str(proposal.receiver_id) if str(proposal.proposer_id) == str(current_user.id) else str(proposal.proposer_id)
     background_tasks.add_task(
         dispatch_notification_task,
@@ -199,7 +196,6 @@ def cancel_proposal(
         user_id=str(current_user.id)
     )
 
-    # Notificar al receptor que la oferta fue retirada
     background_tasks.add_task(
         dispatch_notification_task,
         user_id=str(proposal.receiver_id),
@@ -229,7 +225,6 @@ def complete_proposal(
         user_id=str(current_user.id)
     )
 
-    # Notificar a la contraparte que el intercambio culminó y ya puede calificar
     target_id = str(proposal.receiver_id) if str(proposal.proposer_id) == str(current_user.id) else str(proposal.proposer_id)
     background_tasks.add_task(
         dispatch_notification_task,
@@ -264,7 +259,6 @@ def submit_trade_feedback(
         payload=payload
     )
 
-    # Notificar al usuario receptor de la calificación
     background_tasks.add_task(
         dispatch_notification_task,
         user_id=result["target_user_id"],
@@ -279,6 +273,7 @@ def submit_trade_feedback(
     )
 
     return result
+
 
 # ---------------------------------------------------------
 # 5. FEED SOCIAL DE TRADE Y CONVERSIÓN A MONEDA LOCAL
@@ -311,20 +306,29 @@ def list_trade_posts(
     "/trade/posts",
     response_model=TradePostResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear una publicación de intercambio (BUSCO vs OFREZCO)"
+    summary="Crear una publicación de intercambio (BUSCO vs OFREZCO o VENTA/COMPRA)"
 )
 def create_trade_post(
     payload: TradePostCreatePayload,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Homogeneizar 'content' y 'notes'
+    if not payload.notes and payload.content:
+        payload.notes = payload.content
+
     post = TradePostService.create_post(db=db, user=current_user, payload=payload)
-    return TradePostService.get_posts(
+    
+    # Retornar el post creado directamente o consultado de forma segura
+    posts = TradePostService.get_posts(
         db=db, 
         current_user_id=str(current_user.id), 
         scope="my-posts", 
         limit=1
-    )[0]
+    )
+    if posts and len(posts) > 0:
+        return posts[0]
+    return post
 
 
 @router.post(
@@ -347,8 +351,4 @@ def toggle_like_post(
 def calculate_trade_cash_difference(
     payload: CashDifferenceCalculationRequest
 ):
-    """
-    Toma el valor en USD de ambas partes y calcula cuánto dinero en efectivo
-    (en COP u otra moneda local) debe aportar una de las partes.
-    """
     return TradePostService.calculate_cash_difference(payload)
