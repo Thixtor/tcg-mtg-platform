@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// COMPONENTE: DUAL RANGE SLIDER (SIN BLOQUEO DE THUMBS)
+// COMPONENTE: DUAL RANGE SLIDER (PUNTAS RECTAS & SIN BLOQUEO)
 // ---------------------------------------------------------
 import React from 'react';
 
@@ -26,20 +26,20 @@ export default function DualRangeSlider({
     onChangeMax(val);
   };
 
-  const activeBg = accentColor === 'emerald' ? 'bg-emerald-500' : 'bg-amber-500';
-  const thumbAccent = accentColor === 'emerald' ? 'accent-emerald-400' : 'accent-amber-400';
+  const activeBg = accentColor === 'emerald' ? 'bg-emerald-500' : 'bg-[#E88B00]';
+  const thumbAccent = accentColor === 'emerald' ? 'accent-emerald-400' : 'accent-[#E88B00]';
 
   // Si el valor mínimo está muy cerca del máximo, elevamos el z-index del mínimo para que siempre sea arrastrable
   const isMinCloserToMax = valueMin > max - (max - min) * 0.15;
 
   return (
     <div className="relative w-full h-7 flex items-center select-none">
-      {/* Pista base de fondo */}
-      <div className="absolute w-full h-2 rounded-full bg-neutral-800 pointer-events-none" />
+      {/* Pista base de fondo recta */}
+      <div className="absolute w-full h-1.5 rounded-none bg-[#2A2733] pointer-events-none" />
 
       {/* Rango activo coloreado entre ambos puntos */}
       <div
-        className={`absolute h-2 rounded-full ${activeBg} pointer-events-none transition-all duration-75`}
+        className={`absolute h-1.5 rounded-none ${activeBg} pointer-events-none transition-all duration-75`}
         style={{
           left: `${percentMin}%`,
           width: `${percentMax - percentMin}%`,
@@ -54,7 +54,7 @@ export default function DualRangeSlider({
         step={step}
         value={valueMin}
         onChange={handleMinChange}
-        className={`absolute w-full h-2 appearance-none bg-transparent cursor-pointer ${thumbAccent} ${
+        className={`absolute w-full h-1.5 appearance-none bg-transparent cursor-pointer ${thumbAccent} ${
           isMinCloserToMax ? 'z-30' : 'z-20'
         } focus:outline-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-moz-range-thumb]:pointer-events-auto pointer-events-none`}
       />
@@ -67,7 +67,7 @@ export default function DualRangeSlider({
         step={step}
         value={valueMax}
         onChange={handleMaxChange}
-        className={`absolute w-full h-2 appearance-none bg-transparent cursor-pointer ${thumbAccent} ${
+        className={`absolute w-full h-1.5 appearance-none bg-transparent cursor-pointer ${thumbAccent} ${
           isMinCloserToMax ? 'z-20' : 'z-25'
         } focus:outline-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-moz-range-thumb]:pointer-events-auto pointer-events-none`}
       />

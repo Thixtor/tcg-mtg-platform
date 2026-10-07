@@ -1,8 +1,74 @@
 // ---------------------------------------------------------
-// COMPONENTE: PANEL DE FILTROS VISUALES (PALETA UNIFICADA)
+// COMPONENTE: PANEL DE FILTROS VISUALES (BORDES REDONDEADOS)
 // ---------------------------------------------------------
 import React from 'react';
 import { RotateCcw } from 'lucide-react';
+
+function DualRangeSlider({
+  min = 0,
+  max = 16,
+  step = 1,
+  valueMin = 0,
+  valueMax = 16,
+  onChangeMin,
+  onChangeMax,
+  accentColor = 'amber',
+}) {
+  const percentMin = Math.round(((valueMin - min) / (max - min)) * 100);
+  const percentMax = Math.round(((valueMax - min) / (max - min)) * 100);
+
+  const handleMinChange = (e) => {
+    const val = Math.min(Number(e.target.value), valueMax);
+    onChangeMin(val);
+  };
+
+  const handleMaxChange = (e) => {
+    const val = Math.max(Number(e.target.value), valueMin);
+    onChangeMax(val);
+  };
+
+  const activeBg = accentColor === 'emerald' ? 'bg-emerald-500' : 'bg-[#E88B00]';
+  const thumbAccent = accentColor === 'emerald' ? 'accent-emerald-400' : 'accent-[#E88B00]';
+  const isMinCloserToMax = valueMin > max - (max - min) * 0.15;
+
+  return (
+    <div className="relative w-full h-7 flex items-center select-none">
+      <div className="absolute w-full h-2 rounded-full bg-[#2A2733] pointer-events-none" />
+
+      <div
+        className={`absolute h-2 rounded-full ${activeBg} pointer-events-none transition-all duration-75`}
+        style={{
+          left: `${percentMin}%`,
+          width: `${percentMax - percentMin}%`,
+        }}
+      />
+
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={valueMin}
+        onChange={handleMinChange}
+        className={`absolute w-full h-2 appearance-none bg-transparent cursor-pointer ${thumbAccent} ${
+          isMinCloserToMax ? 'z-30' : 'z-20'
+        } focus:outline-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-moz-range-thumb]:pointer-events-auto pointer-events-none`}
+      />
+
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={valueMax}
+        onChange={handleMaxChange}
+        className={`absolute w-full h-2 appearance-none bg-transparent cursor-pointer ${thumbAccent} ${
+          isMinCloserToMax ? 'z-20' : 'z-25'
+        } focus:outline-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-moz-range-thumb]:pointer-events-auto pointer-events-none`}
+      />
+    </div>
+  );
+}
 
 const CARD_TYPES = [
   { id: 'creature', label: 'Criatura' },
@@ -177,34 +243,30 @@ export default function VisualFilterPanel({
           </div>
         </div>
 
-        {/* 3. COSTE DE MANÁ & PRECIO DE MERCADO */}
+        {/* 3. COSTE DE MANÁ & PRECIO DE MERCADO (SLIDERS CONTINUOS REDONDEADOS) */}
         <div className="space-y-5">
           {/* Slider CMC */}
-          <div className="p-3.5 bg-[#0C0B0E] border border-[#2A2733] rounded-xl space-y-2">
+          <div className="p-4 bg-[#0C0B0E] border border-[#2A2733] rounded-xl space-y-2">
             <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
               <span className="text-neutral-400">Coste de Maná</span>
               <span className="text-[#E88B00] font-bold">
                 {cmcMin === 0 && cmcMax >= 16 ? 'Cualquier coste' : `${cmcMin} - ${cmcMax >= 16 ? '16+' : cmcMax}`}
               </span>
             </div>
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                type="range"
-                min="0"
-                max="16"
-                value={cmcMin}
-                onChange={(e) => onChangeCmcMin?.(Number(e.target.value))}
-                className="w-full accent-[#E88B00]"
-              />
-              <input
-                type="range"
-                min="0"
-                max="16"
-                value={cmcMax}
-                onChange={(e) => onChangeCmcMax?.(Number(e.target.value))}
-                className="w-full accent-[#E88B00]"
+            
+            <div className="pt-1">
+              <DualRangeSlider
+                min={0}
+                max={16}
+                step={1}
+                valueMin={cmcMin}
+                valueMax={cmcMax}
+                onChangeMin={onChangeCmcMin}
+                onChangeMax={onChangeCmcMax}
+                accentColor="amber"
               />
             </div>
+
             <div className="flex justify-between text-[9px] text-neutral-500 font-mono">
               <span>0</span>
               <span>4</span>
@@ -215,31 +277,29 @@ export default function VisualFilterPanel({
           </div>
 
           {/* Slider Precio */}
-          <div className="p-3.5 bg-[#0C0B0E] border border-[#2A2733] rounded-xl space-y-2">
+          <div className="p-4 bg-[#0C0B0E] border border-[#2A2733] rounded-xl space-y-2">
             <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
               <span className="text-neutral-400">$ Rango de Precio</span>
               <span className="text-[#E88B00] font-bold">
-                {priceMin === 0 && priceMax >= 100 ? 'Cualquier precio' : `$${priceMin} - ${priceMax >= 100 ? 'Max' : `$${priceMax}`}`}
+                {priceMin === 0 && priceMax >= 100
+                  ? 'Cualquier precio'
+                  : `$${priceMin} - ${priceMax >= 100 ? '$100+' : `$${priceMax}`}`}
               </span>
             </div>
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={priceMin}
-                onChange={(e) => onChangePriceMin?.(Number(e.target.value))}
-                className="w-full accent-[#E88B00]"
-              />
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={priceMax}
-                onChange={(e) => onChangePriceMax?.(Number(e.target.value))}
-                className="w-full accent-[#E88B00]"
+
+            <div className="pt-1">
+              <DualRangeSlider
+                min={0}
+                max={100}
+                step={1}
+                valueMin={priceMin}
+                valueMax={priceMax}
+                onChangeMin={onChangePriceMin}
+                onChangeMax={onChangePriceMax}
+                accentColor="amber"
               />
             </div>
+
             <div className="flex justify-between text-[9px] text-neutral-500 font-mono">
               <span>$0</span>
               <span>$25</span>
@@ -283,7 +343,6 @@ export default function VisualFilterPanel({
 
         {/* 4. FORMATO OFICIAL & RAREZA */}
         <div className="space-y-4">
-          {/* Formato Oficial */}
           <div className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
               Formato Oficial
@@ -296,7 +355,7 @@ export default function VisualFilterPanel({
                     key={f.id}
                     type="button"
                     onClick={() => onSelectFormat?.(isSelected ? '' : f.id)}
-                    className={`px-3 py-1.5 text-left border rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-between ${
+                    className={`px-3 py-2 text-left border rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-between ${
                       isSelected
                         ? 'bg-[#1F170E] border-[#E88B00] text-[#E88B00] shadow-sm'
                         : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500 hover:text-white'
@@ -310,7 +369,6 @@ export default function VisualFilterPanel({
             </div>
           </div>
 
-          {/* Rareza */}
           <div className="space-y-2 pt-1 border-t border-[#2A2733]">
             <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
               Rareza
@@ -323,7 +381,7 @@ export default function VisualFilterPanel({
                     key={r.id}
                     type="button"
                     onClick={() => onToggleRarity?.(r.id)}
-                    className={`py-1.5 text-center border rounded-xl text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                    className={`py-2 text-center border rounded-xl text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
                       isSelected
                         ? 'bg-[#E88B00] text-black border-[#E88B00] font-black shadow-sm'
                         : 'bg-[#0C0B0E] border-[#2A2733] text-neutral-300 hover:border-neutral-500 hover:text-white'

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// PÁGINA: CATÁLOGO MTG (RANGO DUAL COMPLETO: CMC Y PRECIO TCG)
+// PÁGINA: CATÁLOGO MTG (BORDES REDONDEADOS & SLIDERS DUALES)
 // ---------------------------------------------------------
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
@@ -33,24 +33,21 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
 
   const { openCard } = useCardModal();
 
-  // Dos modos limpios: Búsqueda Rápida y Búsqueda Avanzada
   const [searchMode, setSearchMode] = useState('quick');
 
-  // Estados de filtros
   const [inputQuery, setInputQuery] = useState('');
   const [selectedColors, setSelectedColors] = useState([]);
   const [selectedTypes, setSelectedTypes] = useState([]);
   const [selectedRarities, setSelectedRarities] = useState([]);
   const [cmcMin, setCmcMin] = useState(0);
   const [cmcMax, setCmcMax] = useState(16);
-  const [isLegendary, setIsLegendary] = useState(null); // null, true, false
+  const [isLegendary, setIsLegendary] = useState(null);
   const [priceMin, setPriceMin] = useState(0);
   const [priceMax, setPriceMax] = useState(100);
-  const [priceSource, setPriceSource] = useState('tcgplayer'); // 'tcgplayer' | 'cardkingdom'
+  const [priceSource, setPriceSource] = useState('tcgplayer');
   const [format, setFormat] = useState('');
   const [selectedMechanics, setSelectedMechanics] = useState([]);
 
-  // Recepción de búsqueda externa
   useEffect(() => {
     if (initialSearch && initialSearch.trim()) {
       setSearchMode('quick');
@@ -69,7 +66,6 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
     });
   };
 
-  // Compilación de sintaxis Scryfall
   const compiledAdvancedQuery = useMemo(() => {
     if (searchMode === 'quick') return searchTerm;
 
@@ -83,21 +79,17 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
     selectedTypes.forEach((t) => tokens.push(`t:${t}`));
     selectedRarities.forEach((r) => tokens.push(`r:${r}`));
 
-    // Condición de Legendaria
     if (isLegendary === true) tokens.push('t:legendary');
     else if (isLegendary === false) tokens.push('-t:legendary');
 
-    // Rango Dual de Coste de Maná (CMC)
     if (cmcMin > 0) tokens.push(`mv>=${cmcMin}`);
     if (cmcMax < 16) tokens.push(`mv<=${cmcMax}`);
 
-    // Rango Dual de Precio (Min y Max)
     if (priceMin > 0) tokens.push(`usd>=${priceMin}`);
     if (priceMax < 100) tokens.push(`usd<=${priceMax}`);
 
     if (format) tokens.push(`f:${format}`);
 
-    // Mecánicas seleccionadas
     selectedMechanics.forEach((m) => {
       if (m.customQuery) tokens.push(m.customQuery);
       else if (m.scryfallKw) tokens.push(`kw:"${m.scryfallKw}"`);
@@ -116,12 +108,10 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
     cmcMax,
     priceMin,
     priceMax,
-    priceSource,
     format,
     selectedMechanics,
   ]);
 
-  // Explicación en lenguaje natural
   const naturalExplanation = useMemo(() => {
     const parts = [];
 
@@ -150,7 +140,6 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
       parts.push(selectedColors.map((c) => colorLabels[c] || c).join('/'));
     }
 
-    // Explicación de CMC
     if (cmcMin > 0 && cmcMax < 16) {
       parts.push(`de coste entre ${cmcMin} y ${cmcMax}`);
     } else if (cmcMin > 0) {
@@ -159,7 +148,6 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
       parts.push(`de coste ${cmcMax} o menos`);
     }
 
-    // Explicación de Precio con referencia exacta
     const sourceName = priceSource === 'cardkingdom' ? 'Card Kingdom' : 'TCGplayer Market';
     if (priceMin > 0 && priceMax < 100) {
       parts.push(`con precio entre $${priceMin} y $${priceMax} USD (${sourceName})`);
@@ -180,7 +168,6 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
     return parts.join(' ');
   }, [isLegendary, selectedTypes, selectedColors, cmcMin, cmcMax, priceMin, priceMax, priceSource, selectedMechanics, format]);
 
-  // Sincronización automática en modo avanzado
   useEffect(() => {
     if (searchMode === 'advanced') {
       setSearchTerm(compiledAdvancedQuery);
@@ -219,11 +206,11 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
 
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
-      isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0B0B0B] text-neutral-100'
+      isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0C0B0E] text-neutral-100'
     }`}>
       
-      {/* 1. HERO BANNER FULL-BLEED (BORDES RECTOS) */}
-      <section className="relative w-full overflow-hidden select-none border-b border-[#242129]">
+      {/* 1. HERO BANNER FULL-BLEED */}
+      <section className="relative w-full overflow-hidden select-none border-b border-[#242129] bg-gradient-to-b from-[#18130E] via-[#0E0C10] to-[#0C0B0E]">
         <div 
           className="absolute right-0 top-0 bottom-0 w-full sm:w-2/3 md:w-1/2 bg-cover bg-center pointer-events-none opacity-20"
           style={{
@@ -233,18 +220,16 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
           }}
         />
 
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0B0B0B]/80 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0C0B0E]/90 pointer-events-none" />
 
         <div className="max-w-[1920px] mx-auto px-6 sm:px-8 pt-10 pb-8 relative z-10 space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#1F170E] border border-[#E88B00]/40 text-[#E88B00] text-[11px] font-mono font-bold tracking-wider uppercase rounded-none">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#1F170E] border border-[#E88B00]/40 text-[#E88B00] text-xs font-mono font-bold tracking-wider uppercase">
             <Compass className="w-3.5 h-3.5" />
             <span>Catálogo Oficial & Cotizaciones en Tiempo Real</span>
           </div>
 
           <div className="space-y-2 max-w-4xl">
-            <h1 className={`text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tight leading-none ${
-              isLightMode ? 'text-neutral-900' : 'text-white'
-            }`}>
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tight leading-none text-white">
               Explorador de Cartas
             </h1>
             <p className="text-xs sm:text-sm text-neutral-400 font-mono max-w-2xl leading-relaxed">
@@ -256,10 +241,10 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
             <button
               type="button"
               onClick={() => setSearchMode('quick')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold transition-all cursor-pointer rounded-none border ${
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 searchMode === 'quick'
-                  ? 'bg-[#E88B00] text-black font-extrabold border-[#E88B00] shadow-lg shadow-[#E88B00]/20'
-                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
+                  ? 'bg-[#E88B00] text-black font-extrabold shadow-lg shadow-[#E88B00]/20'
+                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
               }`}
             >
               <Search className="w-3.5 h-3.5" />
@@ -269,10 +254,10 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
             <button
               type="button"
               onClick={() => setSearchMode('advanced')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold transition-all cursor-pointer rounded-none border ${
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 searchMode === 'advanced'
-                  ? 'bg-[#E88B00] text-black font-extrabold border-[#E88B00] shadow-lg shadow-[#E88B00]/20'
-                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
+                  ? 'bg-[#E88B00] text-black font-extrabold shadow-lg shadow-[#E88B00]/20'
+                  : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -285,7 +270,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
       {/* 2. ÁREA DE TRABAJO */}
       <div className="flex-1 max-w-[1920px] mx-auto w-full px-6 sm:px-8 pb-12 space-y-6 pt-6">
         
-        {/* MODO 1: BÚSQUEDA RÁPIDA (COMPONENTES ORIGINALES PRESERVADOS) */}
+        {/* MODO 1: BÚSQUEDA RÁPIDA */}
         {searchMode === 'quick' ? (
           <div className="space-y-6">
             <SmartSearchBar
@@ -302,11 +287,11 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
             />
           </div>
         ) : (
-          /* MODO 2: BÚSQUEDA AVANZADA INTEGRAL (COMPONENTES ORIGINALES PRESERVADOS) */
+          /* MODO 2: BÚSQUEDA AVANZADA INTEGRAL */
           <div className="space-y-6">
             
-            {/* Input por nombre (BORDES RECTOS) */}
-            <div className="flex items-center gap-3 bg-neutral-900/80 border border-neutral-800 rounded-none px-4 py-3 shadow-lg focus-within:border-[#E88B00] transition-all">
+            {/* Input por nombre */}
+            <div className="flex items-center gap-3 bg-[#131217] border border-[#2A2733] rounded-2xl px-4 py-3 shadow-lg focus-within:border-[#E88B00] transition-all">
               <Search className="w-4 h-4 text-neutral-400 flex-shrink-0" />
               <input
                 id="advanced-catalog-search-input"
@@ -315,7 +300,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                 value={inputQuery}
                 onChange={(e) => setInputQuery(e.target.value)}
                 placeholder="Buscar por nombre en inglés (ej. Lightning Bolt, Rhystic Study)..."
-                className="w-full bg-transparent text-xs sm:text-sm outline-none font-mono text-neutral-100 placeholder-neutral-500 rounded-none"
+                className="w-full bg-transparent text-xs sm:text-sm outline-none font-mono text-neutral-100 placeholder-neutral-500"
               />
               {inputQuery && (
                 <button
@@ -329,14 +314,14 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
               <button
                 type="button"
                 onClick={() => setSearchTerm(compiledAdvancedQuery)}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase tracking-wider text-black bg-[#E88B00] hover:bg-[#FF9D0A] rounded-none transition shadow-md active:scale-95 flex-shrink-0 cursor-pointer"
+                className="flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-black bg-[#E88B00] hover:bg-[#FF9D0A] rounded-xl transition shadow-md active:scale-95 flex-shrink-0 cursor-pointer"
               >
                 <span>Buscar</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            {/* Panel de Filtros Visuales Original */}
+            {/* Panel de Filtros Visuales */}
             <VisualFilterPanel
               selectedTypes={selectedTypes}
               onToggleType={(t) => setSelectedTypes((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
@@ -362,22 +347,22 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
               isLightMode={isLightMode}
             />
 
-            {/* Panel de Mecánicas Original */}
+            {/* Panel de Mecánicas */}
             <MechanicsFilterPanel
               selectedMechanics={selectedMechanics.map((m) => m.id)}
               onToggleMechanic={handleToggleMechanic}
               isLightMode={isLightMode}
             />
 
-            {/* Banner en Lenguaje Natural Original */}
+            {/* Banner de Lenguaje Natural */}
             <QueryExplanationBanner
               explanationText={hasActiveFilters ? naturalExplanation : 'Mostrando cartas populares de Magic: The Gathering.'}
               scryfallQuery={compiledAdvancedQuery}
               isLightMode={isLightMode}
             />
 
-            {/* Barra de Estado & Chips Activos (BORDES RECTOS) */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 pb-2 border-b border-neutral-800 font-mono text-xs">
+            {/* Barra de Estado & Chips Activos */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 pb-2 border-b border-[#2A2733] font-mono text-xs">
               <div className="flex items-center gap-3">
                 <span className="text-neutral-400">
                   <strong className="text-[#E88B00] font-bold">{results.length}</strong> cartas encontradas
@@ -394,11 +379,11 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                 )}
               </div>
 
-              {/* Chips de filtros activos (BORDES RECTOS) */}
+              {/* Chips de filtros activos redondeados */}
               {hasActiveFilters && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {isLegendary !== null && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1F170E] border border-[#E88B00]/40 text-[11px] text-[#E88B00] rounded-none">
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#1F170E] border border-[#E88B00]/40 text-[11px] text-[#E88B00]">
                       <span>{isLegendary ? 'Solo Legendarias' : 'No Legendarias'}</span>
                       <button type="button" onClick={() => setIsLegendary(null)}>
                         <X className="w-2.5 h-2.5 text-[#E88B00] hover:text-white" />
@@ -407,7 +392,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   )}
 
                   {selectedColors.map((c) => (
-                    <span key={c} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200 rounded-none">
+                    <span key={c} className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#131217] border border-[#2A2733] text-[11px] text-neutral-200">
                       <i className={`ms ms-${c} ms-cost text-[10px]`} />
                       <button type="button" onClick={() => setSelectedColors(prev => prev.filter(x => x !== c))}>
                         <X className="w-2.5 h-2.5 text-neutral-400 hover:text-white" />
@@ -416,7 +401,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   ))}
 
                   {selectedTypes.map((t) => (
-                    <span key={t} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200 capitalize rounded-none">
+                    <span key={t} className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#131217] border border-[#2A2733] text-[11px] text-neutral-200 capitalize">
                       <span>{t}</span>
                       <button type="button" onClick={() => setSelectedTypes(prev => prev.filter(x => x !== t))}>
                         <X className="w-2.5 h-2.5 text-neutral-400 hover:text-white" />
@@ -425,7 +410,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   ))}
 
                   {(cmcMin > 0 || cmcMax < 16) && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-200 font-mono rounded-none">
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#131217] border border-[#2A2733] text-[11px] text-neutral-200 font-mono">
                       <span>{`CMC: ${cmcMin} - ${cmcMax >= 16 ? '16+' : cmcMax}`}</span>
                       <button type="button" onClick={() => { setCmcMin(0); setCmcMax(16); }}>
                         <X className="w-2.5 h-2.5 text-neutral-400 hover:text-white" />
@@ -434,7 +419,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   )}
 
                   {(priceMin > 0 || priceMax < 100) && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-950/60 border border-emerald-800/40 text-[11px] text-emerald-400 font-mono rounded-none">
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/40 text-[11px] text-emerald-400 font-mono">
                       <span>{`Precio: $${priceMin} - ${priceMax >= 100 ? 'Max' : `$${priceMax}`} USD (${priceSource === 'cardkingdom' ? 'CK' : 'TCG'})`}</span>
                       <button type="button" onClick={() => { setPriceMin(0); setPriceMax(100); }}>
                         <X className="w-2.5 h-2.5 text-emerald-400 hover:text-white" />
@@ -443,7 +428,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                   )}
 
                   {selectedMechanics.map((m) => (
-                    <span key={m.id} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1F170E] border border-[#E88B00]/40 text-[11px] text-[#E88B00] rounded-none">
+                    <span key={m.id} className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#1F170E] border border-[#E88B00]/40 text-[11px] text-[#E88B00]">
                       <span>{m.label}</span>
                       <button type="button" onClick={() => handleToggleMechanic(m)}>
                         <X className="w-2.5 h-2.5 text-[#E88B00] hover:text-white" />
@@ -454,16 +439,16 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
               )}
             </div>
 
-            {/* Grilla a Pantalla Completa Original */}
+            {/* Grilla a Pantalla Completa */}
             <section className="w-full space-y-4">
               {error && (
-                <div className="text-center py-6 px-4 text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 rounded-none font-mono">
+                <div className="text-center py-6 px-4 text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 rounded-2xl font-mono">
                   {error}
                 </div>
               )}
 
               {!loading && !error && results.length === 0 && (
-                <div className="text-center py-20 text-xs text-neutral-500 font-mono border border-dashed border-neutral-800 rounded-none">
+                <div className="text-center py-20 text-xs text-neutral-500 font-mono border border-dashed border-[#2A2733] bg-[#131217]/50 rounded-2xl">
                   No se encontraron cartas que coincidan con los criterios seleccionados.
                 </div>
               )}
