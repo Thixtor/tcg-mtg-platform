@@ -1,5 +1,5 @@
 // ---------------------------------------------------------
-// COMPONENTE: PANEL DE MECÁNICAS (PALETA UNIFICADA)
+// COMPONENTE: PANEL DE PALABRAS CLAVE OFICIALES (MTG KEYWORDS)
 // ---------------------------------------------------------
 import React, { useState, useMemo } from 'react';
 import { 
@@ -9,17 +9,16 @@ import {
   Shield, 
   Swords, 
   Zap, 
-  RotateCcw, 
   Sparkles, 
   Skull,
-  Coins,
-  TrendingUp,
   Eye,
+  RotateCcw,
+  Flame,
   Layers
 } from 'lucide-react';
 
 export const MECHANICS_DATA = [
-  // --- COMBATE ---
+  // --- COMBATE Y EVASIÓN ---
   { id: 'flying', label: 'Vuela (Flying)', category: 'combat', scryfallKw: 'flying', icon: Zap },
   { id: 'trample', label: 'Arrolla (Trample)', category: 'combat', scryfallKw: 'trample', icon: Zap },
   { id: 'deathtouch', label: 'Toque mortal (Deathtouch)', category: 'combat', scryfallKw: 'deathtouch', icon: Skull },
@@ -29,57 +28,37 @@ export const MECHANICS_DATA = [
   { id: 'menace', label: 'Amenaza (Menace)', category: 'combat', scryfallKw: 'menace', icon: Shield },
   { id: 'vigilance', label: 'Vigilancia (Vigilance)', category: 'combat', scryfallKw: 'vigilance', icon: Shield },
   { id: 'reach', label: 'Alcance (Reach)', category: 'combat', scryfallKw: 'reach', icon: Shield },
-  { id: 'lifelink', label: 'Vínculo vital (Lifelink)', category: 'combat', scryfallKw: 'lifelink', icon: TrendingUp },
+  { id: 'lifelink', label: 'Vínculo vital (Lifelink)', category: 'combat', scryfallKw: 'lifelink', icon: Sparkles },
 
-  // --- PROTECCIÓN ---
+  // --- PROTECCIÓN Y DEFENSA ---
   { id: 'hexproof', label: 'Antimaleficio (Hexproof)', category: 'protection', scryfallKw: 'hexproof', icon: Shield },
   { id: 'indestructible', label: 'Indestructible', category: 'protection', scryfallKw: 'indestructible', icon: Shield },
-  { id: 'ward', label: 'Protección (Ward)', category: 'protection', scryfallKw: 'ward', icon: Shield },
+  { id: 'ward', label: 'Protección con coste (Ward)', category: 'protection', scryfallKw: 'ward', icon: Shield },
   { id: 'shroud', label: 'Velo (Shroud)', category: 'protection', scryfallKw: 'shroud', icon: Shield },
-  { id: 'protection_from', label: 'Protección contra...', category: 'protection', customQuery: 'o:"protection from"', icon: Shield },
 
-  // --- CONTROL ---
-  { id: 'counterspell', label: 'Contrarrestar hechizo', category: 'control', customQuery: 'o:"counter target"', icon: Shield },
-  { id: 'board_wipe', label: 'Ira / Board Wipe', category: 'control', customQuery: '(o:"destroy all" or o:"exile all")', icon: Skull },
-  { id: 'bounce', label: 'Regresar a la mano (Bounce)', category: 'control', customQuery: 'o:"return target" and o:"to its owner\'s hand"', icon: RotateCcw },
-  { id: 'exile_target', label: 'Exiliar objetivo', category: 'control', customQuery: 'o:"exile target"', icon: Eye },
+  // --- CEMENTERIO Y UTILIDAD ---
+  { id: 'scry', label: 'Adivinar (Scry)', category: 'utility', scryfallKw: 'scry', icon: Eye },
+  { id: 'surveil', label: 'Vigilar (Surveil)', category: 'utility', scryfallKw: 'surveil', icon: Eye },
+  { id: 'flashback', label: 'Retrospectiva (Flashback)', category: 'utility', scryfallKw: 'flashback', icon: RotateCcw },
+  { id: 'dredge', label: 'Dragar (Dredge)', category: 'utility', scryfallKw: 'dredge', icon: Skull },
+  { id: 'escape', label: 'Escapatoria (Escape)', category: 'utility', scryfallKw: 'escape', icon: RotateCcw },
 
-  // --- VENTAJA ---
-  { id: 'card_draw', label: 'Robo de cartas (Draw)', category: 'advantage', customQuery: '(o:"draw a card" or o:"draws a card")', icon: Eye },
-  { id: 'scry', label: 'Adivinar (Scry)', category: 'advantage', scryfallKw: 'scry', icon: Eye },
-  { id: 'surveil', label: 'Vigilar (Surveil)', category: 'advantage', scryfallKw: 'surveil', icon: Eye },
-  { id: 'tutor', label: 'Tutor (Buscar en biblioteca)', category: 'advantage', customQuery: 'o:"search your library for"', icon: Search },
-
-  // --- CEMENTERIO ---
-  { id: 'flashback', label: 'Retrospectiva (Flashback)', category: 'graveyard', scryfallKw: 'flashback', icon: RotateCcw },
-  { id: 'reanimate', label: 'Reanimar criatura', category: 'graveyard', customQuery: 'o:"return" and o:"from your graveyard to the battlefield"', icon: Skull },
-  { id: 'dredge', label: 'Dragar (Dredge)', category: 'graveyard', scryfallKw: 'dredge', icon: Skull },
-  { id: 'escape', label: 'Escapatoria (Escape)', category: 'graveyard', scryfallKw: 'escape', icon: RotateCcw },
-  { id: 'mill', label: 'Dañar biblioteca (Mill)', category: 'graveyard', scryfallKw: 'mill', icon: Layers },
-
-  // --- SINERGIAS (CON CONTADORES -1/-1 Y ARQUETIPOS) ---
-  { id: 'minus_counters', label: 'Contadores -1/-1', category: 'synergy', customQuery: 'o:"-1/-1 counter"', icon: Skull },
-  { id: 'plus_counters', label: 'Contadores +1/+1', category: 'synergy', customQuery: 'o:"+1/+1 counter"', icon: TrendingUp },
-  { id: 'proliferate', label: 'Proliferar (Proliferate)', category: 'synergy', scryfallKw: 'proliferate', icon: Sparkles },
-  { id: 'aristocrats', label: 'Sacrificio / Aristocrats', category: 'synergy', customQuery: '(o:"sacrifice a creature" or o:"whenever a creature dies")', icon: Skull },
-  { id: 'tokens', label: 'Fichas de Criatura (Tokens)', category: 'synergy', customQuery: 'o:"create" and (o:"token" or o:"tokens")', icon: Layers },
-  { id: 'treasures', label: 'Tesoros (Treasure)', category: 'synergy', customQuery: 'o:"Treasure token"', icon: Coins },
-  { id: 'ramp', label: 'Rampa de tierras (Ramp)', category: 'synergy', customQuery: '(o:"search your library for a" and o:"land card")', icon: TrendingUp },
-  { id: 'blink', label: 'Blink / Flicker', category: 'synergy', customQuery: '(o:"exile" and o:"return it to the battlefield")', icon: RotateCcw },
-  { id: 'spellslinger', label: 'Spellslinger / Magecraft', category: 'synergy', customQuery: '(o:"whenever you cast an instant or sorcery" or o:"magecraft")', icon: Sparkles },
-  { id: 'lifegain', label: 'Ganancia de Vidas', category: 'synergy', customQuery: '(o:"whenever you gain life" or o:"gains that much life")', icon: TrendingUp },
-  { id: 'infect', label: 'Infectar / Tóxico', category: 'synergy', customQuery: '(kw:infect or kw:toxic)', icon: Skull },
-  { id: 'landfall', label: 'Aterrizaje (Landfall)', category: 'synergy', scryfallKw: 'landfall', icon: Layers }
+  // --- HABILIDADES DE REGLAS Y DISPARADAS ---
+  { id: 'proliferate', label: 'Proliferar (Proliferate)', category: 'triggered', scryfallKw: 'proliferate', icon: Sparkles },
+  { id: 'infect', label: 'Infectar (Infect)', category: 'triggered', scryfallKw: 'infect', icon: Skull },
+  { id: 'toxic', label: 'Tóxico (Toxic)', category: 'triggered', scryfallKw: 'toxic', icon: Skull },
+  { id: 'landfall', label: 'Aterrizaje (Landfall)', category: 'triggered', scryfallKw: 'landfall', icon: Layers },
+  { id: 'magecraft', label: 'Hechicería (Magecraft)', category: 'triggered', scryfallKw: 'magecraft', icon: Flame },
+  { id: 'prowess', label: 'Destreza (Prowess)', category: 'triggered', scryfallKw: 'prowess', icon: Swords },
+  { id: 'convoke', label: 'Convocar (Convoke)', category: 'triggered', scryfallKw: 'convoke', icon: Sparkles }
 ];
 
 const CATEGORIES = [
   { id: 'all', label: 'Todas' },
   { id: 'combat', label: 'Combate' },
   { id: 'protection', label: 'Protección' },
-  { id: 'control', label: 'Control' },
-  { id: 'advantage', label: 'Ventaja' },
-  { id: 'graveyard', label: 'Cementerio' },
-  { id: 'synergy', label: 'Sinergia' }
+  { id: 'utility', label: 'Utilidad y Cementerio' },
+  { id: 'triggered', label: 'Habilidades Disparadas' }
 ];
 
 export default function MechanicsFilterPanel({
@@ -108,21 +87,21 @@ export default function MechanicsFilterPanel({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#2A2733] pb-3">
         <div>
           <span className="text-[10px] font-bold text-[#E88B00] uppercase tracking-wider block">
-            Mecánicas y Efectos Clave
+            Palabras Clave Oficiales (Keywords)
           </span>
           <h3 className="text-sm font-black text-white tracking-tight">
-            Filtra cartas por lo que hacen en el campo de batalla
+            Filtra cartas por habilidades de reglas de Magic: The Gathering
           </h3>
         </div>
 
-        {/* Buscador de efectos */}
+        {/* Buscador de palabras clave */}
         <div className="relative w-full sm:w-64">
           <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
-            placeholder="Buscar efecto o habilidad..."
+            placeholder="Buscar palabra clave..."
             className="w-full pl-9 pr-3 py-2 bg-[#0C0B0E] border border-[#2A2733] focus:border-[#E88B00] text-xs text-white placeholder-neutral-500 outline-none rounded-xl"
           />
         </div>
@@ -149,7 +128,7 @@ export default function MechanicsFilterPanel({
         })}
       </div>
 
-      {/* BOTONES DE EFECTOS */}
+      {/* BOTONES DE PALABRAS CLAVE */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 pt-1">
         {visibleMechanics.map((mech) => {
           const isSelected = selectedMechanics.includes(mech.id);
@@ -181,7 +160,7 @@ export default function MechanicsFilterPanel({
             onClick={() => setIsExpanded(!isExpanded)}
             className="text-[11px] text-neutral-400 hover:text-white inline-flex items-center gap-1 font-bold tracking-wider uppercase cursor-pointer"
           >
-            <span>{isExpanded ? 'Ver menos' : `Ver todos los efectos (${filteredMechanics.length})`}</span>
+            <span>{isExpanded ? 'Ver menos' : `Ver todas las palabras clave (${filteredMechanics.length})`}</span>
             {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
         </div>
