@@ -1,6 +1,14 @@
-// ---------------------------------------------------------
-// PÁGINA: ORQUESTADOR PRINCIPAL (TIENDA DE PRECIOS VINCULADA)
-// ---------------------------------------------------------
+// ============================================================================
+// PÁGINA: ORQUESTADOR PRINCIPAL DE COLECCIONES / BINDERS (POO / DDD)
+// ============================================================================
+// ARQUITECTURA & REGLAS:
+// - Administra las colecciones físicas (UserCard / Collection) y su stock real.
+// - Soporta ajuste de cantidades (+1, -1) directamente desde el workspace.
+// - Implementa actualización optimista en memoria para respuesta táctil inmediata
+//   y sincronización en segundo plano con el backend mediante updateCollectionCardApi.
+// - Recalcula métricas de valor y conteo total de cartas en tiempo real.
+// ============================================================================
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Layers } from 'lucide-react';
 
@@ -9,6 +17,8 @@ import {
   getUserCollectionsApi, 
   createMyCollectionApi, 
   getCollectionCardsApi, 
+  updateCollectionCardApi,
+  removeCardFromCollectionApi,
   deleteCollectionApi 
 } from '@/api/collections';
 
@@ -89,7 +99,7 @@ export default function CollectionsPage({
     );
   }
 
-  // 1. Cargar colecciones
+  // 1. Cargar colecciones del usuario
   const fetchCollections = useCallback(async (signal) => {
     if (!userId && !hasSession) {
       setLoadingCollections(false);
@@ -124,7 +134,7 @@ export default function CollectionsPage({
     return () => ctrl.abort();
   }, [fetchCollections]);
 
-  // 2. Cargar cartas de la colección seleccionada
+  // 2. Cargar cartas de la colección activa
   const refreshCollectionCards = useCallback(async (collectionId) => {
     const targetId = collectionId || selectedCollection?.id;
     if (!targetId) return;
@@ -136,12 +146,14 @@ export default function CollectionsPage({
       const safeCards = Array.isArray(cards) ? cards : [];
       setCollectionCards(safeCards);
 
-      // Sincronizar el conteo de la colección seleccionada
+      // Calcular total de copias sumando quantities individuales
+      const totalCopies = safeCards.reduce((acc, c) => acc + (c.quantity || 1), 0);
+
       setCollections((prev) =>
-        prev.map((c) => (c.id === targetId ? { ...c, card_count: safeCards.length } : c))
+        prev.map((c) => (c.id === targetId ? { ...c, card_count: totalCopies } : c))
       );
       setSelectedCollection((prev) =>
-        prev && prev.id === targetId ? { ...prev, card_count: safeCards.length } : prev
+        prev && prev.id === targetId ? { ...prev, card_count: totalCopies } : prev
       );
     } catch (err) {
       setErrorMsg(parseApiError(err, 'No fue posible recargar las cartas de esta carpeta.'));
@@ -184,6 +196,56 @@ export default function CollectionsPage({
     setCollections((prev) =>
       prev.map((c) => (c.id === collection.id ? { ...c, is_favorite: !c.is_favorite } : c))
     );
+  };
+
+  // --------------------------------------------------------------------------
+  // AJUSTE RÁPIDO DE COPIAS (+ / -) Y ELIMINACIÓN DIRECTA
+  // --------------------------------------------------------------------------
+  const handleUpdateCardQuantity = async (cardId, delta) => {
+    if (!selectedCollection?.id) return;
+
+    const currentCard = collectionCards.find((c) => c.id === cardId);
+    if (!currentCard) return;
+
+    const oldQty = currentCard.quantity || 1;
+    const newQty = oldQty + delta;
+
+    if (newQty <= 0) {
+      const confirmRemove = window.confirm(`¿Deseas quitar "${currentCard.name || 'esta carta'}" de la carpeta?`);
+      if (!confirmRemove) return;
+      return handleRemoveCard(cardId);
+    }
+
+    // Actualización optimista inmediata en memoria
+    setCollectionCards((prev) =>
+      prev.map((c) => (c.id === cardId ? { ...c, quantity: newQty } : c))
+    );
+
+    try {
+      await updateCollectionCardApi(selectedCollection.id, cardId, { quantity: newQty });
+    } catch (err) {
+      console.error('[CollectionsPage] Error actualizando cantidad:', err);
+      // Revertir si falla en el backend
+      setCollectionCards((prev) =>
+        prev.map((c) => (c.id === cardId ? { ...c, quantity: oldQty } : c))
+      );
+      setErrorMsg('No se pudo actualizar la cantidad en el servidor.');
+    }
+  };
+
+  const handleRemoveCard = async (cardId) => {
+    if (!selectedCollection?.id) return;
+
+    const previousList = [...collectionCards];
+    setCollectionCards((prev) => prev.filter((c) => c.id !== cardId));
+
+    try {
+      await removeCardFromCollectionApi(selectedCollection.id, cardId);
+    } catch (err) {
+      console.error('[CollectionsPage] Error eliminando carta:', err);
+      setCollectionCards(previousList);
+      setErrorMsg('No se pudo eliminar la carta de la carpeta.');
+    }
   };
 
   // Métricas globales recalculadas con la tienda seleccionada
@@ -266,6 +328,8 @@ export default function CollectionsPage({
           onNavigateToCatalog={onNavigateToCatalog}
           onCardAdded={() => refreshCollectionCards(selectedCollection.id)}
           onRefreshCollection={() => refreshCollectionCards(selectedCollection.id)}
+          onUpdateQuantity={handleUpdateCardQuantity}
+          onRemoveCard={handleRemoveCard}
         />
       ) : (
         <CollectionsDashboardView

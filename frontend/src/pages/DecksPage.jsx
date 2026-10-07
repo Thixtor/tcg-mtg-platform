@@ -1,6 +1,14 @@
-// ---------------------------------------------------------
+// ============================================================================
 // PÁGINA: ORQUESTADOR Y AUDITOR DE MAZOS CONTRA INVENTARIO (MTG)
-// ---------------------------------------------------------
+// ============================================================================
+// ARQUITECTURA & REGLAS:
+// - Audita en tiempo real las cartas del mazo contra la colección física real.
+// - Conecta el botón "Buscar Trade" del sidebar transmitiendo el nombre exacto
+//   de la carta a TradeWallPage para activar la búsqueda instantánea.
+// - Sincroniza las cartas faltantes (FALTANTE) con la Wishlist activa del backend
+//   mediante syncDeckMissingToWishlistApi y redirige al Black Market.
+// ============================================================================
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Shield, Loader2, Sparkles, PlusCircle } from 'lucide-react';
 
@@ -10,7 +18,8 @@ import {
   getPublicDeckDetailApi,
   forkDeckApi,
   updateDeckCardApi, 
-  removeCardFromDeckApi 
+  removeCardFromDeckApi,
+  syncDeckMissingToWishlistApi
 } from '@/api/decks.api';
 
 import AddCardInline from '@/components/decks/AddCardInline';
@@ -70,6 +79,7 @@ export default function DecksPage({
   const [isLoadingCards, setIsLoadingCards] = useState(false);
   const [deckActionError, setDeckActionError] = useState(null);
   const [wishlistSuccessMsg, setWishlistSuccessMsg] = useState(null);
+  const [isSyncingWishlist, setIsSyncingWishlist] = useState(false);
 
   // Estados visuales del Workspace
   const [viewMode, setViewMode] = useState('text');
@@ -209,7 +219,7 @@ export default function DecksPage({
   const displayCard = hoveredCard || commanders[0] || deckCards[0];
   const legalityReport = useMemo(() => validateDeckLegality(deckCards, activeDeck?.format || 'commander'), [deckCards, activeDeck]);
 
-  // Operaciones sobre cartas
+  // Operaciones sobre cartas del mazo
   const handleUpdateQuantity = async (card, delta) => {
     if (!isOwner) return;
     setDeckActionError(null);
@@ -264,16 +274,54 @@ export default function DecksPage({
     }
   };
 
-  // Conectar con Wishlist de Trade: exportar faltantes
-  const handleExportMissingToWishlist = () => {
+  // --------------------------------------------------------------------------
+  // INTEGRACIÓN CON TRADE: BUSCAR CARTA DIRECTA O EXPORTAR FALTANTES
+  // --------------------------------------------------------------------------
+  const handleNavigateToTrade = (cardNameOrParams) => {
+    if (!onNavigateToTradeWall) return;
+
+    if (typeof cardNameOrParams === 'string' && cardNameOrParams.trim()) {
+      // Búsqueda directa disparada desde el botón de Trade de la carta
+      onNavigateToTradeWall({
+        tab: 'explore',
+        cardName: cardNameOrParams.trim()
+      });
+    } else if (typeof cardNameOrParams === 'object' && cardNameOrParams !== null) {
+      onNavigateToTradeWall(cardNameOrParams);
+    } else {
+      onNavigateToTradeWall({ tab: 'explore' });
+    }
+  };
+
+  const handleExportMissingToWishlist = async () => {
+    if (!currentSelectedId || isSyncingWishlist) return;
+
     const missingCards = deckCards.filter((c) => c.status === 'FALTANTE');
     if (missingCards.length === 0) return;
-    
-    setWishlistSuccessMsg(`Se añadieron ${missingCards.length} cartas faltantes a tu Wishlist de Trade.`);
-    setTimeout(() => setWishlistSuccessMsg(null), 4000);
-    
-    if (onNavigateToTradeWall) {
-      setTimeout(() => onNavigateToTradeWall(), 1200);
+
+    setIsSyncingWishlist(true);
+    setDeckActionError(null);
+
+    try {
+      // 1. Sincronización real con el endpoint del backend
+      const result = await syncDeckMissingToWishlistApi(currentSelectedId);
+      setWishlistSuccessMsg(result?.message || `Se añadieron ${missingCards.length} cartas faltantes a tu Wishlist de Trade.`);
+      
+      // 2. Redirección al Muro de Trade activando la pestaña de Wishlist
+      if (onNavigateToTradeWall) {
+        setTimeout(() => {
+          onNavigateToTradeWall({
+            tab: 'wishlist',
+            deckId: currentSelectedId
+          });
+        }, 1000);
+      }
+    } catch (err) {
+      console.error('[DecksPage] Error sincronizando Wishlist:', err);
+      setDeckActionError(parseApiError(err, 'No fue posible sincronizar las cartas faltantes con la Wishlist.'));
+    } finally {
+      setIsSyncingWishlist(false);
+      setTimeout(() => setWishlistSuccessMsg(null), 4000);
     }
   };
 
@@ -301,7 +349,7 @@ export default function DecksPage({
     return groups;
   }, [visibleCards]);
 
-  // Auditoría en vivo contra la colección
+  // Auditoría en vivo contra la colección física
   const availableCount = deckCards.filter((c) => c.status === 'DISPONIBLE').length;
   const inOtherDeckCount = deckCards.filter((c) => c.status === 'EN_OTRO_MAZO').length;
   const missingCount = deckCards.filter((c) => c.status === 'FALTANTE').length;
@@ -339,7 +387,7 @@ export default function DecksPage({
           }}
           onOpenPlaytest={() => setIsSimulatorOpen(true)}
           onOpenImport={() => setIsBulkModalOpen(true)}
-          onNavigateToTradeWall={onNavigateToTradeWall}
+          onNavigateToTradeWall={() => handleNavigateToTrade({ tab: 'explore' })}
           onForkDeck={handleForkDeck}
           onOpenAuthModal={onOpenAuthModal}
         />
@@ -365,11 +413,16 @@ export default function DecksPage({
 
             <button
               type="button"
+              disabled={isSyncingWishlist}
               onClick={handleExportMissingToWishlist}
-              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg shadow-purple-600/20"
+              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg shadow-purple-600/20 active:scale-95"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Añadir a Wishlist de Trade</span>
+              {isSyncingWishlist ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              <span>{isSyncingWishlist ? 'Sincronizando...' : 'Añadir a Wishlist de Trade'}</span>
             </button>
           </div>
         )}
@@ -390,7 +443,7 @@ export default function DecksPage({
                 displayCard={displayCard}
                 commanders={commanders}
                 onSelectHoveredCard={setHoveredCard}
-                onNavigateToTradeWall={onNavigateToTradeWall}
+                onNavigateToTradeWall={handleNavigateToTrade}
                 readinessPct={readinessPct}
                 availableCount={availableCount}
                 inOtherDeckCount={inOtherDeckCount}

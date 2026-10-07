@@ -1,17 +1,34 @@
-# app/services/inventory_service.py
-# ---------------------------------------------------------
-# SERVICIO DE ANÁLISIS DE DISPONIBILIDAD DE INVENTARIO (MTG)
-# ---------------------------------------------------------
+# ============================================================================
+# SERVICIO: AUDITORÍA DE DISPONIBILIDAD E INVENTARIO FÍSICO MTG
+# ============================================================================
+# ARQUITECTURA & REGLAS DE DOMINIO:
+# 1. Pertenencia real: Solo las cartas registradas en colecciones (UserCard)
+#    representan copias físicas reales. Un mazo o comandante planificado NO
+#    inventa ni asume posesión física.
+# 2. Regla de asignación única: Si el usuario tiene 1 copia física registrada
+#    y está asignada a múltiples mazos de prueba, sigue contando como 1 sola
+#    copia física, no se multiplica.
+# 3. Estados de disponibilidad:
+#    - DISPONIBLE (🟢): Copias físicas en colección libres (owned > committed).
+#    - EN_OTRO_MAZO (🟠): Se posee físicamente en colección, pero todas las
+#      copias están en uso en otros mazos (permite "prestarla").
+#    - FALTANTE (🔴): No existe en colección física (owned == 0).
+# ============================================================================
+
 from typing import List, Dict, Set, Tuple
 from collections import defaultdict
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
 
 from app.models import Deck, DeckCard, UserCard, Collection
 from app.schemas.deck import DeckCardDetailResponse
 
 
 class DeckAvailabilityAuditor:
+    """
+    Auditor de dominio encargado de contrastar los requerimientos de cartas
+    de una baraja contra el inventario físico real registrado en colecciones.
+    """
+
     CANONICAL_ACTIVE_CATEGORIES: Set[str] = {
         "mainboard", "commander", "sideboard", "companion"
     }
@@ -22,13 +39,18 @@ class DeckAvailabilityAuditor:
         self.user_id: str = str(deck.user_id)
 
     def _get_deck_cards(self) -> List[DeckCard]:
+        """Obtiene las cartas del mazo actual con su información de catálogo."""
         query = self.db.query(DeckCard).filter(DeckCard.deck_id == self.deck.id)
         if hasattr(DeckCard, "card_catalog"):
             query = query.options(joinedload(DeckCard.card_catalog))
         return query.all()
 
-    def _get_total_owned_inventory(self) -> Tuple[Dict[str, int], Dict[str, int]]:
-        """Suma copias físicas en colecciones por ID y por nombre normalizado."""
+    def _get_physical_owned_inventory(self) -> Tuple[Dict[str, int], Dict[str, int]]:
+        """
+        Calcula la verdad de posesión física: ÚNICAMENTE cartas registradas
+        en las colecciones/carpetas del usuario (UserCard).
+        Retorna dos diccionarios: uno por scryfall_card_id y otro por nombre canónico.
+        """
         user_cards_query = (
             self.db.query(UserCard)
             .join(Collection, UserCard.collection_id == Collection.id)
@@ -56,7 +78,9 @@ class DeckAvailabilityAuditor:
         return by_id, by_name
 
     def _get_other_decks_committed_inventory(self) -> Tuple[Dict[str, int], Dict[str, int]]:
-        """Suma copias asignadas en otros mazos del mismo usuario."""
+        """
+        Calcula cuántas copias están ocupadas en otros mazos del usuario.
+        """
         other_cards_query = (
             self.db.query(DeckCard)
             .join(Deck, DeckCard.deck_id == Deck.id)
@@ -88,7 +112,10 @@ class DeckAvailabilityAuditor:
         return by_id, by_name
 
     def _get_other_deck_assignments_map(self) -> Dict[str, List[str]]:
-        """Mapea los nombres de los otros mazos donde está la carta."""
+        """
+        Mapea para cada carta la lista única de nombres de los otros mazos
+        donde se encuentra asignada.
+        """
         records = (
             self.db.query(DeckCard, Deck.name)
             .join(Deck, DeckCard.deck_id == Deck.id)
@@ -116,8 +143,7 @@ class DeckAvailabilityAuditor:
 
     def _get_community_trade_inventory(self) -> Tuple[Dict[str, int], Dict[str, int]]:
         """
-        Calcula copias activas en trade (is_for_trade == True)
-        de otros usuarios de la plataforma por ID y nombre canónico.
+        Calcula copias activas en trade de otros usuarios para el badge.
         """
         trade_records_query = (
             self.db.query(UserCard)
@@ -150,19 +176,28 @@ class DeckAvailabilityAuditor:
 
     @staticmethod
     def _resolve_status(owned: int, committed: int, needed: int) -> str:
+        """
+        Resolución estricta de estado:
+        1. Si owned == 0 -> FALTANTE (no la tienes en colección física, aunque sea comandante).
+        2. Si owned > committed -> DISPONIBLE (tienes copias físicas libres sin comprometer).
+        3. Si owned > 0 pero owned <= committed -> EN_OTRO_MAZO (la tienes físicamente pero en uso).
+        """
+        if owned <= 0:
+            return "FALTANTE"
+
         free_copies = owned - committed
         if free_copies >= needed:
             return "DISPONIBLE"
-        if committed > 0 or owned > 0:
-            return "EN_OTRO_MAZO"
-        return "FALTANTE"
+        
+        return "EN_OTRO_MAZO"
 
     def execute_audit(self) -> List[DeckCardDetailResponse]:
         cartas_mazo = self._get_deck_cards()
         if not cartas_mazo:
             return []
 
-        owned_by_id, owned_by_name = self._get_total_owned_inventory()
+        # Cargar posesión física REAL desde colecciones
+        owned_by_id, owned_by_name = self._get_physical_owned_inventory()
         comm_by_id, comm_by_name = self._get_other_decks_committed_inventory()
         mapa_nombres = self._get_other_deck_assignments_map()
         trade_by_id, trade_by_name = self._get_community_trade_inventory()
@@ -183,6 +218,7 @@ class DeckAvailabilityAuditor:
             raw_qty = getattr(dc, "quantity", 1)
             cantidad_pedida = int(raw_qty) if isinstance(raw_qty, int) and raw_qty > 0 else 1
 
+            # Comparación por ID Scryfall exacto o por nombre canónico
             poseidas = owned_by_id.get(scry_id) or owned_by_name.get(canonical_name, 0)
             comprometidas = comm_by_id.get(scry_id) or comm_by_name.get(canonical_name, 0)
             disponibles_trade = trade_by_id.get(scry_id) or trade_by_name.get(canonical_name, 0)

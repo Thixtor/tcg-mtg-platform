@@ -1,0 +1,5 @@
+// =========================================================
+// MÓDULO / COMPONENTE: [NOMBRE EN MAYÚSCULAS]
+// DESCRIPCIÓN: [Explicación clara del propósito y contexto]
+// ESTADO: [Refactorizado / Activo / DDD / etc.]
+// =========================================================

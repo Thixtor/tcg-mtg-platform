@@ -2,8 +2,8 @@
 // COMPONENTE: MODAL PARA PROPONER INTERCAMBIO Y AJUSTE COP
 // ---------------------------------------------------------
 import React, { useState, useMemo } from 'react';
-import { X, ArrowLeftRight, DollarSign, Send, CheckCircle2 } from 'lucide-react';
-import api from '@/api/client';
+import { X, ArrowLeftRight, DollarSign, Send, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
+import { createTradeProposalApi } from '@/api/trade';
 
 export default function TradeProposalModal({
   isOpen,
@@ -18,7 +18,6 @@ export default function TradeProposalModal({
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Tasa de cambio acordada (por defecto 3.200 COP por USD)
   const usdRate = targetPost?.preferred_usd_rate || 3200;
 
   // Cálculo de totales en USD
@@ -27,7 +26,7 @@ export default function TradeProposalModal({
   }, [selectedOfferedCards]);
 
   const requestedTotalUsd = useMemo(() => {
-    return selectedRequestedCards.reduce((acc, c) => acc + (parseFloat(c.price_usd || c.price || 0) * (c.quantity || 1)), 0);
+    return selectedRequestedCards.reduce((acc, c) => acc + (parseFloat(c.price_usd || c.market_price_usd || 0) * (c.quantity || 1)), 0);
   }, [selectedRequestedCards]);
 
   const diffUsd = offeredTotalUsd - requestedTotalUsd;
@@ -47,9 +46,10 @@ export default function TradeProposalModal({
   };
 
   const handleToggleRequested = (card) => {
+    const cardId = card.scryfall_id || card.name;
     setSelectedRequestedCards((prev) => 
-      prev.some((c) => (c.scryfall_id || c.name) === (card.scryfall_id || card.name))
-        ? prev.filter((c) => (c.scryfall_id || c.name) !== (card.scryfall_id || card.name))
+      prev.some((c) => (c.scryfall_id || c.name) === cardId)
+        ? prev.filter((c) => (c.scryfall_id || c.name) !== cardId)
         : [...prev, card]
     );
   };
@@ -65,17 +65,24 @@ export default function TradeProposalModal({
       setSubmitting(true);
       const payload = {
         receiver_id: targetPost.author?.id || targetPost.author_id,
+        post_id: targetPost.id,
         offered_card_ids: selectedOfferedCards.map((c) => c.id),
-        requested_cards: selectedRequestedCards,
+        requested_cards: selectedRequestedCards.map((c) => ({
+          name: c.name,
+          scryfall_id: c.scryfall_id,
+          condition: c.condition || 'NM',
+          price_usd: parseFloat(c.price_usd || c.market_price_usd || 0)
+        })),
         cash_amount: cashAdjustmentCop || suggestedCop,
         cash_currency: 'COP',
         notes: notes.trim(),
       };
 
-      await api.post('/trade/proposals', payload);
+      await createTradeProposalApi(payload);
       onProposalSuccess?.();
       onClose();
     } catch (err) {
+      console.error('[TradeProposalModal] Error enviando propuesta:', err);
       alert('Error enviando la propuesta: ' + (err.response?.data?.detail || err.message));
     } finally {
       setSubmitting(false);
@@ -84,16 +91,16 @@ export default function TradeProposalModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md font-mono text-xs">
-      <div className="w-full max-w-2xl bg-[#121118] border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-2xl bg-[#121118] border border-[#2A2733] rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         
         {/* Cabecera */}
-        <div className="px-6 py-4 bg-[#181622] border-b border-neutral-800 flex items-center justify-between">
+        <div className="px-6 py-4 bg-[#181622] border-b border-[#2A2733] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-              Proponer Cambio a @{targetPost.author?.username || targetPost.author_username}
+              Proponer Cambio a @{targetPost.author?.username || targetPost.author_username || 'Usuario'}
             </h3>
             <span className="text-[10px] text-neutral-400">
-              Ubicación: {targetPost.location || 'Local LGS'} • Tasa de referencia: 1 USD = ${usdRate.toLocaleString('es-CO')} COP
+              {targetPost.location || 'Local LGS'} • Tasa: 1 USD = ${usdRate.toLocaleString('es-CO')} COP
             </span>
           </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-white cursor-pointer">
@@ -101,18 +108,18 @@ export default function TradeProposalModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6">
+        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             
-            {/* 1. SELECCIONA QUÉ OFRECES (De tu inventario físico disponible) */}
-            <div className="p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-2">
-              <span className="text-[11px] font-bold text-purple-400 uppercase tracking-wider block">
+            {/* 1. SELECCIONA QUÉ OFRECES */}
+            <div className="p-3.5 rounded-2xl bg-[#181622] border border-[#2A2733] space-y-2">
+              <span className="text-[11px] font-bold text-[#E88B00] uppercase tracking-wider block">
                 Tú Ofreces ({selectedOfferedCards.length}):
               </span>
 
               {currentUserInventory.length === 0 ? (
-                <p className="text-neutral-500 text-[10px] py-4 text-center">
+                <p className="text-neutral-500 text-[10px] py-6 text-center italic">
                   No tienes cartas marcadas para trade en tu colección.
                 </p>
               ) : (
@@ -125,8 +132,8 @@ export default function TradeProposalModal({
                         onClick={() => handleToggleOffered(item)}
                         className={`p-2 rounded-xl border text-left cursor-pointer transition flex items-center justify-between ${
                           isSelected
-                            ? 'bg-purple-900/40 border-purple-500 text-white'
-                            : 'bg-neutral-900/40 border-neutral-800/80 text-neutral-400 hover:border-neutral-700'
+                            ? 'bg-[#E88B00]/20 border-[#E88B00] text-white'
+                            : 'bg-black/30 border-[#2A2733] text-neutral-400 hover:border-neutral-500'
                         }`}
                       >
                         <span className="truncate font-bold text-[11px]">{item.card_catalog?.name || item.name}</span>
@@ -138,14 +145,14 @@ export default function TradeProposalModal({
                   })}
                 </div>
               )}
-              <div className="pt-2 border-t border-neutral-800 flex justify-between text-neutral-400 text-[10px]">
+              <div className="pt-2 border-t border-[#242129] flex justify-between text-neutral-400 text-[10px]">
                 <span>Total ofrecido:</span>
                 <span className="text-emerald-400 font-bold">${offeredTotalUsd.toFixed(2)} USD</span>
               </div>
             </div>
 
-            {/* 2. SELECCIONA QUÉ RECIBES (De lo que ofrece el usuario) */}
-            <div className="p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-2">
+            {/* 2. SELECCIONA QUÉ RECIBES */}
+            <div className="p-3.5 rounded-2xl bg-[#181622] border border-[#2A2733] space-y-2">
               <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
                 Tú Recibes ({selectedRequestedCards.length}):
               </span>
@@ -161,7 +168,7 @@ export default function TradeProposalModal({
                       className={`p-2 rounded-xl border text-left cursor-pointer transition flex items-center justify-between ${
                         isSelected
                           ? 'bg-emerald-950/60 border-emerald-500 text-white'
-                          : 'bg-neutral-900/40 border-neutral-800/80 text-neutral-400 hover:border-neutral-700'
+                          : 'bg-black/30 border-[#2A2733] text-neutral-400 hover:border-neutral-500'
                       }`}
                     >
                       <span className="truncate font-bold text-[11px]">{card.name}</span>
@@ -173,7 +180,7 @@ export default function TradeProposalModal({
                 })}
               </div>
 
-              <div className="pt-2 border-t border-neutral-800 flex justify-between text-neutral-400 text-[10px]">
+              <div className="pt-2 border-t border-[#242129] flex justify-between text-neutral-400 text-[10px]">
                 <span>Total solicitado:</span>
                 <span className="text-emerald-400 font-bold">${requestedTotalUsd.toFixed(2)} USD</span>
               </div>
@@ -181,8 +188,8 @@ export default function TradeProposalModal({
 
           </div>
 
-          {/* BALANCE ECONÓMICO Y DINERO EN EFECTIVO (COP) */}
-          <div className="p-3.5 rounded-2xl bg-[#1A1824] border border-white/5 space-y-2">
+          {/* BALANCE ECONÓMICO */}
+          <div className="p-3.5 rounded-2xl bg-[#1A1824] border border-[#2A2733] space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-neutral-400 font-bold">Diferencia de valor (USD):</span>
               <span className={`font-bold ${diffUsd >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -197,7 +204,7 @@ export default function TradeProposalModal({
                     ? `Debes compensar en efectivo aprox:` 
                     : `La contraparte debe compensar aprox:`}
                 </span>
-                <span className="font-bold text-amber-400 text-xs font-mono">
+                <span className="font-bold text-[#E88B00] text-xs font-mono">
                   ${suggestedCop.toLocaleString('es-CO')} COP
                 </span>
               </div>
@@ -212,25 +219,25 @@ export default function TradeProposalModal({
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ej: Puedo encontrarte hoy en Dragon Hobby Bello para hacer el trade."
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-neutral-200 outline-none focus:border-purple-500 resize-none"
+              placeholder="Ej: Te entrego las cartas hoy en LGS y te transfiero la diferencia por Nequi."
+              className="w-full bg-[#181622] border border-[#2A2733] focus:border-[#E88B00] rounded-xl p-3 text-neutral-200 outline-none resize-none"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-2 border-t border-neutral-800">
+          <div className="flex items-center justify-end gap-3 pt-2 border-t border-[#242129]">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-400 font-bold cursor-pointer"
+              className="px-4 py-2.5 rounded-xl bg-[#181622] hover:bg-[#242129] text-neutral-400 font-bold cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-600/30"
+              className="px-6 py-2.5 rounded-xl bg-[#E88B00] hover:bg-[#FF9D0A] text-black font-black uppercase text-xs tracking-wider flex items-center gap-2 cursor-pointer shadow-lg shadow-[#E88B00]/10 transition"
             >
-              <Send className="w-3.5 h-3.5" />
+              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
               <span>{submitting ? 'Enviando...' : 'Enviar Propuesta'}</span>
             </button>
           </div>

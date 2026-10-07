@@ -1,58 +1,32 @@
-// ---------------------------------------------------------
-// COMPONENTE: MODAL CINEMATOGRÁFICO DE DETALLE DE CARTA (MTG)
-// CON VOLTEO RÁPIDO DE CARAS (DFC) Y AUDITORÍA FÍSICA
-// ---------------------------------------------------------
-import React, { useState, useEffect, useMemo } from 'react';
+// ============================================================================
+// COMPONENTE: MODAL CINEMATOGRÁFICO DE DETALLE DE CARTA (ORQUESTADOR)
+// ============================================================================
+// ARQUITECTURA & REGLAS:
+// - Desacoplado en subcomponentes atómicos:
+//   * CardImagePreview: Imagen, volteo DFC y carrusel de estilos.
+//   * CardInventoryTracker: Auditoría física multiedición, contador rápido y mazos.
+//   * CardMarketPricing: Cotizaciones TCG y Card Kingdom.
+//   * CardOracleRules: Reglas Oracle y glifos de maná.
+// ============================================================================
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   X, 
   ExternalLink, 
-  RefreshCw, 
   TrendingUp, 
-  ArrowLeftRight, 
-  DollarSign, 
-  Loader2, 
-  CheckCircle2, 
-  AlertCircle,
-  ShoppingBag,
-  Store,
-  Palette,
-  FolderPlus,
-  Layers,
-  Box,
-  Swords,
-  Sparkles,
-  RotateCw
+  FolderPlus, 
+  Layers, 
+  Loader2 
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
-import ManaCost, { ManaGlyph } from '@/components/common/ManaSymbol';
+import ManaCost from '@/components/common/ManaSymbol';
 import AddToCollectionOrDeckModal from '@/components/cards/AddToCollectionOrDeckModal';
 import apiClient from '@/api/client';
 
-function FormattedRulesText({ text, isLightMode }) {
-  if (!text) return <p className="italic text-neutral-500">Sin texto de reglas activo.</p>;
-
-  return (
-    <div className="space-y-2">
-      {text.split('\n').map((paragraph, pIdx) => {
-        const parts = paragraph.split(/(\{[^}]+\})/g);
-        return (
-          <p key={pIdx} className="leading-relaxed">
-            {parts.map((part, idx) => {
-              if (part.startsWith('{') && part.endsWith('}')) {
-                return (
-                  <span key={idx} className="inline-block mx-0.5 align-middle">
-                    <ManaGlyph symbol={part} size="text-[12px]" cost={true} shadow={true} />
-                  </span>
-                );
-              }
-              return <span key={idx}>{part}</span>;
-            })}
-          </p>
-        );
-      })}
-    </div>
-  );
-}
+import CardImagePreview from './card-detail/CardImagePreview';
+import CardInventoryTracker from './card-detail/CardInventoryTracker';
+import CardMarketPricing from './card-detail/CardMarketPricing';
+import CardOracleRules from './card-detail/CardOracleRules';
 
 export default function CardDetailModal({ card, isOpen, onClose }) {
   const { isLightMode } = useTheme();
@@ -88,6 +62,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     localStorage.getItem('auth_token')
   );
 
+  // 1. Sincronización Scryfall y reimpresiones
   useEffect(() => {
     if (!isOpen || !card) {
       setActiveVersion(null);
@@ -134,18 +109,16 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     };
 
     fetchBase();
-
     return () => { isCancelled = true; };
   }, [card, isOpen]);
 
+  // 2. Consulta de Trade Market
   useEffect(() => {
     if (!isOpen || !activeVersion) return;
-
     let isMounted = true;
     setTradeMetrics({ copiesForTrade: 0, requestedCount: 0, loading: true });
 
     const scryId = activeVersion.id || activeVersion.scryfall_card_id;
-
     apiClient.get(`/trade/market?scryfall_card_id=${scryId}`)
       .then((res) => {
         if (!isMounted) return;
@@ -166,12 +139,11 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     return () => { isMounted = false; };
   }, [activeVersion, isOpen]);
 
-  useEffect(() => {
-    if (!isOpen || !activeVersion) return;
-
-    if (!hasToken) {
+  // 3. Consulta de inventario multiedición
+  const fetchMyInventoryCopies = useCallback(() => {
+    if (!isOpen || !activeVersion || !hasToken) {
       setMyInventory({
-        isLoggedIn: false,
+        isLoggedIn: Boolean(hasToken),
         totalCollection: 0,
         forTradeCopies: 0,
         collectionDetails: [],
@@ -182,40 +154,42 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
       return;
     }
 
-    let isMounted = true;
     const scryId = activeVersion.id || activeVersion.scryfall_card_id;
+    const cardName = activeVersion.name || card?.name || '';
     setMyInventory((prev) => ({ ...prev, isLoggedIn: true, loading: true }));
 
-    apiClient.get(`/collections/cards/my-copies/${scryId}`)
+    apiClient.get(`/collections/cards/my-copies/${scryId}`, {
+      params: { card_name: cardName }
+    })
       .then((res) => {
-        if (!isMounted) return;
         setMyInventory({
           isLoggedIn: true,
           totalCollection: res.data?.total_collection || 0,
           forTradeCopies: res.data?.for_trade_copies || 0,
           collectionDetails: res.data?.collection_details || [],
-          totalInDecks: res.data?.total_in_decks || 0,
+          totalInDecks: res.data?.total_in_decks || (res.data?.deck_details || []).length,
           deckDetails: res.data?.deck_details || [],
           loading: false,
         });
       })
       .catch(() => {
-        if (isMounted) {
-          setMyInventory({
-            isLoggedIn: true,
-            totalCollection: 0,
-            forTradeCopies: 0,
-            collectionDetails: [],
-            totalInDecks: 0,
-            deckDetails: [],
-            loading: false,
-          });
-        }
+        setMyInventory({
+          isLoggedIn: true,
+          totalCollection: 0,
+          forTradeCopies: 0,
+          collectionDetails: [],
+          totalInDecks: 0,
+          deckDetails: [],
+          loading: false,
+        });
       });
+  }, [isOpen, activeVersion, hasToken, card]);
 
-    return () => { isMounted = false; };
-  }, [activeVersion, isOpen, hasToken]);
+  useEffect(() => {
+    fetchMyInventoryCopies();
+  }, [fetchMyInventoryCopies]);
 
+  // Normalización de datos de la carta
   const normalizedCard = useMemo(() => {
     const activeData = hoveredPrint || activeVersion || card;
     if (!activeData) return null;
@@ -284,28 +258,14 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
 
   if (!isOpen || !normalizedCard) return null;
 
-  const toggleFace = () => setFaceIndex((prev) => (prev === 0 ? 1 : 0));
-
-  const getAppTradeDemand = () => {
-    if (tradeMetrics.loading) {
-      return { label: 'Calculando...', color: 'text-neutral-400 bg-neutral-800/40 border-neutral-700' };
-    }
-
+  const appDemand = (() => {
+    if (tradeMetrics.loading) return { label: 'Calculando...', color: 'text-neutral-400 bg-neutral-800/40 border-neutral-700' };
     const { copiesForTrade, requestedCount } = tradeMetrics;
-
-    if (copiesForTrade === 0 && requestedCount === 0) {
-      return { label: 'Sin Actividad de Trade', color: 'text-neutral-400 bg-neutral-800/40 border-neutral-700' };
-    }
-    if (copiesForTrade > 0 && requestedCount > copiesForTrade * 2) {
-      return { label: 'Alta Demanda en la App', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' };
-    }
-    if (copiesForTrade > 0) {
-      return { label: 'Demanda Equilibrada', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
-    }
+    if (copiesForTrade === 0 && requestedCount === 0) return { label: 'Sin Actividad de Trade', color: 'text-neutral-400 bg-neutral-800/40 border-neutral-700' };
+    if (copiesForTrade > 0 && requestedCount > copiesForTrade * 2) return { label: 'Alta Demanda en la App', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' };
+    if (copiesForTrade > 0) return { label: 'Demanda Equilibrada', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
     return { label: 'Buscada (Sin Copias para Trade)', color: 'text-rose-400 bg-rose-500/10 border-rose-500/30' };
-  };
-
-  const appDemand = getAppTradeDemand();
+  })();
 
   const handleOpenAdd = (tab) => {
     setInitialAddTab(tab);
@@ -321,8 +281,9 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
 
           {/* Botón Cerrar */}
           <button
+            type="button"
             onClick={onClose}
-            className={`absolute top-3.5 right-3.5 z-40 p-2 rounded-full shadow-md transition-transform hover:scale-110 active:scale-95 ${
+            className={`absolute top-3.5 right-3.5 z-40 p-2 rounded-full shadow-md transition-transform hover:scale-110 active:scale-95 cursor-pointer ${
               isLightMode 
                 ? 'bg-neutral-200/90 hover:bg-neutral-300 text-neutral-800 border border-neutral-300' 
                 : 'bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 border border-neutral-700'
@@ -332,203 +293,32 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
             <X className="w-4 h-4" />
           </button>
 
-          {/* 1. Columna Izquierda: Imagen y Volteo */}
+          {/* 1. Columna Izquierda: Visor de Carta e Inventario con Contador */}
           <div className={`md:w-5/12 p-6 flex flex-col justify-between overflow-y-auto space-y-4 border-b md:border-b-0 md:border-r ${
             isLightMode ? 'bg-[#EFEAE1] border-neutral-300' : 'bg-[#0B0B0C] border-neutral-800'
           }`}>
-            <div className="w-full flex flex-col items-center">
-              <div className="relative group w-full max-w-[240px] aspect-[2.5/3.5] rounded-xl overflow-hidden shadow-2xl border border-neutral-700/60 bg-neutral-950 transition-all duration-300">
-                <img
-                  src={normalizedCard.imageUrl}
-                  alt={normalizedCard.name}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                />
+            <CardImagePreview
+              normalizedCard={normalizedCard}
+              activeVersion={activeVersion}
+              baseCardId={card.id}
+              faceIndex={faceIndex}
+              onToggleFace={() => setFaceIndex((p) => (p === 0 ? 1 : 0))}
+              availablePrints={availablePrints}
+              loadingPrints={loadingPrints}
+              onSelectPrint={(p) => { setActiveVersion(p); setFaceIndex(0); }}
+              onHoverPrint={setHoveredPrint}
+              onLeavePrint={() => setHoveredPrint(null)}
+            />
 
-                {/* Botón Flotante directo sobre la ilustración */}
-                {normalizedCard.isMultiFace && (
-                  <button
-                    onClick={toggleFace}
-                    title="Girar carta"
-                    className="absolute bottom-2.5 right-2.5 p-2 rounded-full bg-black/80 hover:bg-amber-500 hover:text-black text-white border border-white/20 transition-all shadow-xl cursor-pointer"
-                  >
-                    <RotateCw className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Botón para alternar cara */}
-              {normalizedCard.isMultiFace && (
-                <button
-                  onClick={toggleFace}
-                  className="mt-3 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer font-mono"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Voltear ({faceIndex === 0 ? 'Cara Posterior' : 'Cara Frontal'})</span>
-                </button>
-              )}
-
-              {/* Selector de Impresiones */}
-              <div className="w-full mt-4">
-                <div className="flex items-center justify-between text-xs mb-2 px-1">
-                  <span className="font-bold flex items-center gap-1.5 text-neutral-400">
-                    <Palette className="w-3.5 h-3.5 text-amber-500" /> 
-                    Estilos y Ediciones ({availablePrints.length || 1})
-                  </span>
-                  {loadingPrints && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />}
-                </div>
-
-                {availablePrints.length > 1 ? (
-                  <div className="flex gap-2 overflow-x-auto p-1.5 scrollbar-thin scrollbar-thumb-neutral-700 max-w-full rounded-lg bg-neutral-900/30 border border-neutral-800/60">
-                    {availablePrints.map((print) => {
-                      const isSelected = (activeVersion?.id || card.id) === print.id;
-                      const thumb = print.image_uris?.small || print.card_faces?.[0]?.image_uris?.small;
-
-                      return (
-                        <button
-                          key={print.id}
-                          onClick={() => { setActiveVersion(print); setFaceIndex(0); }}
-                          onMouseEnter={() => setHoveredPrint(print)}
-                          onMouseLeave={() => setHoveredPrint(null)}
-                          title={`${print.set_name} (#${print.collector_number})`}
-                          className={`relative shrink-0 w-11 h-15 rounded overflow-hidden border-2 cursor-pointer transition-all duration-200 ${
-                            isSelected
-                              ? 'border-amber-500 ring-2 ring-amber-500/50 scale-105 shadow-md brightness-105'
-                              : 'border-neutral-700/80 opacity-60 hover:opacity-100 hover:border-amber-400 hover:scale-105 hover:brightness-110'
-                          }`}
-                        >
-                          {thumb ? (
-                            <img src={thumb} alt={print.set} className="w-full h-full object-cover pointer-events-none" />
-                          ) : (
-                            <span className="text-[9px] font-mono p-1 uppercase">{print.set}</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-neutral-500 italic px-1">Única impresión registrada en catálogo.</p>
-                )}
-              </div>
-            </div>
-
-            {/* SECCIÓN INFORMATIVA INFERIOR: BINDERS, MAZOS Y TRADE */}
-            <div className="w-full space-y-2.5">
-              <div className={`w-full p-3 rounded-xl border text-xs transition-colors space-y-2.5 ${
-                isLightMode ? 'bg-white border-neutral-300' : 'bg-neutral-900/80 border-neutral-800'
-              }`}>
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Box className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span className="font-bold">En Colección (Binders)</span>
-                    </div>
-
-                    {myInventory.loading ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
-                    ) : myInventory.isLoggedIn ? (
-                      myInventory.totalCollection > 0 ? (
-                        <span className="font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 text-[11px]">
-                          <CheckCircle2 className="inline w-3 h-3 mr-1" />
-                          {myInventory.totalCollection} en físico
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-mono text-neutral-400 bg-neutral-800/40 px-2 py-0.5 rounded border border-neutral-700/40">
-                          0 copias
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-[10px] font-mono text-neutral-400">Modo visitante</span>
-                    )}
-                  </div>
-
-                  {myInventory.isLoggedIn && myInventory.collectionDetails.length > 0 && (
-                    <div className="mt-1.5 pl-5 space-y-0.5 text-[11px] text-neutral-300">
-                      {myInventory.collectionDetails.map((d) => (
-                        <div key={d.user_card_id} className="flex items-center justify-between">
-                          <span className="truncate max-w-[160px]" title={d.collection_name}>
-                            • {d.collection_name}
-                          </span>
-                          <span className="font-mono text-neutral-400">
-                            {d.quantity}x {d.is_foil ? <Sparkles className="inline w-2.5 h-2.5 text-amber-400" /> : null} ({d.condition})
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="border-t border-neutral-800/60" />
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Swords className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                      <span className="font-bold">En Mazos Activos</span>
-                    </div>
-
-                    {myInventory.loading ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
-                    ) : myInventory.isLoggedIn ? (
-                      myInventory.totalInDecks > 0 ? (
-                        <span className="font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20 text-[11px]">
-                          {myInventory.totalInDecks} en lista
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-mono text-neutral-400 bg-neutral-800/40 px-2 py-0.5 rounded border border-neutral-700/40">
-                          0 en mazos
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-[10px] font-mono text-neutral-400">—</span>
-                    )}
-                  </div>
-
-                  {myInventory.isLoggedIn && myInventory.deckDetails.length > 0 && (
-                    <div className="mt-1.5 pl-5 space-y-0.5 text-[11px] text-neutral-300">
-                      {myInventory.deckDetails.map((d) => (
-                        <div key={d.deck_card_id} className="flex items-center justify-between">
-                          <span className="truncate max-w-[160px]" title={d.deck_name}>
-                            • {d.deck_name}
-                          </span>
-                          <span className="font-mono text-neutral-400">
-                            {d.quantity}x ({d.category})
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className={`w-full p-3 rounded-xl border flex items-center justify-between text-xs ${
-                isLightMode ? 'bg-white border-neutral-300' : 'bg-neutral-900/80 border-neutral-800'
-              }`}>
-                <div className="flex items-center gap-2">
-                  <ArrowLeftRight className="w-4 h-4 text-amber-500 shrink-0" />
-                  <div>
-                    <span className="font-bold block">Disponibilidad para Trade</span>
-                    <span className="text-[10px] text-neutral-400">En la comunidad</span>
-                  </div>
-                </div>
-
-                {tradeMetrics.loading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                ) : tradeMetrics.copiesForTrade > 0 ? (
-                  <span className="flex items-center gap-1 font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    {tradeMetrics.copiesForTrade} copia{tradeMetrics.copiesForTrade > 1 ? 's' : ''}
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-neutral-400 bg-neutral-800/40 px-2 py-0.5 rounded border border-neutral-700/40">
-                    <AlertCircle className="w-3 h-3" />
-                    Sin copias activas
-                  </span>
-                )}
-              </div>
-            </div>
+            <CardInventoryTracker
+              myInventory={myInventory}
+              tradeMetrics={tradeMetrics}
+              onInventoryUpdated={fetchMyInventoryCopies}
+              isLightMode={isLightMode}
+            />
           </div>
 
-          {/* 2. Columna Derecha: Información y Reglas */}
+          {/* 2. Columna Derecha: Información, Reglas y Acciones */}
           <div className="md:w-7/12 p-6 overflow-y-auto space-y-4 max-h-[65vh] md:max-h-none scrollbar-thin scrollbar-thumb-neutral-700 flex flex-col justify-between">
             <div className="space-y-4">
               {loadingDetails && (
@@ -538,6 +328,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 </div>
               )}
 
+              {/* Título y Coste */}
               <div className="border-b pb-3 pr-12 border-neutral-700/40">
                 <div className="flex items-start justify-between gap-3">
                   <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight">
@@ -562,88 +353,11 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 </div>
               </div>
 
-              {/* Precios */}
-              <div className={`p-3.5 rounded-xl border ${
-                isLightMode ? 'bg-[#F4EFE6] border-neutral-300' : 'bg-neutral-900/90 border-neutral-800'
-              }`}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1">
-                    <DollarSign className="w-3.5 h-3.5 text-amber-500" />
-                    Precios de esta Versión ({normalizedCard.setCode})
-                  </span>
-                  <span className="text-[10px] text-neutral-500 font-mono">Card Kingdom & TCGplayer</span>
-                </div>
+              {/* Precios de Mercado */}
+              <CardMarketPricing normalizedCard={normalizedCard} isLightMode={isLightMode} />
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
-                  <div className="p-2 rounded bg-neutral-950/40 border border-neutral-800">
-                    <span className="text-[10px] text-neutral-400 block flex items-center gap-1">
-                      <Store className="w-3 h-3 text-sky-400" /> TCG Market
-                    </span>
-                    <span className="font-bold text-emerald-400">
-                      {normalizedCard.tcgPrice ? `$${normalizedCard.tcgPrice}` : 'N/D'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded bg-neutral-950/40 border border-neutral-800">
-                    <span className="text-[10px] text-neutral-400 block flex items-center gap-1">
-                      <Store className="w-3 h-3 text-amber-400" /> TCG Foil
-                    </span>
-                    <span className="font-bold text-amber-300">
-                      {normalizedCard.tcgPriceFoil ? `$${normalizedCard.tcgPriceFoil}` : 'N/D'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded bg-neutral-950/40 border border-neutral-800">
-                    <span className="text-[10px] text-neutral-400 block flex items-center gap-1">
-                      <ShoppingBag className="w-3 h-3 text-amber-500" /> CK Retail
-                    </span>
-                    <span className="font-bold text-neutral-100">
-                      {normalizedCard.ckPriceRetail ? `$${normalizedCard.ckPriceRetail}` : 'N/D'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded bg-neutral-950/40 border border-neutral-800">
-                    <span className="text-[10px] text-neutral-400 block flex items-center gap-1">
-                      <ShoppingBag className="w-3 h-3 text-indigo-400" /> CK Buylist
-                    </span>
-                    <span className="font-bold text-indigo-300">
-                      {normalizedCard.ckPriceBuy ? `$${normalizedCard.ckPriceBuy}` : 'N/D'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Reglas Oracle */}
-              <div className={`p-4 rounded-xl text-xs sm:text-sm leading-relaxed border space-y-3 ${
-                isLightMode ? 'bg-white border-neutral-200' : 'bg-neutral-900/60 border-neutral-800'
-              }`}>
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500 block mb-1">
-                    Texto de Reglas (Oracle)
-                  </span>
-                  <FormattedRulesText text={normalizedCard.oracleText} isLightMode={isLightMode} />
-                </div>
-
-                {normalizedCard.printedText && normalizedCard.printedText !== normalizedCard.oracleText && (
-                  <div className="pt-2 border-t border-neutral-800/40">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block mb-1">
-                      Texto Impreso en esta Versión
-                    </span>
-                    <p className="text-xs text-neutral-300 italic">{normalizedCard.printedText}</p>
-                  </div>
-                )}
-
-                {normalizedCard.flavorText && (
-                  <div className="pt-2 border-t border-neutral-800/40">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 block mb-0.5">
-                      Ambientación
-                    </span>
-                    <p className="text-xs italic text-neutral-400 leading-normal">
-                      "{normalizedCard.flavorText}"
-                    </p>
-                  </div>
-                )}
-              </div>
+              {/* Reglas de Juego */}
+              <CardOracleRules normalizedCard={normalizedCard} isLightMode={isLightMode} />
 
               {/* P/T o Lealtad */}
               {(normalizedCard.power !== undefined || normalizedCard.loyalty !== undefined) && (
@@ -658,8 +372,8 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 </div>
               )}
 
-              {/* Metadatos */}
-              <div className="grid grid-cols-3 gap-2.5 text-xs">
+              {/* Metadatos de Edición */}
+              <div className="grid grid-cols-3 gap-2.5 text-xs font-mono">
                 <div className={`p-2.5 rounded-lg border ${
                   isLightMode ? 'bg-neutral-100 border-neutral-200' : 'bg-neutral-900/40 border-neutral-800'
                 }`}>
@@ -673,7 +387,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                   isLightMode ? 'bg-neutral-100 border-neutral-200' : 'bg-neutral-900/40 border-neutral-800'
                 }`}>
                   <span className="text-neutral-500 block text-[10px] uppercase font-bold">Coleccionista</span>
-                  <span className="font-semibold block font-mono">
+                  <span className="font-semibold block">
                     #{normalizedCard.collectorNumber || '—'}
                   </span>
                 </div>
@@ -689,10 +403,11 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
               </div>
             </div>
 
-            {/* Barra Inferior */}
-            <div className="pt-3 border-t border-neutral-700/40 flex flex-wrap items-center justify-between gap-2.5">
+            {/* Barra Inferior de Acciones */}
+            <div className="pt-3 border-t border-neutral-700/40 flex flex-wrap items-center justify-between gap-2.5 font-mono">
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => handleOpenAdd('collection')}
                   className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm border border-neutral-700 active:scale-95 cursor-pointer"
                 >
@@ -701,6 +416,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => handleOpenAdd('deck')}
                   className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm active:scale-95 cursor-pointer"
                 >
@@ -721,6 +437,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 </a>
 
                 <button
+                  type="button"
                   onClick={onClose}
                   className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
                     isLightMode ? 'bg-neutral-200 hover:bg-neutral-300 text-neutral-800' : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200'
@@ -740,7 +457,10 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
           card={activeVersion || card}
           initialTab={initialAddTab}
           isOpen={isAddModalOpen}
-          onClose={() => setIsAddModalOpen(false)}
+          onClose={() => {
+            setIsAddModalOpen(false);
+            fetchMyInventoryCopies();
+          }}
         />
       )}
     </>

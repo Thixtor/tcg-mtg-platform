@@ -1,6 +1,14 @@
-// ---------------------------------------------------------
-// VISTA: WORKSPACE DE COLECCIÓN (CON COMMAND BAR Y TRADE)
-// ---------------------------------------------------------
+// ============================================================================
+// VISTA: WORKSPACE DE COLECCIÓN / BINDER (POO / DDD)
+// ============================================================================
+// ARQUITECTURA & REGLAS:
+// - Despliega el inventario físico con command bar de adición rápida y filtros.
+// - Conecta el ajuste interactivo de copias (+ / -) directamente con el orquestador
+//   CollectionsPage a través de onUpdateQuantity y onRemoveCard.
+// - Soporta ordenamiento por precio multitienda (TCGplayer / Card Kingdom), copias
+//   físicas y filtros reactivos por estado (Todos, En Mazos, Para Trade, Foil).
+// ============================================================================
+
 import React, { useMemo } from 'react';
 import { Search, SlidersHorizontal, ChevronDown, Loader2 } from 'lucide-react';
 import CollectionDetailHero from '@/components/collections/CollectionDetailHero';
@@ -27,10 +35,12 @@ export default function CollectionWorkspaceView({
   onNavigateToCatalog,
   onCardAdded,
   onRefreshCollection,
+  onUpdateQuantity,
+  onRemoveCard,
 }) {
   const { openCard } = useCardModal();
 
-  // Filtrado por disponibilidad física del inventario
+  // Bloque: Filtrado por disponibilidad física del inventario
   const cardsByAvailability = useMemo(() => {
     if (subTab === 'decks') {
       return collectionCards.filter((c) => Boolean(c.in_decks_count || c.is_in_deck));
@@ -41,7 +51,7 @@ export default function CollectionWorkspaceView({
     return collectionCards;
   }, [collectionCards, subTab]);
 
-  // Aplicación del buscador y ordenamiento
+  // Bloque: Aplicación del buscador y criterios de ordenamiento
   const processedCards = useMemo(() => {
     return cardsByAvailability
       .filter((item) => {
@@ -66,7 +76,7 @@ export default function CollectionWorkspaceView({
       });
   }, [cardsByAvailability, cardSearchQuery, onlyFoils, cardSortBy, priceSource]);
 
-  // Métricas globales
+  // Bloque: Métricas globales del binder
   const { count: totalCardsCount, totalValue: totalMarketValue } = useMemo(() => {
     return calculateCollectionMetrics(collectionCards, priceSource);
   }, [collectionCards, priceSource]);
@@ -80,30 +90,29 @@ export default function CollectionWorkspaceView({
   }, [collectionCards]);
 
   const heroArt = useMemo(() => {
-      if (collection?.art_url) return collection.art_url;
-      if (collectionCards.length > 0) {
-        const sorted = [...collectionCards].sort(
-          (a, b) => getCardPriceBySource(b, priceSource) - getCardPriceBySource(a, priceSource)
-        );
-        const topCard = sorted[0]?.card_catalog || sorted[0];
-        const raw = topCard?.scryfall_raw_data || topCard;
+    if (collection?.art_url) return collection.art_url;
+    if (collectionCards.length > 0) {
+      const sorted = [...collectionCards].sort(
+        (a, b) => getCardPriceBySource(b, priceSource) - getCardPriceBySource(a, priceSource)
+      );
+      const topCard = sorted[0]?.card_catalog || sorted[0];
+      const raw = topCard?.scryfall_raw_data || topCard;
 
-        // Priorizar el recorte artístico puro sin marcos ni bordes negros
-        return (
-          raw?.image_uris?.art_crop ||
-          raw?.card_faces?.[0]?.image_uris?.art_crop ||
-          topCard?.image_uris?.art_crop ||
-          topCard?.art_crop_url ||
-          topCard?.image_url ||
-          'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop'
-        );
-      }
-      return 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop';
+      return (
+        raw?.image_uris?.art_crop ||
+        raw?.card_faces?.[0]?.image_uris?.art_crop ||
+        topCard?.image_uris?.art_crop ||
+        topCard?.art_crop_url ||
+        topCard?.image_url ||
+        'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop'
+      );
+    }
+    return 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?q=80&w=1920&auto=format&fit=crop';
   }, [collection, collectionCards, priceSource]);
 
   return (
     <div className="w-full space-y-6 pb-16">
-      {/* 1. Hero Banner */}
+      {/* 1. Hero Banner Informativo */}
       <CollectionDetailHero
         collection={collection}
         heroArt={heroArt}
@@ -142,7 +151,7 @@ export default function CollectionWorkspaceView({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Tienda */}
+            {/* Selector de Tienda (TCGplayer / Card Kingdom) */}
             <div className="flex items-center gap-1 p-1 rounded-xl bg-[#141318] border border-white/5 text-xs font-mono">
               <button
                 type="button"
@@ -197,7 +206,7 @@ export default function CollectionWorkspaceView({
         </div>
       </div>
 
-      {/* 4. Galería de Cartas */}
+      {/* 4. Galería de Cartas con Control Rápido de Cantidad */}
       <div className="max-w-[1920px] mx-auto w-full px-6 sm:px-10">
         {loadingCards ? (
           <div className="py-24 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
@@ -229,9 +238,26 @@ export default function CollectionWorkspaceView({
               <CollectionCardItem
                 key={item.id}
                 item={item}
+                collectionId={collection.id}
                 priceSource={priceSource}
                 onClick={openCard}
+                onCardClick={openCard}
                 onToggleTrade={onRefreshCollection}
+                onQuantityUpdated={(cardId, newQty) => {
+                  if (typeof onUpdateQuantity === 'function') {
+                    const delta = newQty - (item.quantity || 1);
+                    if (delta !== 0) onUpdateQuantity(cardId, delta);
+                  } else {
+                    onRefreshCollection?.();
+                  }
+                }}
+                onCardDeleted={(cardId) => {
+                  if (typeof onRemoveCard === 'function') {
+                    onRemoveCard(cardId);
+                  } else {
+                    onRefreshCollection?.();
+                  }
+                }}
               />
             ))}
           </div>
