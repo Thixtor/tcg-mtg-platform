@@ -1,10 +1,12 @@
+// frontend/src/components/auth/AuthModal.jsx
 // ============================================================================
-// COMPONENTE: MODAL DE AUTENTICACIÓN DUAL Y ACTIVACIÓN OTP
+// COMPONENTE: MODAL DE AUTENTICACIÓN DUAL Y ACTIVACIÓN OTP (Fase Alpha)
 // ============================================================================
 // ARQUITECTURA & REGLAS:
 // - Login con Código al Correo (Passwordless) o con Contraseña tradicional.
-// - Registro con paso obligatorio de verificación de código OTP de 6 dígitos.
+// - Registro con reanudación inteligente (Anti-Limbo) y validación de OTP de 6 dígitos.
 // - Botón de reenvío con temporizador regresivo (cooldown) de 60 segundos.
+// - Auto-login opcional tras verificación exitosa del registro.
 // ============================================================================
 
 import React, { useState, useEffect } from 'react';
@@ -73,9 +75,14 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
     setLoading(true);
     setErrorMsg(null);
     try {
-      await apiClient.post('/auth/request-otp', { email: loginEmail.trim() });
+      const { data } = await apiClient.post('/auth/request-otp', { email: loginEmail.trim() });
       setLoginOtpSent(true);
-      setInfoMsg(`Código enviado a ${loginEmail}. Revisa tu bandeja de entrada.`);
+      if (data?.dev_otp_code) {
+        setLoginOtpCode(data.dev_otp_code);
+        setInfoMsg(`[ALPHA DEV] Código de prueba: ${data.dev_otp_code}`);
+      } else {
+        setInfoMsg(`Código enviado a ${loginEmail}. Revisa tu bandeja de entrada.`);
+      }
     } catch (err) {
       setErrorMsg(parseApiError(err, 'Error solicitando código de acceso.'));
     } finally {
@@ -125,7 +132,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
     }
   };
 
-  // 4. REGISTRAR USUARIO (Dispara envío de OTP de activación)
+  // 4. REGISTRAR USUARIO O REANUDAR REGISTRO
   const handleRegister = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -136,18 +143,28 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
         email: regForm.email.trim(),
         password: regForm.password ? regForm.password : undefined
       });
-      setRegisteredUserId(data.id);
+
+      const userId = data?.user?.id || data?.id;
+      setRegisteredUserId(userId);
       setIsVerifyingRegOtp(true);
-      setResendCooldown(60); // Inicia cuenta regresiva de 60s
-      setInfoMsg(`Código de 6 dígitos enviado a ${regForm.email}.`);
+      setResendCooldown(60);
+
+      if (data?.dev_otp_code) {
+        setRegOtpCode(data.dev_otp_code);
+        setInfoMsg(`[ALPHA DEV] Código de prueba: ${data.dev_otp_code}`);
+      } else if (data?.is_resumed) {
+        setInfoMsg(`¡Registro previo detectado! Hemos reactivado tu proceso y enviado un nuevo código a ${regForm.email}.`);
+      } else {
+        setInfoMsg(`Código de 6 dígitos enviado a ${regForm.email}.`);
+      }
     } catch (err) {
-      setErrorMsg(parseApiError(err, 'Error al crear la cuenta. Verifica que los datos sean válidos.'));
+      setErrorMsg(parseApiError(err, 'Error al procesar el registro. Comprueba tus datos.'));
     } finally {
       setLoading(false);
     }
   };
 
-  // 5. VALIDAR CÓDIGO TRAS REGISTRO Y ACTIVAR
+  // 5. VALIDAR CÓDIGO TRAS REGISTRO Y ACTIVAR (CON AUTO-LOGIN)
   const handleVerifyRegistrationOtp = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -157,6 +174,24 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
         user_id: registeredUserId,
         code: regOtpCode.trim()
       });
+
+      // Intento de auto-login para una experiencia de usuario fluida
+      if (regForm.password) {
+        try {
+          const { data } = await apiClient.post('/auth/login-password', {
+            email: regForm.email.trim(),
+            password: regForm.password
+          });
+          saveSession({ access_token: data.access_token, user: data.user });
+          if (onLoginSuccess) onLoginSuccess(data.user);
+          onClose();
+          window.location.reload();
+          return;
+        } catch {
+          // Fallback a login manual si falla el auto-login
+        }
+      }
+
       setInfoMsg('¡Cuenta verificada exitosamente! Ya puedes iniciar sesión.');
       setLoginEmail(regForm.email);
       setTab('login');
@@ -175,13 +210,19 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
     setResending(true);
     setErrorMsg(null);
     try {
-      await apiClient.post('/auth/resend-verification-otp', {
+      const { data } = await apiClient.post('/auth/resend-verification-otp', {
         user_id: registeredUserId
       });
       setResendCooldown(60);
-      setInfoMsg(`Nuevo código reenviado a ${regForm.email}.`);
+
+      if (data?.dev_otp_code) {
+        setRegOtpCode(data.dev_otp_code);
+        setInfoMsg(`[ALPHA DEV] Código reenviado: ${data.dev_otp_code}`);
+      } else {
+        setInfoMsg(`Nuevo código reenviado a ${regForm.email}.`);
+      }
     } catch (err) {
-      setErrorMsg(parseApiError(err, 'No fue posible reenviar el código. Intenta de nuevo en un momento.'));
+      setErrorMsg(parseApiError(err, 'No fue posible reenviar el código. Intenta de nuevo en unos momentos.'));
     } finally {
       setResending(false);
     }
@@ -270,7 +311,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-neutral-400 block flex items-center gap-1.5">
+              <label className="text-[10px] uppercase font-bold text-neutral-400 flex items-center gap-1.5">
                 <KeyRound className="w-3.5 h-3.5 text-[#E88B00]" />
                 Código de 6 dígitos
               </label>
@@ -358,7 +399,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
               !loginOtpSent ? (
                 <form onSubmit={handleRequestLoginOtp} className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5 text-[#E88B00]" />
                       Correo Electrónico
                     </label>
@@ -385,7 +426,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
               ) : (
                 <form onSubmit={handleVerifyLoginOtp} className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                       <KeyRound className="w-3.5 h-3.5 text-[#E88B00]" />
                       Código de 6 Dígitos
                     </label>
@@ -418,7 +459,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
             ) : (
               <form onSubmit={handlePasswordLogin} className="space-y-4">
                 <div>
-                  <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5 text-[#E88B00]" />
                     Correo Electrónico
                   </label>
@@ -432,7 +473,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                     <Lock className="w-3.5 h-3.5 text-[#E88B00]" />
                     Contraseña
                   </label>
@@ -461,7 +502,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
           /* ------------------------------------------------------------- */
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+              <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-[#E88B00]" />
                 Nombre de Usuario
               </label>
@@ -476,7 +517,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+              <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-[#E88B00]" />
                 Correo Electrónico
               </label>
@@ -491,7 +532,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+              <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-[#E88B00]" />
                 Contraseña (Opcional)
               </label>

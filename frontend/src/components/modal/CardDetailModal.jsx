@@ -1,12 +1,6 @@
+// TCG/frontend/src/components/modal/CardDetailModal.jsx
 // ============================================================================
-// COMPONENTE: MODAL CINEMATOGRÁFICO DE DETALLE DE CARTA (ORQUESTADOR)
-// ============================================================================
-// ARQUITECTURA & REGLAS:
-// - Desacoplado en subcomponentes atómicos:
-//   * CardImagePreview: Imagen, volteo DFC y carrusel de estilos.
-//   * CardInventoryTracker: Auditoría física multiedición, contador rápido y mazos.
-//   * CardMarketPricing: Cotizaciones TCG y Card Kingdom.
-//   * CardOracleRules: Reglas Oracle y glifos de maná.
+// COMPONENTE: MODAL CINEMATOGRÁFICO DE DETALLE DE CARTA (ORQUESTADOR RESPONSIVE)
 // ============================================================================
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -62,7 +56,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     localStorage.getItem('auth_token')
   );
 
-  // 1. Sincronización Scryfall y reimpresiones
+  // 1. Sincronización Scryfall y BD local
   useEffect(() => {
     if (!isOpen || !card) {
       setActiveVersion(null);
@@ -80,11 +74,23 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
 
     const fetchBase = async () => {
       try {
-        let baseData = card;
-        if (!card.oracle_text && !card.scryfall_raw_data?.oracle_text) {
-          const res = await fetch(`https://api.scryfall.com/cards/${cardId}`);
-          if (res.ok) baseData = await res.json();
+        let baseData = { ...card };
+
+        try {
+          const localRes = await apiClient.get(`/cards/${cardId}`);
+          if (localRes?.data) {
+            baseData = { ...baseData, ...localRes.data };
+          }
+        } catch {
+          if (!card.oracle_text && !card.scryfall_raw_data?.oracle_text) {
+            const res = await fetch(`https://api.scryfall.com/cards/${cardId}`);
+            if (res.ok) {
+              const scryJson = await res.json();
+              baseData = { ...baseData, ...scryJson };
+            }
+          }
         }
+
         if (!isCancelled) setActiveVersion(baseData);
 
         const cardName = baseData.name || card.name;
@@ -189,7 +195,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     fetchMyInventoryCopies();
   }, [fetchMyInventoryCopies]);
 
-  // Normalización de datos de la carta
+  // Normalización exhaustiva de datos
   const normalizedCard = useMemo(() => {
     const activeData = hoveredPrint || activeVersion || card;
     if (!activeData) return null;
@@ -222,12 +228,43 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     const collectorNumber = raw.collector_number || '';
     const rarity = raw.rarity || activeData.rarity || 'common';
 
+    // Precios TCGplayer
     const prices = raw.prices || activeData.prices || {};
-    const tcgPrice = prices.usd || activeData.tcg_price || null;
-    const tcgPriceFoil = prices.usd_foil || activeData.tcg_foil_price || null;
+    const tcgPrice = prices.usd || activeData.tcg_price || raw.tcg_price || null;
+    const tcgPriceFoil = prices.usd_foil || activeData.tcg_foil_price || raw.tcg_foil_price || null;
 
-    const ckPriceRetail = raw.cardkingdom_price_retail || raw.purchase_uris?.cardkingdom ? (prices.usd ? (parseFloat(prices.usd) * 1.08).toFixed(2) : null) : null;
-    const ckPriceBuy = raw.cardkingdom_price_buylist || (ckPriceRetail ? (parseFloat(ckPriceRetail) * 0.65).toFixed(2) : null);
+    // Precios Card Kingdom
+    const rawCkRetail = 
+      activeData.cardkingdom_price_retail ?? 
+      raw.cardkingdom_price_retail ?? 
+      prices.cardkingdom ?? 
+      prices.cardkingdom_retail ?? 
+      activeData.ck_price ?? 
+      null;
+
+    const rawCkBuy = 
+      activeData.cardkingdom_price_buylist ?? 
+      raw.cardkingdom_price_buylist ?? 
+      prices.cardkingdom_buylist ?? 
+      null;
+
+    const rawCkFoil = 
+      activeData.cardkingdom_price_foil ?? 
+      raw.cardkingdom_price_foil ?? 
+      prices.cardkingdom_foil ?? 
+      null;
+
+    const ckPriceRetail = rawCkRetail !== null && rawCkRetail !== undefined && !isNaN(parseFloat(rawCkRetail))
+      ? parseFloat(rawCkRetail).toFixed(2)
+      : null;
+
+    const ckPriceBuy = rawCkBuy !== null && rawCkBuy !== undefined && !isNaN(parseFloat(rawCkBuy))
+      ? parseFloat(rawCkBuy).toFixed(2)
+      : null;
+
+    const ckPriceFoil = rawCkFoil !== null && rawCkFoil !== undefined && !isNaN(parseFloat(rawCkFoil))
+      ? parseFloat(rawCkFoil).toFixed(2)
+      : null;
 
     const scryfallUri = raw.scryfall_uri || `https://scryfall.com/search?q=!%22${encodeURIComponent(name)}%22`;
 
@@ -252,6 +289,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
       tcgPriceFoil,
       ckPriceRetail,
       ckPriceBuy,
+      ckPriceFoil,
       scryfallUri,
     };
   }, [hoveredPrint, activeVersion, card, faceIndex]);
@@ -261,10 +299,10 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
   const appDemand = (() => {
     if (tradeMetrics.loading) return { label: 'Calculando...', color: 'text-neutral-400 bg-neutral-800/40 border-neutral-700' };
     const { copiesForTrade, requestedCount } = tradeMetrics;
-    if (copiesForTrade === 0 && requestedCount === 0) return { label: 'Sin Actividad de Trade', color: 'text-neutral-400 bg-neutral-800/40 border-neutral-700' };
-    if (copiesForTrade > 0 && requestedCount > copiesForTrade * 2) return { label: 'Alta Demanda en la App', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' };
+    if (copiesForTrade === 0 && requestedCount === 0) return { label: 'Sin Actividad', color: 'text-neutral-400 bg-neutral-800/40 border-neutral-700' };
+    if (copiesForTrade > 0 && requestedCount > copiesForTrade * 2) return { label: 'Alta Demanda', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' };
     if (copiesForTrade > 0) return { label: 'Demanda Equilibrada', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
-    return { label: 'Buscada (Sin Copias para Trade)', color: 'text-rose-400 bg-rose-500/10 border-rose-500/30' };
+    return { label: 'Buscada', color: 'text-rose-400 bg-rose-500/10 border-rose-500/30' };
   })();
 
   const handleOpenAdd = (tab) => {
@@ -274,27 +312,27 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fadeIn font-sans">
-        <div className={`relative w-full max-w-5xl max-h-[92vh] flex flex-col md:flex-row rounded-2xl overflow-hidden shadow-2xl border ${
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md animate-fadeIn font-sans">
+        <div className={`relative w-full max-w-5xl h-[95vh] md:h-auto md:max-h-[90vh] flex flex-col md:flex-row rounded-2xl overflow-hidden shadow-2xl border ${
           isLightMode ? 'bg-[#FAF7F2] text-[#24211E] border-neutral-300' : 'bg-[#121214] text-neutral-100 border-neutral-800'
         }`}>
 
-          {/* Botón Cerrar */}
+          {/* Botón Cerrar Flotante Touch-friendly */}
           <button
             type="button"
             onClick={onClose}
-            className={`absolute top-3.5 right-3.5 z-40 p-2 rounded-full shadow-md transition-transform hover:scale-110 active:scale-95 cursor-pointer ${
+            className={`absolute top-3 right-3 z-40 p-2 sm:p-2.5 rounded-full shadow-lg transition-transform hover:scale-110 active:scale-95 cursor-pointer ${
               isLightMode 
                 ? 'bg-neutral-200/90 hover:bg-neutral-300 text-neutral-800 border border-neutral-300' 
                 : 'bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 border border-neutral-700'
             }`}
             title="Cerrar ventana"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
-          {/* 1. Columna Izquierda: Visor de Carta e Inventario con Contador */}
-          <div className={`md:w-5/12 p-6 flex flex-col justify-between overflow-y-auto space-y-4 border-b md:border-b-0 md:border-r ${
+          {/* 1. Columna Izquierda: Visor de Carta e Inventario (Fluido en Móvil) */}
+          <div className={`w-full md:w-5/12 p-4 sm:p-6 flex flex-col justify-between overflow-y-auto space-y-4 border-b md:border-b-0 md:border-r shrink-0 ${
             isLightMode ? 'bg-[#EFEAE1] border-neutral-300' : 'bg-[#0B0B0C] border-neutral-800'
           }`}>
             <CardImagePreview
@@ -319,35 +357,35 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
           </div>
 
           {/* 2. Columna Derecha: Información, Reglas y Acciones */}
-          <div className="md:w-7/12 p-6 overflow-y-auto space-y-4 max-h-[65vh] md:max-h-none scrollbar-thin scrollbar-thumb-neutral-700 flex flex-col justify-between">
+          <div className="w-full md:w-7/12 p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 flex flex-col justify-between scrollbar-thin scrollbar-thumb-neutral-700">
             <div className="space-y-4">
               {loadingDetails && (
                 <div className="flex items-center gap-2 text-xs font-mono text-amber-500 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Cargando detalles de la versión seleccionada...</span>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  <span className="truncate">Sincronizando detalles...</span>
                 </div>
               )}
 
-              {/* Título y Coste */}
-              <div className="border-b pb-3 pr-12 border-neutral-700/40">
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight">
+              {/* Título, Coste y Demanda */}
+              <div className="border-b pb-3 pr-10 border-neutral-700/40">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                  <h3 className="text-lg sm:text-2xl font-black uppercase tracking-tight break-words">
                     {normalizedCard.name}
                   </h3>
                   {normalizedCard.manaCost && (
-                    <div className="shrink-0 pt-1">
-                      <ManaCost costString={normalizedCard.manaCost} size="text-[13px]" gap="gap-1" />
+                    <div className="shrink-0">
+                      <ManaCost costString={normalizedCard.manaCost} size="text-[12px] sm:text-[14px]" gap="gap-1" />
                     </div>
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                  <span className={`text-xs sm:text-sm font-semibold ${isLightMode ? 'text-neutral-600' : 'text-neutral-400'}`}>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <span className={`text-xs font-semibold ${isLightMode ? 'text-neutral-600' : 'text-neutral-400'}`}>
                     {normalizedCard.typeLine}
                   </span>
                   
-                  <div className={`px-2.5 py-0.5 rounded text-[11px] font-mono font-bold border flex items-center gap-1.5 ml-auto ${appDemand.color}`}>
-                    <TrendingUp className="w-3 h-3" />
+                  <div className={`px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-mono font-bold border flex items-center gap-1 ml-auto ${appDemand.color}`}>
+                    <TrendingUp className="w-3 h-3 shrink-0" />
                     <span>{appDemand.label}</span>
                   </div>
                 </div>
@@ -362,7 +400,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
               {/* P/T o Lealtad */}
               {(normalizedCard.power !== undefined || normalizedCard.loyalty !== undefined) && (
                 <div className="flex justify-end">
-                  <div className={`px-4 py-1.5 rounded-lg font-mono font-bold text-sm tracking-wider border ${
+                  <div className={`px-3 py-1 rounded-lg font-mono font-bold text-xs sm:text-sm tracking-wider border ${
                     isLightMode ? 'bg-neutral-200 border-neutral-300 text-neutral-900' : 'bg-neutral-900 border-neutral-700 text-amber-400'
                   }`}>
                     {normalizedCard.power !== undefined
@@ -373,30 +411,30 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
               )}
 
               {/* Metadatos de Edición */}
-              <div className="grid grid-cols-3 gap-2.5 text-xs font-mono">
-                <div className={`p-2.5 rounded-lg border ${
+              <div className="grid grid-cols-3 gap-2 text-[11px] sm:text-xs font-mono">
+                <div className={`p-2 rounded-lg border ${
                   isLightMode ? 'bg-neutral-100 border-neutral-200' : 'bg-neutral-900/40 border-neutral-800'
                 }`}>
-                  <span className="text-neutral-500 block text-[10px] uppercase font-bold">Edición</span>
+                  <span className="text-neutral-500 block text-[9px] uppercase font-bold">Edición</span>
                   <span className="font-semibold truncate block" title={normalizedCard.setName}>
-                    {normalizedCard.setName} ({normalizedCard.setCode})
+                    {normalizedCard.setCode || 'STD'}
                   </span>
                 </div>
 
-                <div className={`p-2.5 rounded-lg border ${
+                <div className={`p-2 rounded-lg border ${
                   isLightMode ? 'bg-neutral-100 border-neutral-200' : 'bg-neutral-900/40 border-neutral-800'
                 }`}>
-                  <span className="text-neutral-500 block text-[10px] uppercase font-bold">Coleccionista</span>
-                  <span className="font-semibold block">
+                  <span className="text-neutral-500 block text-[9px] uppercase font-bold">Número</span>
+                  <span className="font-semibold block truncate">
                     #{normalizedCard.collectorNumber || '—'}
                   </span>
                 </div>
 
-                <div className={`p-2.5 rounded-lg border ${
+                <div className={`p-2 rounded-lg border ${
                   isLightMode ? 'bg-neutral-100 border-neutral-200' : 'bg-neutral-900/40 border-neutral-800'
                 }`}>
-                  <span className="text-neutral-500 block text-[10px] uppercase font-bold">Rareza</span>
-                  <span className="font-semibold capitalize block">
+                  <span className="text-neutral-500 block text-[9px] uppercase font-bold">Rareza</span>
+                  <span className="font-semibold capitalize block truncate">
                     {normalizedCard.rarity}
                   </span>
                 </div>
@@ -404,33 +442,33 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
             </div>
 
             {/* Barra Inferior de Acciones */}
-            <div className="pt-3 border-t border-neutral-700/40 flex flex-wrap items-center justify-between gap-2.5 font-mono">
-              <div className="flex items-center gap-2">
+            <div className="pt-3 mt-3 border-t border-neutral-700/40 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 font-mono">
+              <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => handleOpenAdd('collection')}
-                  className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm border border-neutral-700 active:scale-95 cursor-pointer"
+                  className="px-2.5 py-2 sm:py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm border border-neutral-700 active:scale-95 cursor-pointer"
                 >
                   <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Añadir a Carpeta</span>
+                  <span>Carpeta</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => handleOpenAdd('deck')}
-                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm active:scale-95 cursor-pointer"
+                  className="px-2.5 py-2 sm:py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm active:scale-95 cursor-pointer"
                 >
                   <Layers className="w-3.5 h-3.5" />
-                  <span>Añadir a Mazo</span>
+                  <span>Mazo</span>
                 </button>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between sm:justify-end gap-3 pt-1 sm:pt-0">
                 <a
                   href={normalizedCard.scryfallUri}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs text-amber-500 hover:text-amber-400 font-mono transition-colors"
+                  className="inline-flex items-center gap-1 text-[11px] sm:text-xs text-amber-500 hover:text-amber-400 font-mono"
                 >
                   <span>Scryfall</span>
                   <ExternalLink className="w-3 h-3" />
@@ -439,7 +477,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
                     isLightMode ? 'bg-neutral-200 hover:bg-neutral-300 text-neutral-800' : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200'
                   }`}
                 >
