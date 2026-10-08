@@ -1,10 +1,11 @@
 # app/scripts/ingest_scryfall.py
 # ---------------------------------------------------------
 # SCRIPT ETL: INGESTA Y SINCRONIZACIÓN BULK DATA (SCRYFALL)
-# REFACTORIZADO BAJO POO Y DDD LIGERO
+# REFACTORIZADO BAJO POO Y DDD LIGERO CON TOLERANCIA A CORTES TCP
 # ---------------------------------------------------------
 import os
 import sys
+import time
 import gzip
 import json
 import logging
@@ -30,11 +31,6 @@ logger = logging.getLogger("ingest_scryfall")
 
 
 class ScryfallCardNormalizer:
-    """
-    Objeto de dominio encargado de interpretar y normalizar la estructura
-    de un payload crudo de Scryfall hacia el modelo canónico de datos MTG.
-    """
-
     @staticmethod
     def _extract_image_url(card_data: Dict[str, Any], faces: List[Dict[str, Any]]) -> Optional[str]:
         image_uris = card_data.get("image_uris")
@@ -71,7 +67,6 @@ class ScryfallCardNormalizer:
 
     @staticmethod
     def _extract_color_identity(card_data: Dict[str, Any]) -> str:
-        """Extrae la identidad de color para Commander (ej: 'W,U', 'B' o '')."""
         raw_identity = card_data.get("color_identity") or []
         if isinstance(raw_identity, list) and raw_identity:
             return ",".join(sorted(str(c).upper().strip() for c in raw_identity))
@@ -112,15 +107,11 @@ class ScryfallCardNormalizer:
 
 
 class ScryfallIngestionService:
-    """
-    Servicio de orquestación ETL para descarga por streaming y persistencia en lote.
-    """
-
     BULK_DATA_METADATA_URL: str = "https://api.scryfall.com/bulk-data"
-    BATCH_SIZE: int = 2000
+    BATCH_SIZE: int = 1000  # Reducido de 2000 a 1000 para commits más rápidos y ligeros
 
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self) -> None:
+        self.session: Session = SessionLocal()
         self.headers = {
             "User-Agent": USER_AGENT,
             "Accept": ACCEPT_HEADER
@@ -163,7 +154,8 @@ class ScryfallIngestionService:
                     except json.JSONDecodeError:
                         continue
 
-    def upsert_batch(self, batch: List[Dict[str, Any]]) -> None:
+    def commit_with_retry(self, batch: List[Dict[str, Any]], retries: int = 3) -> None:
+        """Inserta el lote con soporte de reintento y recreación de sesión si el proxy corta la conexión."""
         if not batch:
             return
 
@@ -188,48 +180,64 @@ class ScryfallIngestionService:
                 "scryfall_raw_data": stmt.excluded.scryfall_raw_data
             }
         )
-        self.session.execute(stmt)
+
+        for attempt in range(1, retries + 1):
+            try:
+                self.session.execute(stmt)
+                self.session.commit()
+                return
+            except Exception as e:
+                logger.warning(f"Error en intento {attempt}/{retries} guardando lote: {e}. Reintentando...")
+                try:
+                    self.session.rollback()
+                    self.session.close()
+                except Exception:
+                    pass
+                time.sleep(2)
+                self.session = SessionLocal()
+                if attempt == retries:
+                    raise
 
     def execute_sync(self) -> int:
         download_uri = self._resolve_download_uri()
         total_processed = 0
         batch: List[Dict[str, Any]] = []
 
-        for raw_card in self.stream_cards(download_uri):
-            if not raw_card.get("id"):
-                continue
+        try:
+            for raw_card in self.stream_cards(download_uri):
+                if not raw_card.get("id"):
+                    continue
 
-            normalized = ScryfallCardNormalizer.to_orm_dict(raw_card)
-            batch.append(normalized)
+                normalized = ScryfallCardNormalizer.to_orm_dict(raw_card)
+                batch.append(normalized)
 
-            if len(batch) >= self.BATCH_SIZE:
-                self.upsert_batch(batch)
-                self.session.commit()
+                if len(batch) >= self.BATCH_SIZE:
+                    self.commit_with_retry(batch)
+                    total_processed += len(batch)
+                    logger.info(f"Cartas sincronizadas: {total_processed}")
+                    batch.clear()
+
+            if batch:
+                self.commit_with_retry(batch)
                 total_processed += len(batch)
-                logger.info(f"Cartas sincronizadas: {total_processed}")
                 batch.clear()
 
-        if batch:
-            self.upsert_batch(batch)
-            self.session.commit()
-            total_processed += len(batch)
-            batch.clear()
-
-        return total_processed
+            return total_processed
+        finally:
+            try:
+                self.session.close()
+            except Exception:
+                pass
 
 
 def run_ingest() -> None:
-    session = SessionLocal()
     try:
-        service = ScryfallIngestionService(session=session)
+        service = ScryfallIngestionService()
         total = service.execute_sync()
         logger.info(f"Ingesta finalizada con éxito. Total: {total} cartas registradas.")
     except Exception as e:
-        session.rollback()
         logger.error(f"Fallo crítico en la ingesta: {e}", exc_info=True)
         sys.exit(1)
-    finally:
-        session.close()
 
 
 if __name__ == "__main__":
