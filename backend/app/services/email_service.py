@@ -1,12 +1,12 @@
 # app/services/email_service.py
 # ============================================================================
-# SERVICIO DE CORREO ELECTRÓNICO (DUAL MOCK / SMTP TRANSPARENTE)
+# SERVICIO DE CORREO ELECTRÓNICO (GMAIL SMTP SSL/TLS DUAL - ALPHA TESTING)
 # ============================================================================
-# ARQUITECTURA & REGLAS:
-# - Resolución prioritaria mediante app.core.config.settings con fallback a os.getenv.
-# - Si no hay servidor SMTP configurado, imprime el OTP en los logs de Docker
-#   con banner visual de consola para desarrollo continuo.
-# - Si existen variables SMTP (Gmail, Resend, etc.), despacha vía smtplib con STARTTLS.
+# ARQUITECTURA:
+# - Prioriza conexión segura directa SSL (puerto 465) para evitar el bloqueo
+#   de sockets STARTTLS (puerto 587) en contenedores cloud.
+# - Respaldo en logs de Docker/Railway si ocurre un corte de red saliente.
+# - Tipado estricto con anotaciones de tipo.
 # ============================================================================
 
 import os
@@ -14,7 +14,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
-from typing import Optional
+from typing import Optional, List, Any
 import logging
 
 from app.core.config import settings
@@ -23,41 +23,60 @@ logger: logging.Logger = logging.getLogger("app.email_service")
 
 
 class EmailService:
-    """Gestor unificado de notificaciones y verificación por correo electrónico."""
+    """Gestor de notificaciones y verificación por correo mediante Gmail SMTP."""
 
     @classmethod
     def _get_smtp_host(cls) -> str:
-        return str(getattr(settings, "SMTP_HOST", "") or os.getenv("SMTP_HOST", "")).strip()
+        val: Optional[str] = getattr(settings, "SMTP_HOST", None) or os.getenv("SMTP_HOST", "smtp.gmail.com")
+        return str(val).strip() if val else "smtp.gmail.com"
 
     @classmethod
     def _get_smtp_port(cls) -> int:
-        port_val = getattr(settings, "SMTP_PORT", None) or os.getenv("SMTP_PORT", "587")
+        port_val: Any = getattr(settings, "SMTP_PORT", None) or os.getenv("SMTP_PORT", "465")
         try:
             return int(port_val)
         except (ValueError, TypeError):
-            return 587
+            return 465
 
     @classmethod
     def _get_smtp_user(cls) -> str:
-        return str(getattr(settings, "SMTP_USER", "") or os.getenv("SMTP_USER", "")).strip()
+        val: Optional[str] = getattr(settings, "SMTP_USER", None) or os.getenv("SMTP_USER", "")
+        return str(val).strip() if val else ""
 
     @classmethod
     def _get_smtp_password(cls) -> str:
-        return str(getattr(settings, "SMTP_PASSWORD", "") or os.getenv("SMTP_PASSWORD", "")).strip()
+        val: Optional[str] = getattr(settings, "SMTP_PASSWORD", None) or os.getenv("SMTP_PASSWORD", "")
+        return str(val).replace(" ", "").strip() if val else ""
 
     @classmethod
     def _get_from_address(cls) -> str:
         name: str = getattr(settings, "SMTP_FROM_NAME", "Black Market MTG")
+        user_email: str = cls._get_smtp_user()
         raw_email: Optional[str] = (
             getattr(settings, "SMTP_FROM_EMAIL", None)
-            or cls._get_smtp_user()
-            or os.getenv("SMTP_FROM", "no-reply@blackmarket-mtg.local")
+            or os.getenv("SMTP_FROM_EMAIL", None)
+            or user_email
+            or "no-reply@blackmarket-mtg.local"
         )
         return formataddr((name, str(raw_email).strip()))
 
     @classmethod
     def _is_smtp_configured(cls) -> bool:
-        return bool(cls._get_smtp_host() and cls._get_smtp_user() and cls._get_smtp_password())
+        host: str = cls._get_smtp_host()
+        user: str = cls._get_smtp_user()
+        pwd: str = cls._get_smtp_password()
+        configured: bool = bool(host and user and pwd)
+
+        if not configured:
+            missing: List[str] = []
+            if not host:
+                missing.append("SMTP_HOST")
+            if not user:
+                missing.append("SMTP_USER")
+            if not pwd:
+                missing.append("SMTP_PASSWORD")
+            print(f"ℹ️ [EmailService] SMTP incompleto. Faltan variables: {', '.join(missing)}")
+        return configured
 
     @classmethod
     def send_verification_otp(
@@ -68,7 +87,7 @@ class EmailService:
         is_update: bool = False
     ) -> bool:
         """
-        Envía un código OTP de 6 dígitos para verificar correo en registro o actualización.
+        Envía un código OTP de 6 dígitos mediante la cuenta de Gmail configurada.
         """
         subject: str = (
             "Verifica tu nuevo correo - Black Market MTG"
@@ -122,19 +141,24 @@ Este código tiene una vigencia de 10 minutos. Si no solicitaste esta acción, p
 </html>
 """
 
-        # 1. Fallback Mock: Si no hay SMTP configurado, emitir en el logger de consola/Docker
+        # 1. Fallback Mock si no hay credenciales
         if not cls._is_smtp_configured():
             print("\n" + "=" * 65)
-            print("📨 [EMAIL SERVICE - MOCK LOCAL DOCKER]")
-            print(f"Para: {to_email} (@{username})")
+            print("📨 [EMAIL SERVICE - MOCK LOCAL ACTIVADO]")
+            print(f"Destinatario: {to_email} (@{username})")
             print(f"Asunto: {subject}")
             print(f"CÓDIGO DE VERIFICACIÓN (OTP): >>> {otp_code} <<<")
             print("=" * 65 + "\n")
             return True
 
-        # 2. Despacho real mediante servidor SMTP
+        # 2. Despacho SMTP (Gmail)
+        host: str = cls._get_smtp_host()
+        port: int = cls._get_smtp_port()
+        user: str = cls._get_smtp_user()
+        password: str = cls._get_smtp_password()
+        from_header: str = cls._get_from_address()
+
         try:
-            from_header: str = cls._get_from_address()
             msg: MIMEMultipart = MIMEMultipart("alternative")
             msg["Subject"] = subject
             msg["From"] = from_header
@@ -143,19 +167,27 @@ Este código tiene una vigencia de 10 minutos. Si no solicitaste esta acción, p
             msg.attach(MIMEText(text_content, "plain", "utf-8"))
             msg.attach(MIMEText(html_content, "html", "utf-8"))
 
-            host: str = cls._get_smtp_host()
-            port: int = cls._get_smtp_port()
-            user: str = cls._get_smtp_user()
-            password: str = cls._get_smtp_password()
+            print(f"🚀 [EmailService] Conectando a Gmail ({host}:{port}) con usuario {user}...")
 
-            with smtplib.SMTP(host, port, timeout=15) as server:
-                server.starttls()
-                server.login(user, password)
-                server.sendmail(user, [to_email], msg.as_string())
+            # Si el puerto es 465, usa SSL directo; si es 587, usa STARTTLS
+            if port == 465:
+                with smtplib.SMTP_SSL(host, port, timeout=15) as server:
+                    server.login(user, password)
+                    server.sendmail(user, [to_email], msg.as_string())
+            else:
+                with smtplib.SMTP(host, port, timeout=15) as server:
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                    server.login(user, password)
+                    server.sendmail(user, [to_email], msg.as_string())
 
             logger.info("Correo de verificación enviado exitosamente a %s", to_email)
+            print(f"✅ [EmailService] Correo enviado exitosamente a {to_email}")
             return True
-        except Exception as e:
-            logger.error("Error al despachar correo a %s: %s", to_email, e)
-            print(f"⚠️ [FALLO SMTP] Código de rescate para {to_email}: >>> {otp_code} <<<")
+
+        except Exception as exc:
+            logger.error("Error al despachar correo a %s: %s", to_email, exc)
+            print(f"❌ [EmailService] Falló el despacho a {to_email}: {type(exc).__name__} - {exc}")
+            print(f"⚠️ [CÓDIGO OTP DE RESCATE]: >>> {otp_code} <<<")
             return False
