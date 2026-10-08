@@ -1,7 +1,7 @@
 # app/scripts/ingest_scryfall.py
 # ---------------------------------------------------------
 # SCRIPT ETL: INGESTA STREAMING RESILIENTE (ORACLE CARDS -> POSTGRES)
-# SINCRONIZA EL CATÁLOGO CANÓNICO DE MTG SIN SATURAR DISCO
+# CREACIÓN AUTOMÁTICA DE ESQUEMA + CARGA CANÓNICA LIGERA
 # ---------------------------------------------------------
 import os
 import sys
@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Generator, Dict, Any, List, Optional
 import requests
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert
 
@@ -35,6 +35,18 @@ etl_engine = create_engine(
     poolclass=NullPool,
     connect_args=connect_args
 )
+
+
+def ensure_database_schema() -> None:
+    """Verifica y crea automáticamente las extensiones, tablas e índices si no existen."""
+    logger.info("Comprobando y asegurando el esquema de base de datos...")
+    with etl_engine.begin() as conn:
+        # 1. Habilitar extensión trigramas para búsqueda instantánea
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+    
+    # 2. Crear tabla e índices asociados si aún no existen
+    CartaScryfall.__table__.create(bind=etl_engine, checkfirst=True)
+    logger.info("Esquema de base de datos verificado y listo.")
 
 
 class ScryfallCardNormalizer:
@@ -114,7 +126,7 @@ class ScryfallCardNormalizer:
 
 class ScryfallIngestionService:
     BULK_DATA_METADATA_URL: str = "https://api.scryfall.com/bulk-data"
-    BATCH_SIZE: int = 500  # Lote óptimo para inserciones atómicas
+    BATCH_SIZE: int = 500
 
     def __init__(self) -> None:
         self.headers = {
@@ -127,7 +139,6 @@ class ScryfallIngestionService:
         with requests.get(self.BULK_DATA_METADATA_URL, headers=self.headers, timeout=30) as response:
             response.raise_for_status()
             items = response.json().get("data", [])
-            # Selecciona el catálogo canónico (oracle_cards: ~35k cartas únicas)
             target = next((item for item in items if item.get("type") == "oracle_cards"), None)
 
         if not target:
@@ -225,6 +236,9 @@ class ScryfallIngestionService:
 
 def run_ingest() -> None:
     try:
+        # Asegura la existencia de la tabla e índices automáticamente
+        ensure_database_schema()
+        
         service = ScryfallIngestionService()
         total = service.execute_sync()
         logger.info(f"Ingesta finalizada con éxito. Total: {total} cartas canónicas registradas.")
