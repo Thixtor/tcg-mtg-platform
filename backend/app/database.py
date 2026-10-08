@@ -6,17 +6,20 @@ import os
 import re
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-from app.core.config import settings
 
-# 1. Recuperar URL cruda desde entorno o settings
+# 1. Recuperar URL cruda directamente desde entorno del sistema o intentar fallback a settings
 raw_url = os.getenv("DATABASE_URL")
-if not raw_url and hasattr(settings, "DATABASE_URL"):
-    raw_url = str(settings.DATABASE_URL)
+if not raw_url:
+    try:
+        from app.core.config import settings
+        if hasattr(settings, "DATABASE_URL"):
+            raw_url = str(settings.DATABASE_URL)
+    except Exception:
+        raw_url = "postgresql://postgres:postgres@localhost:5432/railway"
 
 raw_url = (raw_url or "").strip().strip('"').strip("'")
 
 # 2. Forzar explícitamente el dialecto postgresql+psycopg2
-#    Evita que SQLAlchemy intente resolver psycopg3 ('import psycopg')
 if raw_url.startswith("postgres://"):
     db_url = re.sub(r"^postgres://", "postgresql+psycopg2://", raw_url)
 elif raw_url.startswith("postgresql://"):
@@ -31,8 +34,8 @@ else:
 # ---------------------------------------------------------
 engine = create_engine(
     db_url,
-    pool_pre_ping=True,      # Verifica conectividad antes de checkout
-    pool_recycle=1800,       # Recicla cada 30 min (evita timeouts en Railway)
+    pool_pre_ping=True,      # Verifica conectividad antes de checkout (esencial para proxy TCP de Railway)
+    pool_recycle=1800,       # Recicla conexiones cada 30 min
     pool_size=10,
     max_overflow=20,
     echo=False

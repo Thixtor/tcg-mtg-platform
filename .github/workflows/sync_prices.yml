@@ -4,17 +4,12 @@ on:
   schedule:
     # Corre todos los días a las 09:00 UTC (04:00 AM hora Colombia)
     - cron: '0 9 * * *'
-  # Permite ejecutarlo manualmente en cualquier momento desde la pestaña "Actions" de GitHub
   workflow_dispatch:
 
 jobs:
   run-ingestion:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      # Definido globalmente para todo el entorno del job
-      DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
-      SECRET_KEY: "dummy-secret-key-for-github-actions-data-ingestion"
 
     steps:
       - name: Check out repository
@@ -31,15 +26,9 @@ jobs:
           pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - name: Create local .env fallback
-        run: |
-          echo "DATABASE_URL=${{ secrets.RAILWAY_DATABASE_URL }}" > backend/.env
-          echo "SECRET_KEY=dummy-secret-key-for-github-actions-data-ingestion" >> backend/.env
-
       - name: Run Card Kingdom Price Ingestion
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
-          SECRET_KEY: "dummy-secret-key-for-github-actions-data-ingestion"
         run: |
           cd backend
           python -m app.scripts.ingest_prices
