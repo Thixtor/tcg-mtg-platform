@@ -1,5 +1,5 @@
 # ---------------------------------------------------------
-# DOCKERFILE: BACKEND FASTAPI (PYTHON)
+# DOCKERFILE: BACKEND FASTAPI (PYTHON) - RAILWAY READY
 # ---------------------------------------------------------
 FROM python:3.11-slim
 
@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias para PostgreSQL y librerías C
+# Instalar dependencias del sistema necesarias para PostgreSQL y compilaciones C
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
@@ -24,8 +24,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copiar el código fuente de la aplicación
 COPY . .
 
-# Exponer el puerto de Uvicorn
+# Puerto por defecto (documentario)
 EXPOSE 8000
 
-# Comando de arranque del servidor con recarga en caliente
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Arranque compatible con Railway: evalúa $PORT dinámico si existe, o 8000 como fallback
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

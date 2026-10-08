@@ -117,11 +117,21 @@ async def global_integrity_error_handler(request: Request, exc: IntegrityError):
 
 
 # ---------------------------------------------------------
-# MIDDLEWARE CORS
+# MIDDLEWARE CORS ADAPTATIVO (LOCAL & NUBE / RAILWAY)
 # ---------------------------------------------------------
+import os
+
+env_origins = os.getenv("ALLOWED_ORIGINS", "")
+if env_origins:
+    cors_origins = [orig.strip() for orig in env_origins.split(",") if orig.strip()]
+elif hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+    cors_origins = settings.CORS_ORIGINS
+else:
+    cors_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"] if "*" in cors_origins else cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
