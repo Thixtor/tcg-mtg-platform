@@ -1,11 +1,41 @@
-// ---------------------------------------------------------
-// CLIENTE AXIOS CON INTERCEPTORES DE SESIÓN PROTEGIDOS
-// ---------------------------------------------------------
+// src/api/client.js
+// ============================================================================
+// CLIENTE AXIOS CON SANEAMIENTO DE URL Y CONTROL DE SESIÓN
+// ============================================================================
 import axios from 'axios';
 import { getAccessToken, clearSession } from '@/services/session.service';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+/**
+ * Normaliza y sanea la URL base de la API eliminando corchetes accidentales,
+ * comillas o barras finales, garantizando el prefijo /api.
+ * @param {string | undefined} rawUrl
+ * @returns {string}
+ */
+function normalizeApiBaseUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return 'http://localhost:8000/api';
+  }
 
+  // Eliminar espacios, corchetes literales [ ] y comillas accidentales de variables de entorno
+  let cleaned = rawUrl
+    .trim()
+    .replace(/^[\[\(\{"']+\vert{}[\]\)\}"']+$/g, '')
+    .trim();
+
+  // Remover slash final si existe
+  cleaned = cleaned.replace(/\/+$/, '');
+
+  // Asegurar que termine en /api si no lo incluye ya
+  if (!cleaned.endsWith('/api')) {
+    cleaned = `${cleaned}/api`;
+  }
+
+  return cleaned;
+}
+
+const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL);
+
+/** @type {import('axios').AxiosInstance} */
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {

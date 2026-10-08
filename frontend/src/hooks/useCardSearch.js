@@ -1,4 +1,7 @@
 // src/hooks/useCardSearch.js
+// ============================================================================
+// HOOK REACT: BÚSQUEDA Y FILTRADO DE CARTAS EN CATÁLOGO / EXPLORADOR
+// ============================================================================
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { searchCardsApi } from '../api/cards';
@@ -13,7 +16,7 @@ export function useCardSearch(initialQuery = '', debounceDelay = 320) {
   const [searchTerm, setSearchTerm] = useState(initialQuery);
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const handleFilterChange = (key, value) => {
@@ -25,18 +28,7 @@ export function useCardSearch(initialQuery = '', debounceDelay = 320) {
   };
 
   useEffect(() => {
-    const trimmed = searchTerm.trim();
-    const hasQuery = trimmed.length >= 2;
-    const hasActiveFilters = Boolean(
-      filters.type || filters.colors || filters.cmc !== null
-    );
-
-    if (!hasQuery && !hasActiveFilters) {
-      setResults([]);
-      setLoading(false);
-      setError(null);
-      return;
-    }
+    const trimmed = searchTerm ? searchTerm.trim() : '';
 
     setLoading(true);
     setError(null);
@@ -46,7 +38,7 @@ export function useCardSearch(initialQuery = '', debounceDelay = 320) {
     const timer = setTimeout(async () => {
       try {
         const payload = {
-          ...(hasQuery ? { q: trimmed } : {}),
+          ...(trimmed ? { q: trimmed } : {}),
           ...(filters.type && filters.type !== 'all' ? { type: filters.type } : {}),
           ...(filters.colors ? { colors: filters.colors } : {}),
           ...(filters.cmc !== null ? { cmc: filters.cmc } : {}),
@@ -54,12 +46,22 @@ export function useCardSearch(initialQuery = '', debounceDelay = 320) {
         };
 
         const data = await searchCardsApi(payload, { signal: controller.signal });
-        setResults(data || []);
+        
+        // Maneja respuestas tanto en array plano como en estructura paginada { data: [] } o { items: [] }
+        if (Array.isArray(data)) {
+          setResults(data);
+        } else if (data && Array.isArray(data.items)) {
+          setResults(data.items);
+        } else if (data && Array.isArray(data.data)) {
+          setResults(data.data);
+        } else {
+          setResults([]);
+        }
       } catch (err) {
         if (axios.isCancel(err) || err.name === 'CanceledError') {
           return;
         }
-        console.error('Error buscando cartas:', err);
+        console.error('Error buscando cartas en catálogo:', err);
         setError('Error al consultar el catálogo. Intenta de nuevo.');
         setResults([]);
       } finally {

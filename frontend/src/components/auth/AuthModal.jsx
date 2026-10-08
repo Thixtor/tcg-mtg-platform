@@ -4,14 +4,14 @@
 // ARQUITECTURA & REGLAS:
 // - Login con Código al Correo (Passwordless) o con Contraseña tradicional.
 // - Registro con paso obligatorio de verificación de código OTP de 6 dígitos.
-// - Compatible con API Docker (logs en consola o SMTP).
+// - Botón de reenvío con temporizador regresivo (cooldown) de 60 segundos.
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import apiClient from '@/api/client';
 import { saveSession } from '@/services/session.service';
 import { parseApiError } from '@/utils/apiErrors';
-import { Mail, KeyRound, Lock, User, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
+import { Mail, KeyRound, Lock, User, ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 
 export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
   const [tab, setTab] = useState('login'); // 'login' | 'register'
@@ -33,9 +33,26 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
   const [isVerifyingRegOtp, setIsVerifyingRegOtp] = useState(false);
   const [regOtpCode, setRegOtpCode] = useState('');
 
+  // Temporizador para reenvío de código (Cooldown 60s)
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resending, setResending] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [infoMsg, setInfoMsg] = useState(null);
+
+  // Efecto para cuenta regresiva del temporizador de reenvío
+  useEffect(() => {
+    let timer = null;
+    if (resendCooldown > 0) {
+      timer = setInterval(() => {
+        setResendCooldown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [resendCooldown]);
 
   if (!isOpen) return null;
 
@@ -47,6 +64,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
     setIsVerifyingRegOtp(false);
     setRegOtpCode('');
     setRegisteredUserId(null);
+    setResendCooldown(0);
   };
 
   // 1. SOLICITAR CÓDIGO OTP PARA LOGIN
@@ -57,7 +75,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
     try {
       await apiClient.post('/auth/request-otp', { email: loginEmail.trim() });
       setLoginOtpSent(true);
-      setInfoMsg(`Código enviado a ${loginEmail}. Revisa tu buzón o la consola de Docker.`);
+      setInfoMsg(`Código enviado a ${loginEmail}. Revisa tu bandeja de entrada.`);
     } catch (err) {
       setErrorMsg(parseApiError(err, 'Error solicitando código de acceso.'));
     } finally {
@@ -101,7 +119,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
       onClose();
       window.location.reload();
     } catch (err) {
-      setErrorMsg(parseApiError(err, 'Credenciales incorrectas.'));
+      setErrorMsg(parseApiError(err, 'Credenciales incorrectas o correo no verificado.'));
     } finally {
       setLoading(false);
     }
@@ -120,9 +138,10 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
       });
       setRegisteredUserId(data.id);
       setIsVerifyingRegOtp(true);
-      setInfoMsg(`Cuenta creada. Ingresa el código de 6 dígitos enviado a ${regForm.email}.`);
+      setResendCooldown(60); // Inicia cuenta regresiva de 60s
+      setInfoMsg(`Código de 6 dígitos enviado a ${regForm.email}.`);
     } catch (err) {
-      setErrorMsg(parseApiError(err, 'Error al crear la cuenta. Verifica que el usuario o correo no existan.'));
+      setErrorMsg(parseApiError(err, 'Error al crear la cuenta. Verifica que los datos sean válidos.'));
     } finally {
       setLoading(false);
     }
@@ -147,6 +166,24 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
       setErrorMsg(parseApiError(err, 'Código de activación incorrecto o expirado.'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 6. REENVIAR CÓDIGO DE ACTIVACIÓN
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || resending || !registeredUserId) return;
+    setResending(true);
+    setErrorMsg(null);
+    try {
+      await apiClient.post('/auth/resend-verification-otp', {
+        user_id: registeredUserId
+      });
+      setResendCooldown(60);
+      setInfoMsg(`Nuevo código reenviado a ${regForm.email}.`);
+    } catch (err) {
+      setErrorMsg(parseApiError(err, 'No fue posible reenviar el código. Intenta de nuevo en un momento.'));
+    } finally {
+      setResending(false);
     }
   };
 
@@ -180,7 +217,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
           </p>
         </div>
 
-        {/* Pestañas de Navegación (si no está en paso de OTP) */}
+        {/* Pestañas de Navegación */}
         {!isVerifyingRegOtp && (
           <div className="flex border-b border-[#242129] mb-5">
             <button
@@ -228,7 +265,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
             <div className="p-3.5 bg-[#181622] rounded-2xl border border-white/5 space-y-1">
               <span className="text-white font-bold block">Código de activación</span>
               <p className="text-neutral-400 text-[11px] font-sans leading-relaxed">
-                Revisa los logs de Docker o la bandeja de <strong className="text-amber-400">{regForm.email}</strong>.
+                Hemos enviado un código a <strong className="text-amber-400">{regForm.email}</strong>.
               </p>
             </div>
 
@@ -256,20 +293,46 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
               {loading ? 'Activando...' : 'Verificar y Activar Cuenta'}
             </button>
 
-            <button
-              type="button"
-              onClick={() => setIsVerifyingRegOtp(false)}
-              className="w-full text-center text-neutral-400 hover:text-white pt-1 cursor-pointer flex items-center justify-center gap-1"
-            >
-              <ArrowLeft className="w-3 h-3" /> Volver al registro
-            </button>
+            {/* Botón Reenviar Código con Cooldown */}
+            <div className="pt-2 flex items-center justify-between text-[11px]">
+              <button
+                type="button"
+                onClick={handleResendOtp}
+                disabled={resendCooldown > 0 || resending}
+                className="text-[#E88B00] hover:text-[#FF9D0A] disabled:text-neutral-500 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer font-bold transition"
+              >
+                {resending ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Reenviando...</span>
+                  </>
+                ) : resendCooldown > 0 ? (
+                  <>
+                    <RefreshCw className="w-3 h-3 text-neutral-500" />
+                    <span>Reenviar código en {resendCooldown}s</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Reenviar código</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsVerifyingRegOtp(false)}
+                className="text-neutral-400 hover:text-white cursor-pointer flex items-center gap-1"
+              >
+                <ArrowLeft className="w-3 h-3" /> Volver
+              </button>
+            </div>
           </form>
         ) : tab === 'login' ? (
           /* ------------------------------------------------------------- */
           /* VISTA 2: INICIO DE SESIÓN (OTP O CONTRASEÑA) */
           /* ------------------------------------------------------------- */
           <div className="space-y-4">
-            {/* Selector de Método de Login */}
             <div className="flex bg-[#181622] p-1 rounded-xl border border-white/5">
               <button
                 type="button"
@@ -292,7 +355,6 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
             </div>
 
             {loginMethod === 'otp' ? (
-              /* Flujo Login OTP */
               !loginOtpSent ? (
                 <form onSubmit={handleRequestLoginOtp} className="space-y-4">
                   <div>
@@ -354,7 +416,6 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
                 </form>
               )
             ) : (
-              /* Flujo Login Contraseña */
               <form onSubmit={handlePasswordLogin} className="space-y-4">
                 <div>
                   <label className="block text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
@@ -436,7 +497,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }) {
               </label>
               <input
                 type="password"
-                placeholder="Mínimo 6 caracteres (o déjalo vacío para usar solo OTP)"
+                placeholder="Mínimo 6 caracteres (o vacío para usar solo OTP)"
                 value={regForm.password}
                 onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
                 className="w-full rounded-xl bg-[#181622] border border-[#2A2733] focus:border-[#E88B00] px-3.5 py-2.5 text-white outline-none"

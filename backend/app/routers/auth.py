@@ -34,11 +34,15 @@ class VerifyEmailOtpPayload(BaseModel):
     code: str = Field(..., min_length=6, max_length=6, description="Código OTP de 6 dígitos")
 
 
+class ResendVerificationPayload(BaseModel):
+    user_id: str = Field(..., description="ID único del usuario (UUID)")
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Registrar un nuevo usuario y enviar código de activación"
+    summary="Registrar un nuevo usuario o reanudar registro pendiente"
 )
 @limiter.limit("10/hour")
 def register_user(
@@ -47,34 +51,32 @@ def register_user(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ) -> UserResponse:
-    """Crea una cuenta y emite el código OTP de verificación de correo en segundo plano."""
+    """Crea una cuenta o reanuda una no verificada y emite el código OTP por correo."""
     try:
-        new_user = AuthService.register_user(db=db, payload=payload)
+        user_entity, is_resumed = AuthService.register_user(db=db, payload=payload)
         
         # Generación criptográficamente segura del código OTP de 6 dígitos
         otp_code: str = generate_secure_otp()
-        otp_hash: str = _compute_otp_hash(code=otp_code, user_id=str(new_user.id))
+        otp_hash: str = _compute_otp_hash(code=otp_code, user_id=str(user_entity.id))
         
-        user_entity: Optional[User] = db.query(User).filter(User.id == new_user.id).first()
-        if user_entity:
-            user_entity.register_otp_challenge(otp_hash_digest=otp_hash, lifetime_minutes=10)
-            db.commit()
+        user_entity.register_otp_challenge(otp_hash_digest=otp_hash, lifetime_minutes=10)
+        db.commit()
 
-        # Despacho en segundo plano para no demorar la respuesta HTTP
+        # Despacho en segundo plano
         background_tasks.add_task(
             EmailService.send_verification_otp,
-            to_email=new_user.email,
-            username=new_user.username,
+            to_email=user_entity.email,
+            username=user_entity.username,
             otp_code=otp_code,
             is_update=False
         )
 
-        return new_user
+        return user_entity
     except IntegrityError:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Los datos proporcionados coinciden con una cuenta existente."
+            detail="Los datos proporcionados coinciden con una cuenta existente y verificada."
         )
     except ValueError as val_err:
         db.rollback()
@@ -82,6 +84,34 @@ def register_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(val_err)
         )
+
+
+@router.post(
+    "/resend-verification-otp",
+    summary="Reenviar código OTP de activación con cooldown de 60 segundos"
+)
+@limiter.limit("10/minute")
+def resend_verification_otp(
+    request: Request,
+    payload: ResendVerificationPayload,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+) -> Dict[str, str]:
+    """Reenvía el código OTP a una cuenta registrada aún no verificada."""
+    otp_code, to_email = AuthService.resend_verification_code(db=db, user_id=payload.user_id)
+    
+    user_entity: Optional[User] = db.query(User).filter(User.id == payload.user_id).first()
+    username: str = user_entity.username if user_entity else "Coleccionista"
+
+    background_tasks.add_task(
+        EmailService.send_verification_otp,
+        to_email=to_email,
+        username=username,
+        otp_code=otp_code,
+        is_update=False
+    )
+
+    return {"status": "success", "message": "Código de verificación reenviado a tu correo."}
 
 
 @router.post(

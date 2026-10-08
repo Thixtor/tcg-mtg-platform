@@ -3,12 +3,13 @@
 # SERVICIO DE DOMINIO: SEGURIDAD, OTP POR CORREO Y CONTRASEÑAS (POO / DDD)
 # ============================================================================
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 import bcrypt
 
-from app.models.user import User
+from app.models.user import User, _compute_otp_hash
 from app.core.config import settings
 from app.core.security import generate_secure_otp, create_access_token, hash_otp
 from app.services.email_service import EmailService
@@ -41,19 +42,39 @@ class AuthService:
     """
 
     @classmethod
-    def register_user(cls, db: Session, payload: UserCreate) -> User:
-        """Crea la entidad de usuario en base de datos previo al despacho del OTP."""
+    def register_user(cls, db: Session, payload: UserCreate) -> Tuple[User, bool]:
+        """
+        Crea la entidad de usuario o reanuda el registro si la cuenta previa no estaba verificada.
+        Retorna (user, is_resumed).
+        """
         clean_username: str = payload.username.strip().lower()
         clean_email: str = payload.email.strip().lower()
 
         existing: Optional[User] = db.query(User).filter(
             (User.username == clean_username) | (User.email == clean_email)
         ).first()
+
         if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="El nombre de usuario o correo ya se encuentra registrado."
-            )
+            # Si el usuario ya está verificado, rechazar con conflicto
+            if existing.is_email_verified:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El nombre de usuario o correo ya se encuentra registrado y activo."
+                )
+
+            # Si NO está verificado, permitimos reanudar el registro y actualizar sus credenciales
+            if payload.password:
+                existing.password_hash = hash_password(payload.password)
+            if payload.phone_number:
+                existing.phone_number = payload.phone_number.strip()
+            if payload.location:
+                existing.location = payload.location
+
+            existing.username = clean_username
+            existing.email = clean_email
+            db.commit()
+            db.refresh(existing)
+            return existing, True
 
         hashed_pwd: Optional[str] = hash_password(payload.password) if payload.password else None
 
@@ -73,7 +94,44 @@ class AuthService:
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
-        return new_user
+        return new_user, False
+
+    @classmethod
+    def resend_verification_code(cls, db: Session, user_id: str) -> Tuple[str, str]:
+        """
+        Genera y reenvía un nuevo OTP de verificación si pasaron al menos 60 segundos.
+        Retorna (otp_code, email).
+        """
+        user: Optional[User] = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Usuario no encontrado."
+            )
+
+        if user.is_email_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Esta cuenta ya ha sido verificada previamente."
+            )
+
+        # Validar cooldown de 60 segundos contra el tiempo restante del OTP (vida total: 10 min)
+        if user.otp_expires_at:
+            now: datetime = datetime.now(timezone.utc)
+            # Si expira en más de 9 minutos, significa que se envió hace menos de 1 minuto
+            if user.otp_expires_at > (now + timedelta(minutes=9)):
+                seconds_left: int = int((user.otp_expires_at - (now + timedelta(minutes=9))).total_seconds())
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Por favor espera {max(seconds_left, 1)} segundos antes de solicitar un nuevo código."
+                )
+
+        otp_code: str = generate_secure_otp()
+        otp_hash: str = _compute_otp_hash(code=otp_code, user_id=str(user.id))
+        user.register_otp_challenge(otp_hash_digest=otp_hash, lifetime_minutes=10)
+        db.commit()
+
+        return otp_code, user.email
 
     @classmethod
     def request_otp(
@@ -94,7 +152,6 @@ class AuthService:
             )
             db.commit()
 
-            # Despachar correo electrónico usando EmailService
             EmailService.send_verification_otp(
                 to_email=user.email,
                 username=user.username,
@@ -102,7 +159,6 @@ class AuthService:
                 is_update=False
             )
 
-            # Exponer OTP únicamente si está habilitado explícitamente y fuera de producción
             if settings.EXPOSE_DEV_OTP and settings.ENVIRONMENT != "production":
                 dev_code = otp_code
 
@@ -133,7 +189,6 @@ class AuthService:
                 detail="Código de verificación incorrecto, expirado o intentos máximos superados."
             )
 
-        # Si ingresa exitosamente con código al correo, se valida automáticamente
         user.mark_email_as_verified()
         db.commit()
         db.refresh(user)
@@ -167,7 +222,7 @@ class AuthService:
         if not user.is_email_verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Debes verificar tu correo electrónico antes de iniciar sesión. Solicita un código de activación."
+                detail="Debes verificar tu correo electrónico antes de iniciar sesión. Ingresa con OTP o verifica tu cuenta."
             )
 
         access_token: str = create_access_token(user_id=str(user.id))
