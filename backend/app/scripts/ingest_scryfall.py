@@ -3,6 +3,7 @@
 # SCRIPT ETL: INGESTA Y SINCRONIZACIÓN BULK DATA (SCRYFALL)
 # REFACTORIZADO BAJO POO Y DDD LIGERO
 # ---------------------------------------------------------
+import os
 import sys
 import gzip
 import json
@@ -14,7 +15,15 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.database import SessionLocal
 from app.models.card import CartaScryfall
-from app.core.config import settings
+
+# Carga segura y opcional de configuración sin bloquear la ejecución si settings no inicializa
+try:
+    from app.core.config import settings
+    USER_AGENT = getattr(settings, "SCRYFALL_USER_AGENT", "MTGTradeApp/1.0 (Scryfall Sync Engine)")
+    ACCEPT_HEADER = getattr(settings, "SCRYFALL_ACCEPT_HEADER", "application/json;q=0.9,*/*;q=0.8")
+except Exception:
+    USER_AGENT = "MTGTradeApp/1.0 (Scryfall Sync Engine)"
+    ACCEPT_HEADER = "application/json;q=0.9,*/*;q=0.8"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ingest_scryfall")
@@ -113,8 +122,8 @@ class ScryfallIngestionService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.headers = {
-            "User-Agent": getattr(settings, "SCRYFALL_USER_AGENT", "MTGInventoryApp/1.0"),
-            "Accept": getattr(settings, "SCRYFALL_ACCEPT_HEADER", "application/json;q=0.9,*/*;q=0.8")
+            "User-Agent": USER_AGENT,
+            "Accept": ACCEPT_HEADER
         }
 
     def _resolve_download_uri(self) -> str:
