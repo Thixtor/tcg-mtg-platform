@@ -7,16 +7,18 @@
 //   de la carta a TradeWallPage para activar la búsqueda instantánea.
 // - Sincroniza las cartas faltantes (FALTANTE) con la Wishlist activa del backend
 //   mediante syncDeckMissingToWishlistApi y redirige al Black Market.
+// - Provee eliminación segura de mazos propios con confirmación modal.
 // ============================================================================
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Shield, Loader2, Sparkles, PlusCircle } from 'lucide-react';
+import { Shield, Loader2, Sparkles, Trash2, AlertTriangle } from 'lucide-react';
 
 import { 
   getMyDecksApi, 
   getDeckCardsWithStatusApi, 
   getPublicDeckDetailApi,
   forkDeckApi,
+  deleteDeckApi,
   updateDeckCardApi, 
   removeCardFromDeckApi,
   syncDeckMissingToWishlistApi
@@ -86,6 +88,10 @@ export default function DecksPage({
   const [cardSize, setCardSize] = useState('md');
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+
+  // Estado para modal de eliminación de mazo
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingDeck, setIsDeletingDeck] = useState(false);
 
   // Filtros y ordenamiento delegados en el hook universal
   const {
@@ -213,6 +219,30 @@ export default function DecksPage({
     }
   };
 
+  // 4. Eliminar mazo propio
+  const handleDeleteDeckConfirm = async () => {
+    if (!currentSelectedId || !isOwner || isDeletingDeck) return;
+
+    setIsDeletingDeck(true);
+    setDeckActionError(null);
+
+    try {
+      await deleteDeckApi(currentSelectedId);
+      const updatedDecks = decks.filter((d) => d.id !== currentSelectedId);
+      setDecks(updatedDecks);
+      onDeckCountChange?.(updatedDecks.length);
+      setIsDeleteModalOpen(false);
+      setDeckSelection(null);
+      setExternalDeck(null);
+    } catch (err) {
+      console.error('[DecksPage] Error eliminando mazo:', err);
+      setDeckActionError(parseApiError(err, 'No se pudo eliminar el mazo. Intenta nuevamente.'));
+      setIsDeleteModalOpen(false);
+    } finally {
+      setIsDeletingDeck(false);
+    }
+  };
+
   const isCommanderFormat = (activeDeck?.format || 'commander').trim().toLowerCase() === 'commander';
   const commanders = useMemo(() => deckCards.filter((c) => c.category === 'commander'), [deckCards]);
   const commanderIdentity = useMemo(() => getCommanderColorIdentity(commanders), [commanders]);
@@ -281,7 +311,6 @@ export default function DecksPage({
     if (!onNavigateToTradeWall) return;
 
     if (typeof cardNameOrParams === 'string' && cardNameOrParams.trim()) {
-      // Búsqueda directa disparada desde el botón de Trade de la carta
       onNavigateToTradeWall({
         tab: 'explore',
         cardName: cardNameOrParams.trim()
@@ -303,11 +332,9 @@ export default function DecksPage({
     setDeckActionError(null);
 
     try {
-      // 1. Sincronización real con el endpoint del backend
       const result = await syncDeckMissingToWishlistApi(currentSelectedId);
       setWishlistSuccessMsg(result?.message || `Se añadieron ${missingCards.length} cartas faltantes a tu Wishlist de Trade.`);
       
-      // 2. Redirección al Muro de Trade activando la pestaña de Wishlist
       if (onNavigateToTradeWall) {
         setTimeout(() => {
           onNavigateToTradeWall({
@@ -396,6 +423,24 @@ export default function DecksPage({
       {/* 2. Área de Trabajo Principal */}
       <div className="w-full max-w-[1920px] mx-auto px-6 py-4 space-y-4 pb-24 font-sans">
         
+        {/* Barra de Gestión del Mazo: Indicador de Propietario + Botón de Eliminar */}
+        {activeDeck && isOwner && (
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-mono text-neutral-400">
+              Modo edición de baraja personal activa
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsDeleteModalOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm"
+              title="Eliminar este mazo permanentemente"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Eliminar Mazo</span>
+            </button>
+          </div>
+        )}
+
         {/* Banner de Acción Rápida hacia Wishlist de Trade */}
         {missingCount > 0 && isOwner && (
           <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 font-mono text-xs">
@@ -437,7 +482,7 @@ export default function DecksPage({
         {activeDeck && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pt-1">
             
-            {/* Panel de Inspección Fija con Auditoría de Inventario y Callback de Recarga */}
+            {/* Panel de Inspección Fija con Auditoría de Inventario */}
             <div className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-4 self-start">
               <CardShowcaseSidebar
                 displayCard={displayCard}
@@ -575,6 +620,51 @@ export default function DecksPage({
           cards={deckCards}
           deckName={activeDeck.name}
         />
+      )}
+
+      {/* 6. Modal de Confirmación para Eliminar Mazo */}
+      {isDeleteModalOpen && activeDeck && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs font-mono text-xs">
+          <div className="bg-[#121118] border border-rose-500/40 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl space-y-5">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase">¿Eliminar este mazo?</h3>
+                <span className="text-[10px] text-neutral-400">Esta acción no se puede deshacer</span>
+              </div>
+            </div>
+
+            <p className="text-neutral-300 font-sans text-xs leading-relaxed">
+              Estás a punto de borrar permanentemente la baraja <strong className="text-white">"{activeDeck.name}"</strong> ({activeDeck.format || 'Commander'}). Las cartas no se eliminarán de tu colección física de binders.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/5">
+              <button
+                type="button"
+                disabled={isDeletingDeck}
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-[#181622] hover:bg-[#242129] text-neutral-300 font-bold transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingDeck}
+                onClick={handleDeleteDeckConfirm}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold transition flex items-center gap-2 cursor-pointer shadow-lg shadow-rose-600/20 active:scale-95"
+              >
+                {isDeletingDeck ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>{isDeletingDeck ? 'Eliminando...' : 'Sí, Eliminar Mazo'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

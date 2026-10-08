@@ -6,6 +6,7 @@
 // - Soporta auditoría de cartas con estados de inventario físico (DISPONIBLE, EN_OTRO_MAZO, FALTANTE).
 // - Expone syncDeckMissingToWishlistApi para transferir en lote las cartas faltantes
 //   hacia la Wishlist activa del usuario para matching de intercambio en el Trade Wall.
+// - Expone deleteDeckApi para eliminar permanentemente un mazo propio.
 // ============================================================================
 
 import apiClient from './client';
@@ -39,6 +40,14 @@ export const createDeckApi = async (deckData, options = {}) => {
  */
 export const updateDeckApi = async (deckId, deckData, options = {}) => {
   const response = await apiClient.patch(`/decks/${deckId}`, deckData, options);
+  return response.data;
+};
+
+/**
+ * Elimina un mazo de forma permanente.
+ */
+export const deleteDeckApi = async (deckId, options = {}) => {
+  const response = await apiClient.delete(`/decks/${deckId}`, options);
   return response.data;
 };
 
@@ -133,6 +142,7 @@ export default {
   getMyDecksApi,
   createDeckApi,
   updateDeckApi,
+  deleteDeckApi,
   getPublicDecksApi,
   getPublicDeckDetailApi,
   forkDeckApi,

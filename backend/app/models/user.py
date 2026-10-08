@@ -1,7 +1,7 @@
 # app/models/user.py
-# ---------------------------------------------------------
+# ============================================================================
 # ENTIDAD: USUARIO Y AGREGADO RAÍZ DE IDENTIDAD (POO / DDD)
-# ---------------------------------------------------------
+# ============================================================================
 import uuid
 import hmac
 import hashlib
@@ -32,8 +32,8 @@ def _compute_otp_hash(code: str, user_id: str) -> str:
 class User(Base):
     """
     Agregado Raíz del usuario.
-    Controla el ciclo de vida de autenticación OTP, reputación P2P
-    y la titularidad de colecciones, mazos y listas de deseos.
+    Controla el ciclo de vida de autenticación (OTP / Contraseña), verificación de correo,
+    reputación P2P y la titularidad de colecciones, mazos y listas de deseos.
     """
     __tablename__ = 'users'
 
@@ -41,6 +41,12 @@ class User(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     username = Column(String, unique=True, index=True, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=True)  # Soporte para login por contraseña
+    
+    # Verificación de Correo Electrónico
+    is_email_verified = Column(Boolean, default=False, nullable=False)
+    pending_email = Column(String, nullable=True)
+
     avatar_url = Column(String, nullable=True)
     bio = Column(String, nullable=True, default="Coleccionista y jugador de MTG.")
     location = Column(String, nullable=True, default="Medellín / Bello, Antioquia")
@@ -71,7 +77,7 @@ class User(Base):
     wishlist = relationship("WishlistItem", overlaps="wishlist_items", viewonly=True)
 
     # -------------------------------------------------------------------------
-    # Comportamiento de Seguridad y Autenticación OTP (Punto Único de Verdad)
+    # Comportamiento de Seguridad y Autenticación OTP
     # -------------------------------------------------------------------------
     def can_request_otp(self) -> bool:
         """Determina si el usuario puede solicitar un nuevo desafío OTP."""
@@ -81,8 +87,8 @@ class User(Base):
         now = datetime.now(timezone.utc)
         return now >= expires
 
-    def register_otp_challenge(self, otp_hash_digest: str, lifetime_minutes: int = 5) -> None:
-        """Inicializa un nuevo desafío de acceso seguro."""
+    def register_otp_challenge(self, otp_hash_digest: str, lifetime_minutes: int = 10) -> None:
+        """Inicializa un nuevo desafío de acceso seguro o verificación."""
         self.otp_hash = otp_hash_digest
         self.otp_attempts = 0
         self.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=lifetime_minutes)
@@ -100,10 +106,10 @@ class User(Base):
             self.clear_otp_challenge()
             return False
 
-        # 2. Registrar el intento actual (conteo unificado exacto)
+        # 2. Registrar intento
         self.otp_attempts += 1
 
-        # 3. Comparación en tiempo constante contra ataques de timing
+        # 3. Comparación constante de hash
         expected_hash = _compute_otp_hash(code, str(self.id))
         is_match = hmac.compare_digest(self.otp_hash, expected_hash)
 
@@ -111,7 +117,6 @@ class User(Base):
             self.clear_otp_challenge()
             return True
 
-        # 4. Si falló y llegó al tope máximo, invalidar de inmediato
         if self.otp_attempts >= OTP_MAX_ATTEMPTS:
             self.clear_otp_challenge()
 
@@ -122,6 +127,14 @@ class User(Base):
         self.otp_hash = None
         self.otp_expires_at = None
         self.otp_attempts = 0
+
+    def mark_email_as_verified(self) -> None:
+        """Confirma el correo actual o aplica el pendiente de forma atómica."""
+        if self.pending_email:
+            self.email = self.pending_email
+            self.pending_email = None
+        self.is_email_verified = True
+        self.clear_otp_challenge()
 
     def mark_phone_as_verified(self) -> None:
         self.is_phone_verified = True
@@ -153,25 +166,21 @@ class User(Base):
             self.allows_nationwide_shipping = allows_nationwide_shipping
 
     def register_successful_trade(self) -> None:
-        """Aumenta intercambios completados y reputación con tope seguro de 200 puntos."""
         self.completed_trades += 1
         self.reputation_score = min(200, (self.reputation_score or 100) + 2)
 
     def register_dispute(self) -> None:
-        """Penaliza reputación y aumenta contador de disputas."""
         self.disputes_count += 1
         self.reputation_score = max(0, (self.reputation_score or 100) - 15)
 
     def apply_feedback(self, rating_value: float, successful: bool) -> None:
-        """Aplica retroalimentación recibida calculando promedio ponderado y reputación."""
         current_rating = self.rating if self.rating is not None else 5.0
         trades = max(self.completed_trades or 1, 1)
 
-        # Actualización ponderada de estrellas
         self.rating = round(((current_rating * (trades - 1)) + rating_value) / trades, 2)
 
         if successful:
-            bonus = int(rating_value * 2)  # Entre 2 y 10 pts
+            bonus = int(rating_value * 2)
             self.reputation_score = min(200, (self.reputation_score or 100) + bonus)
         else:
             self.register_dispute()

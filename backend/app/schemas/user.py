@@ -1,30 +1,26 @@
 # app/schemas/user.py
-# ---------------------------------------------------------
-# ESQUEMAS PYDANTIC: USUARIOS Y PERFIL P2P
-# ---------------------------------------------------------
+# ============================================================================
+# ESQUEMAS PYDANTIC: USUARIOS, AUTENTICACIÓN Y PERFIL P2P
+# ============================================================================
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 
 
 # ---------------------------------------------------------
-# 1. ESQUEMAS BASE Y REGISTRO (ANTI-HOMOGLIFOS Y LOWERCASE)
+# 1. ESQUEMAS BASE Y REGISTRO
 # ---------------------------------------------------------
 class UserBase(BaseModel):
     username: str = Field(
         min_length=3, 
         max_length=30, 
         pattern=r"^[a-zA-Z0-9_.-]+$",
-        description="Nombre de usuario alfanumérico ASCII sin espacios ni caracteres especiales"
+        description="Nombre de usuario alfanumérico ASCII"
     )
     email: EmailStr
-    # Teléfono opcional en registro; protegido hasta aceptación de un trade
-    phone_number: Optional[str] = Field(
-        None,
-        pattern=r"^\+[1-9]\d{7,14}$",
-        description="Formato internacional E.164 (ej: +573001234567)"
-    )
+    phone_number: Optional[str] = Field(None, pattern=r"^\+[1-9]\d{7,14}$")
     location: Optional[str] = Field("Medellín / Bello, Antioquia", max_length=100)
+    password: Optional[str] = Field(None, min_length=6, description="Contraseña opcional para inicio directo")
 
     @field_validator("username")
     @classmethod
@@ -42,7 +38,7 @@ class UserCreate(UserBase):
 
 
 # ---------------------------------------------------------
-# 2. RESUMEN PÚBLICO (SIN PII)
+# 2. RESUMEN PÚBLICO
 # ---------------------------------------------------------
 class UserPublicSummary(BaseModel):
     id: str
@@ -95,7 +91,7 @@ class UserProfileUpdate(BaseModel):
 
 
 # ---------------------------------------------------------
-# 6. PERFIL PÚBLICO VISIBLE POR TERCEROS (ESTRICTAMENTE SIN EMAIL NI TELÉFONO)
+# 6. PERFIL PÚBLICO
 # ---------------------------------------------------------
 class UserPublicProfileResponse(BaseModel):
     id: str
@@ -114,23 +110,24 @@ class UserPublicProfileResponse(BaseModel):
     completed_trades: int
     disputes_count: int
 
-    kpis: UserProfileKPIs
+    kpis: Optional[UserProfileKPIs] = None
     binders: List[ProfileBinderSummary] = []
 
     model_config = {"from_attributes": True}
 
 
 # ---------------------------------------------------------
-# 7. PERFIL PRIVADO (Solo devuelto en /users/me/profile al propio dueño)
+# 7. PERFIL PRIVADO
 # ---------------------------------------------------------
 class UserPrivateProfileResponse(UserPublicProfileResponse):
     email: EmailStr
     phone_number: Optional[str] = None
     is_phone_verified: bool
+    is_email_verified: bool = False
 
 
 # ---------------------------------------------------------
-# 8. ESQUEMAS OTP Y TOKEN POR CORREO ELECTRÓNICO
+# 8. ESQUEMAS OTP Y LOGIN
 # ---------------------------------------------------------
 class RequestCodePayload(BaseModel):
     email: EmailStr
@@ -151,12 +148,23 @@ class VerifyCodePayload(BaseModel):
         return v.strip().lower()
 
 
+class PasswordLoginPayload(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.strip().lower()
+
+
 class UserResponse(BaseModel):
     id: str
     username: str
     email: EmailStr
     phone_number: Optional[str] = None
-    is_phone_verified: bool
+    is_phone_verified: bool = False
+    is_email_verified: bool = False
     reputation_score: int
     rating: float
     avatar_url: Optional[str] = None

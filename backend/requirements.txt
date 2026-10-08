@@ -11,6 +11,8 @@ requests>=2.31.0
 alembic>=1.12.0
 pyjwt>=2.8.0
 slowapi>=0.1.9
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.1
 
 # Herramientas de Testing y Calidad
 pytest>=8.0.0

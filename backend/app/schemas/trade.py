@@ -1,8 +1,15 @@
 # app/schemas/trade.py
-# ---------------------------------------------------------
-# ESQUEMAS PYDANTIC: MERCADO P2P, PROPUESTAS Y REPUTACIÓN
-# ---------------------------------------------------------
-from typing import Optional, List
+# ============================================================================
+# ESQUEMAS PYDANTIC: MERCADO P2P, PROPUESTAS Y REPUTACIÓN (BLACK MARKET)
+# ============================================================================
+# ARQUITECTURA & REGLAS:
+# - Soporta tanto el formato tradicional con 'items' como el formato flexible
+#   enviado por TradeProposalModal ('offered_card_ids', 'requested_cards', 'post_id').
+# - Permite compra directa en efectivo (offered_card_ids vacío con cash_amount > 0).
+# - Mantiene compatibilidad con el sistema de reputación y feedback de 5 estrellas.
+# ============================================================================
+
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -62,27 +69,47 @@ class TradeMatchUserResponse(BaseModel):
 # 3. ESQUEMAS DE PROPUESTAS DE TRADE (P2P PROPOSALS)
 # ---------------------------------------------------------
 class TradeProposalItemCreate(BaseModel):
-    """Ítem a intercambiar en la propuesta."""
-    user_card_id: str
+    """Ítem a intercambiar en la propuesta (modo binder)."""
+    user_card_id: Optional[str] = None
+    scryfall_id: Optional[str] = None
+    card_name: Optional[str] = None
     side: str = Field(..., pattern="^(offered|requested)$", description="'offered' si la da el proponente, 'requested' si la pide")
     quantity: int = Field(1, ge=1)
     agreed_price_usd: Optional[float] = Field(None, ge=0.0)
 
 
+class RequestedCardItem(BaseModel):
+    """Carta solicitada proveniente de una publicación del muro."""
+    name: str
+    scryfall_id: Optional[str] = None
+    condition: Optional[str] = "NM"
+    price_usd: Optional[float] = 0.0
+    quantity: Optional[int] = 1
+
+
 class TradeProposalCreatePayload(BaseModel):
-    """Payload para enviar una propuesta de intercambio."""
+    """Payload polimórfico para enviar una propuesta de intercambio o compra."""
     receiver_id: str
-    items: List[TradeProposalItemCreate] = Field(..., min_length=1)
+    post_id: Optional[str] = None
+    
+    # Soporte formato flexible desde TradeProposalModal
+    offered_card_ids: List[str] = Field(default_factory=list)
+    requested_cards: List[RequestedCardItem] = Field(default_factory=list)
+    
+    # Soporte formato clásico
+    items: List[TradeProposalItemCreate] = Field(default_factory=list)
+    
     cash_amount: float = Field(0.00, ge=0.0)
     cash_currency: str = Field("COP", max_length=5)
     cash_payer_id: Optional[str] = None
+    preferred_usd_rate: Optional[int] = 3200
     notes: Optional[str] = None
 
 
 class TradeProposalItemResponse(BaseModel):
     """Respuesta de un ítem dentro de una propuesta formal."""
     id: str
-    user_card_id: str
+    user_card_id: Optional[str] = None
     side: str
     quantity: int
     agreed_price_usd: Optional[float] = None
@@ -93,7 +120,7 @@ class TradeProposalItemResponse(BaseModel):
 
 
 class TradeProposalResponse(BaseModel):
-    """Respuesta detallada del agregado de propuesta de trade."""
+    """Respuesta detallada de una propuesta de trade."""
     id: str
     proposer_id: str
     receiver_id: str
