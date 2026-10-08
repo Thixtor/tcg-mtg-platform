@@ -7,6 +7,7 @@ Módulo de arranque e inicialización de la aplicación FastAPI.
 Configura middlewares CORS, rate limiting distribuido, health checks
 y el manejo estructurado y seguro de excepciones de integridad relacional (PostgreSQL).
 """
+import os
 import logging
 from typing import Optional
 from fastapi import FastAPI, Request, status
@@ -119,19 +120,30 @@ async def global_integrity_error_handler(request: Request, exc: IntegrityError):
 # ---------------------------------------------------------
 # MIDDLEWARE CORS ADAPTATIVO (LOCAL & NUBE / RAILWAY)
 # ---------------------------------------------------------
-import os
+cors_origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "https://independent-truth-production-b036.up.railway.app",
+]
 
 env_origins = os.getenv("ALLOWED_ORIGINS", "")
 if env_origins:
-    cors_origins = [orig.strip() for orig in env_origins.split(",") if orig.strip()]
+    for orig in env_origins.split(","):
+        cleaned = orig.strip()
+        if cleaned and cleaned not in cors_origins:
+            cors_origins.append(cleaned)
 elif hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-    cors_origins = settings.CORS_ORIGINS
-else:
-    cors_origins = ["*"]
+    for orig in settings.CORS_ORIGINS:
+        if orig not in cors_origins:
+            cors_origins.append(orig)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if "*" in cors_origins else cors_origins,
+    allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.up\.railway\.app",  # Permite cualquier dominio generado por Railway
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
