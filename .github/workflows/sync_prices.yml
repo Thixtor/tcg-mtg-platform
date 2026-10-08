@@ -29,10 +29,8 @@ jobs:
 
       - name: Run Card Kingdom Price Ingestion
         env:
-          # Toma la URL de conexión pública de PostgreSQL en Railway
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
-          # Satisface la validación obligatoria de Pydantic Settings
-          SECRET_KEY: "github-actions-ingest-prices-temp-key"
+          SECRET_KEY: "dummy-secret-key-for-github-actions-data-ingestion"
         run: |
           cd backend
           python -m app.scripts.ingest_prices
