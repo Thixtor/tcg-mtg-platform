@@ -174,8 +174,8 @@ def _execute_upsert_atomic(batch: List[Dict[str, Any]]) -> None:
 
 def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]]) -> None:
     """
-    Carga los precios en una tabla temporal unlogged y ejecuta un único UPDATE relacional.
-    Tarda ~2-3 segundos en PostgreSQL.
+    Inserta en tmp_ck_precios en lotes de 2,000 registros para evitar el freeze de socket
+    y luego ejecuta un único UPDATE relacional instantáneo.
     """
     if not pricing_map:
         return
@@ -190,8 +190,13 @@ def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]
         for cid, vals in pricing_map.items()
     ]
 
+    total_records = len(update_records)
+    CHUNK_SIZE = 2000
+
+    logger.info(f"Preparando carga de {total_records} registros de precios en tabla temporal...")
+
     with etl_engine.begin() as conn:
-        # 1. Crear tabla temporal ultraligera
+        # 1. Crear tabla temporal
         conn.execute(text("""
             CREATE TEMP TABLE tmp_ck_precios (
                 card_id VARCHAR PRIMARY KEY,
@@ -201,14 +206,20 @@ def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]
             ) ON COMMIT DROP;
         """))
 
-        # 2. Carga masiva en bloque a la tabla temporal
+        # 2. Cargar en lotes de 2,000 para no ahogar el socket TCP
         insert_tmp_sql = text("""
             INSERT INTO tmp_ck_precios (card_id, retail, buylist, foil)
-            VALUES (:card_id, :retail, :buylist, :foil);
+            VALUES (:card_id, :retail, :buylist, :foil)
+            ON CONFLICT (card_id) DO NOTHING;
         """)
-        conn.execute(insert_tmp_sql, update_records)
 
-        # 3. Un solo UPDATE relacional a nivel de motor Postgres
+        for i in range(0, total_records, CHUNK_SIZE):
+            chunk = update_records[i : i + CHUNK_SIZE]
+            conn.execute(insert_tmp_sql, chunk)
+            logger.info(f"Cargados {min(i + CHUNK_SIZE, total_records)}/{total_records} en tabla temporal...")
+
+        # 3. Un solo UPDATE relacional instantáneo
+        logger.info("Ejecutando UPDATE relacional masivo en 'cartas'...")
         update_result = conn.execute(text("""
             UPDATE cartas AS c
             SET 
@@ -218,7 +229,7 @@ def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]
             FROM tmp_ck_precios AS t
             WHERE c.id = t.card_id;
         """))
-        logger.info(f"Filas actualizadas en 'cartas' en una sola operación: {update_result.rowcount}")
+        logger.info(f"Filas actualizadas en 'cartas': {update_result.rowcount}")
 
 
 if __name__ == "__main__":
