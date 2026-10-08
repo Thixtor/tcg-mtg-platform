@@ -20,6 +20,7 @@ if not raw_url:
 raw_url = (raw_url or "").strip().strip('"').strip("'")
 
 # 2. Forzar explícitamente el dialecto postgresql+psycopg2
+#    Evita que SQLAlchemy intente resolver psycopg3 ('import psycopg')
 if raw_url.startswith("postgres://"):
     db_url = re.sub(r"^postgres://", "postgresql+psycopg2://", raw_url)
 elif raw_url.startswith("postgresql://"):
@@ -35,7 +36,7 @@ else:
 engine = create_engine(
     db_url,
     pool_pre_ping=True,      # Verifica conectividad antes de checkout (esencial para proxy TCP de Railway)
-    pool_recycle=1800,       # Recicla conexiones cada 30 min
+    pool_recycle=1800,       # Recicla cada 30 min (evita timeouts en Railway)
     pool_size=10,
     max_overflow=20,
     echo=False

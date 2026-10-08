@@ -1,4 +1,5 @@
 # app/core/config.py
+import os
 from typing import List, Literal, Optional
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,13 +19,14 @@ class Settings(BaseSettings):
     # Flag para inspeccionar OTP en desarrollo local
     EXPOSE_DEV_OTP: bool = True
 
-    # 2. Seguridad y JWT (Fallback seguro de 64 caracteres para evitar fallos en scripts/CI)
-    SECRET_KEY: str = "temporary-development-and-ci-secret-key-32-chars-minimum-fallback-mtg"
+    # 2. Seguridad y JWT
+    # Se añade un valor seguro por defecto (>= 32 caracteres) para evitar caídas en scripts CLI y CI/CD
+    SECRET_KEY: str = "ci-and-cli-fallback-secret-key-mtg-min-32-chars-long"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 días
     EMAIL_VERIFY_TOKEN_EXPIRE_HOURS: int = 24
 
-    # 3. Base de Datos (Fallback a Postgres estándar si no se pasa)
+    # 3. Base de Datos
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/railway"
 
     # 4. Políticas de CORS y Frontend
@@ -51,8 +53,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_settings(self):
+        # Valida longitud mínima solo si SECRET_KEY tiene contenido
         if not self.SECRET_KEY or len(self.SECRET_KEY) < 32:
             raise ValueError("SECRET_KEY debe contener al menos 32 caracteres criptográficamente seguros.")
+
+        # En producción web estricta se exigen los parámetros de correo y flags de seguridad
         if self.ENVIRONMENT == "production":
             if self.EXPOSE_DEV_OTP:
                 raise ValueError("EXPOSE_DEV_OTP no puede estar habilitado en entorno de producción.")

@@ -4,6 +4,7 @@ on:
   schedule:
     # Corre todos los días a las 09:00 UTC (04:00 AM hora Colombia)
     - cron: '0 9 * * *'
+  # Permite ejecutarlo manualmente en cualquier momento desde la pestaña "Actions" de GitHub
   workflow_dispatch:
 
 jobs:
@@ -28,6 +29,7 @@ jobs:
 
       - name: Run Card Kingdom Price Ingestion
         env:
+          # Inyecta la URL de conexión pública a PostgreSQL en Railway
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
         run: |
           cd backend
