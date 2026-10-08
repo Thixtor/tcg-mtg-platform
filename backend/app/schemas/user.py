@@ -1,10 +1,10 @@
 # app/schemas/user.py
 # ============================================================================
-# ESQUEMAS PYDANTIC: USUARIOS, AUTENTICACIÓN Y PERFIL P2P
+# ESQUEMAS PYDANTIC: USUARIOS, AUTENTICACIÓN Y PERFIL P2P (PYDANTIC V2)
 # ============================================================================
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator, ConfigDict
 
 
 # ---------------------------------------------------------
@@ -12,15 +12,16 @@ from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 # ---------------------------------------------------------
 class UserBase(BaseModel):
     username: str = Field(
+        ...,
         min_length=3, 
         max_length=30, 
         pattern=r"^[a-zA-Z0-9_.-]+$",
         description="Nombre de usuario alfanumérico ASCII"
     )
-    email: EmailStr
-    phone_number: Optional[str] = Field(None, pattern=r"^\+[1-9]\d{7,14}$")
-    location: Optional[str] = Field("Medellín / Bello, Antioquia", max_length=100)
-    password: Optional[str] = Field(None, min_length=6, description="Contraseña opcional para inicio directo")
+    email: EmailStr = Field(..., description="Correo electrónico del usuario")
+    phone_number: Optional[str] = Field(default=None, pattern=r"^\+[1-9]\d{7,14}$")
+    location: Optional[str] = Field(default="Medellín / Bello, Antioquia", max_length=100)
+    password: Optional[str] = Field(default=None, min_length=6, description="Contraseña opcional para inicio directo")
 
     @field_validator("username")
     @classmethod
@@ -49,7 +50,7 @@ class UserPublicSummary(BaseModel):
     rating: float
     completed_trades: int
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------
@@ -74,18 +75,18 @@ class ProfileBinderSummary(BaseModel):
     card_count: int = 0
     art_url: Optional[str] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------
 # 5. ACTUALIZACIÓN DE PERFIL PROPIO
 # ---------------------------------------------------------
 class UserProfileUpdate(BaseModel):
-    bio: Optional[str] = Field(None, max_length=500)
-    location: Optional[str] = Field(None, max_length=100)
+    bio: Optional[str] = Field(default=None, max_length=500)
+    location: Optional[str] = Field(default=None, max_length=100)
     avatar_url: Optional[HttpUrl] = None
-    phone_number: Optional[str] = Field(None, pattern=r"^\+[1-9]\d{7,14}$")
-    preferred_currency: Optional[str] = Field(None, pattern=r"^(COP|USD)$")
+    phone_number: Optional[str] = Field(default=None, pattern=r"^\+[1-9]\d{7,14}$")
+    preferred_currency: Optional[str] = Field(default=None, pattern=r"^(COP|USD)$")
     allows_local_meetup: Optional[bool] = None
     allows_nationwide_shipping: Optional[bool] = None
 
@@ -111,9 +112,9 @@ class UserPublicProfileResponse(BaseModel):
     disputes_count: int
 
     kpis: Optional[UserProfileKPIs] = None
-    binders: List[ProfileBinderSummary] = []
+    binders: List[ProfileBinderSummary] = Field(default_factory=list)
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------
@@ -127,7 +128,7 @@ class UserPrivateProfileResponse(UserPublicProfileResponse):
 
 
 # ---------------------------------------------------------
-# 8. ESQUEMAS OTP Y LOGIN
+# 8. ESQUEMAS OTP, LOGIN Y VERIFICACIÓN
 # ---------------------------------------------------------
 class RequestCodePayload(BaseModel):
     email: EmailStr
@@ -140,7 +141,7 @@ class RequestCodePayload(BaseModel):
 
 class VerifyCodePayload(BaseModel):
     email: EmailStr
-    code: str = Field(min_length=6, max_length=6)
+    code: str = Field(..., min_length=6, max_length=6, description="Código numérico OTP de 6 dígitos")
 
     @field_validator("email")
     @classmethod
@@ -148,9 +149,14 @@ class VerifyCodePayload(BaseModel):
         return v.strip().lower()
 
 
+class VerifyEmailOtpPayload(BaseModel):
+    user_id: str = Field(..., description="UUID del usuario registrado")
+    code: str = Field(..., min_length=6, max_length=6, description="Código de 6 dígitos enviado por correo")
+
+
 class PasswordLoginPayload(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=1)
+    password: str = Field(..., min_length=1)
 
     @field_validator("email")
     @classmethod
@@ -172,7 +178,7 @@ class UserResponse(BaseModel):
     location: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TokenResponse(BaseModel):

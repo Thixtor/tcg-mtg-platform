@@ -22,24 +22,28 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 días
+    EMAIL_VERIFY_TOKEN_EXPIRE_HOURS: int = 24
 
     # 3. Base de Datos
     DATABASE_URL: str
 
-    # 4. Políticas de CORS
+    # 4. Políticas de CORS y Frontend
+    FRONTEND_URL: str = "https://independent-truth-production-b036.up.railway.app"
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://independent-truth-production-b036.up.railway.app",
     ]
 
-    # 5. Configuración de Email / OTP (Opcional en fase de desarrollo)
-    SMTP_HOST: Optional[str] = None
+    # 5. Configuración de Email SMTP (Gmail / Producción)
+    SMTP_HOST: Optional[str] = "smtp.gmail.com"
     SMTP_PORT: Optional[int] = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM_EMAIL: Optional[str] = "no-reply@tcg-app.local"
+    SMTP_FROM_EMAIL: Optional[str] = None
+    SMTP_FROM_NAME: str = "TCG MTG Platform"
 
     # 6. Políticas y Headers de Scryfall
     SCRYFALL_USER_AGENT: str = "MTGCardMarketApp/1.0"

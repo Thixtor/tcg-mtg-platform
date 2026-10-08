@@ -18,12 +18,12 @@ from app.core.config import settings
 from app.database import get_db
 from app.models.user import User
 
-logger = logging.getLogger("security")
-bearer_scheme = HTTPBearer(auto_error=False)
+logger: logging.Logger = logging.getLogger("security")
+bearer_scheme: HTTPBearer = HTTPBearer(auto_error=False)
 
 
 # ---------------------------------------------------------
-# 1. LÓGICA DE OTP SEGURO
+# 1. LÓGICA DE OTP SEGURO (VERIFICACIÓN POR CORREO)
 # ---------------------------------------------------------
 def generate_secure_otp() -> str:
     """Genera un OTP numérico seguro de 6 dígitos mediante secrets."""
@@ -35,22 +35,75 @@ def hash_otp(code: str, user_id: str) -> str:
     Genera un HMAC-SHA256 ligado al user_id para prevenir colisiones
     o ataques basados en tablas precalculadas (rainbow tables).
     """
-    message = f"{user_id}:{code.strip()}".encode("utf-8")
+    message: bytes = f"{user_id}:{code.strip()}".encode("utf-8")
     return hmac.new(settings.SECRET_KEY.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
+def verify_otp_hash(code: str, user_id: str, stored_hash: str) -> bool:
+    """
+    Valida un OTP de entrada contra el hash almacenado usando tiempo constante
+    para evitar ataques de temporización (timing attacks).
+    """
+    if not code or not user_id or not stored_hash:
+        return False
+    computed_hash: str = hash_otp(code, user_id)
+    return hmac.compare_digest(computed_hash, stored_hash)
+
+
 # ---------------------------------------------------------
-# 2. LÓGICA DE JWT Y AUTENTICACIÓN
+# 2. TOKENS TEMPORALES DE ACCIÓN POR CORREO
+# ---------------------------------------------------------
+def create_email_action_token(
+    email: str,
+    action_type: str = "verify_email",
+    expires_hours: int = 24
+) -> str:
+    """
+    Genera un token JWT temporal firmado para acciones enviadas por enlace
+    (e.g., activación directa de cuenta o restablecimiento de contraseña).
+    """
+    now: datetime = datetime.now(timezone.utc)
+    expire: datetime = now + timedelta(hours=expires_hours)
+    payload: Dict[str, Any] = {
+        "sub": email,
+        "action": action_type,
+        "iat": now,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_email_action_token(token: str, expected_action: str = "verify_email") -> Optional[str]:
+    """
+    Decodifica y valida un token de acción por email. Retorna el correo ('sub')
+    únicamente si la firma, expiración y tipo de acción son válidos.
+    """
+    try:
+        payload: Dict[str, Any] = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"require": ["exp", "sub"]}
+        )
+        if payload.get("action") != expected_action:
+            return None
+        return str(payload.get("sub"))
+    except jwt.PyJWTError:
+        return None
+
+
+# ---------------------------------------------------------
+# 3. LÓGICA DE JWT Y AUTENTICACIÓN DE SESIÓN
 # ---------------------------------------------------------
 def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
     """Genera un token JWT firmado con expiración UTC y claims estándar."""
-    now = datetime.now(timezone.utc)
+    now: datetime = datetime.now(timezone.utc)
     if expires_delta:
-        expire = now + expires_delta
+        expire: datetime = now + expires_delta
     else:
-        expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire: datetime = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         
-    payload = {
+    payload: Dict[str, Any] = {
         "sub": str(user_id),
         "exp": expire,
         "iat": now
@@ -81,8 +134,8 @@ def get_current_user(
         )
 
     try:
-        payload = decode_access_token(credentials.credentials)
-        user_id: str = payload.get("sub")
+        payload: Dict[str, Any] = decode_access_token(credentials.credentials)
+        user_id: Optional[str] = payload.get("sub")
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -96,7 +149,7 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user: Optional[User] = db.query(User).filter(User.id == str(user_id)).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -119,8 +172,8 @@ def get_current_user_optional(
         return None
 
     try:
-        payload = decode_access_token(credentials.credentials)
-        user_id = payload.get("sub")
+        payload: Dict[str, Any] = decode_access_token(credentials.credentials)
+        user_id: Optional[str] = payload.get("sub")
         if not user_id:
             return None
     except jwt.PyJWTError:
