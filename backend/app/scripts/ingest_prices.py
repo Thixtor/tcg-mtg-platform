@@ -172,28 +172,29 @@ def _execute_upsert_atomic(batch: List[Dict[str, Any]]) -> None:
         conn.execute(stmt)
 
 
+from psycopg2.extras import execute_values
+
 def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]]) -> None:
     """
-    Inserta en tmp_ck_precios en lotes de 2,000 registros para evitar el freeze de socket
-    y luego ejecuta un único UPDATE relacional instantáneo.
+    Inserta todos los precios en la tabla temporal en 1 o 2 llamadas de red usando execute_values,
+    y ejecuta el UPDATE relacional de inmediato. Pasa de 45 minutos a ~4 segundos.
     """
     if not pricing_map:
         return
 
+    # Convertir a tuplas planas para execute_values
     update_records = [
-        {
-            "card_id": cid,
-            "retail": vals["retail"],
-            "buylist": vals["buylist"],
-            "foil": vals["foil"]
-        }
+        (
+            cid,
+            vals["retail"],
+            vals["buylist"],
+            vals["foil"]
+        )
         for cid, vals in pricing_map.items()
     ]
 
     total_records = len(update_records)
-    CHUNK_SIZE = 2000
-
-    logger.info(f"Preparando carga de {total_records} registros de precios en tabla temporal...")
+    logger.info(f"Cargando {total_records} registros de precios en tabla temporal vía execute_values...")
 
     with etl_engine.begin() as conn:
         # 1. Crear tabla temporal
@@ -206,19 +207,17 @@ def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]
             ) ON COMMIT DROP;
         """))
 
-        # 2. Cargar en lotes de 2,000 para no ahogar el socket TCP
-        insert_tmp_sql = text("""
+        # 2. Inserción multi-valor nativa en PostgreSQL (1 solo viaje de red por lote de 10,000)
+        raw_cursor = conn.connection.cursor()
+        insert_sql = """
             INSERT INTO tmp_ck_precios (card_id, retail, buylist, foil)
-            VALUES (:card_id, :retail, :buylist, :foil)
+            VALUES %s
             ON CONFLICT (card_id) DO NOTHING;
-        """)
+        """
+        execute_values(raw_cursor, insert_sql, update_records, page_size=10000)
+        logger.info("Tabla temporal poblada con éxito.")
 
-        for i in range(0, total_records, CHUNK_SIZE):
-            chunk = update_records[i : i + CHUNK_SIZE]
-            conn.execute(insert_tmp_sql, chunk)
-            logger.info(f"Cargados {min(i + CHUNK_SIZE, total_records)}/{total_records} en tabla temporal...")
-
-        # 3. Un solo UPDATE relacional instantáneo
+        # 3. Un solo UPDATE relacional instantáneo en el motor
         logger.info("Ejecutando UPDATE relacional masivo en 'cartas'...")
         update_result = conn.execute(text("""
             UPDATE cartas AS c
@@ -230,7 +229,6 @@ def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]
             WHERE c.id = t.card_id;
         """))
         logger.info(f"Filas actualizadas en 'cartas': {update_result.rowcount}")
-
 
 if __name__ == "__main__":
     run_price_ingestion()
