@@ -3,17 +3,15 @@
 # ROUTER: AUTENTICACIÓN, REGISTRO Y LOGIN DUAL (POO / DDD)
 # ============================================================================
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.core.limiter import limiter
-from app.core.security import generate_secure_otp
 from app.services.auth_service import AuthService
-from app.services.email_service import EmailService
-from app.models.user import User, _compute_otp_hash
+from app.models.user import User
 from app.schemas.user import (
     UserCreate, 
     UserResponse, 
@@ -29,6 +27,9 @@ router: APIRouter = APIRouter(
 )
 
 
+# ----------------------------------------------------------------------------
+# ESQUEMAS AUXILIARES LOCALES
+# ----------------------------------------------------------------------------
 class VerifyEmailOtpPayload(BaseModel):
     user_id: str = Field(..., description="ID único del usuario (UUID)")
     code: str = Field(..., min_length=6, max_length=6, description="Código OTP de 6 dígitos")
@@ -38,9 +39,19 @@ class ResendVerificationPayload(BaseModel):
     user_id: str = Field(..., description="ID único del usuario (UUID)")
 
 
+class RegisterSuccessResponse(BaseModel):
+    user: UserResponse
+    is_resumed: bool
+    message: str
+    dev_otp_code: Optional[str] = None
+
+
+# ----------------------------------------------------------------------------
+# ENDPOINTS DE REGISTRO Y VERIFICACIÓN
+# ----------------------------------------------------------------------------
 @router.post(
     "/register",
-    response_model=UserResponse,
+    response_model=RegisterSuccessResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar un nuevo usuario o reanudar registro pendiente"
 )
@@ -48,30 +59,27 @@ class ResendVerificationPayload(BaseModel):
 def register_user(
     request: Request,
     payload: UserCreate,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
-) -> UserResponse:
-    """Crea una cuenta o reanuda una no verificada y emite el código OTP por correo."""
+) -> RegisterSuccessResponse:
+    """Crea una cuenta o reanuda una no verificada y despacha el código OTP por correo."""
     try:
-        user_entity, is_resumed = AuthService.register_user(db=db, payload=payload)
-        
-        # Generación criptográficamente segura del código OTP de 6 dígitos
-        otp_code: str = generate_secure_otp()
-        otp_hash: str = _compute_otp_hash(code=otp_code, user_id=str(user_entity.id))
-        
-        user_entity.register_otp_challenge(otp_hash_digest=otp_hash, lifetime_minutes=10)
-        db.commit()
+        user_entity, is_resumed, dev_otp = AuthService.register_user(db=db, payload=payload)
 
-        # Despacho en segundo plano
-        background_tasks.add_task(
-            EmailService.send_verification_otp,
-            to_email=user_entity.email,
-            username=user_entity.username,
-            otp_code=otp_code,
-            is_update=False
+        action_msg: str = (
+            "Registro reanudado. Te hemos enviado un nuevo código de activación."
+            if is_resumed
+            else "Cuenta registrada. Te hemos enviado el código de activación."
         )
 
-        return user_entity
+        return RegisterSuccessResponse(
+            user=user_entity,
+            is_resumed=is_resumed,
+            message=action_msg,
+            dev_otp_code=dev_otp
+        )
+    except HTTPException:
+        db.rollback()
+        raise
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -94,24 +102,20 @@ def register_user(
 def resend_verification_otp(
     request: Request,
     payload: ResendVerificationPayload,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """Reenvía el código OTP a una cuenta registrada aún no verificada."""
-    otp_code, to_email = AuthService.resend_verification_code(db=db, user_id=payload.user_id)
-    
-    user_entity: Optional[User] = db.query(User).filter(User.id == payload.user_id).first()
-    username: str = user_entity.username if user_entity else "Coleccionista"
+    message, email, dev_otp = AuthService.resend_verification_code(db=db, user_id=payload.user_id)
 
-    background_tasks.add_task(
-        EmailService.send_verification_otp,
-        to_email=to_email,
-        username=username,
-        otp_code=otp_code,
-        is_update=False
-    )
+    response_data: Dict[str, Any] = {
+        "status": "success",
+        "message": message,
+        "email": email
+    }
+    if dev_otp:
+        response_data["dev_otp_code"] = dev_otp
 
-    return {"status": "success", "message": "Código de verificación reenviado a tu correo."}
+    return response_data
 
 
 @router.post(
@@ -136,7 +140,7 @@ def verify_email_otp(
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Código inválido o expirado."
+            detail="Código incorrecto, expirado o intentos máximos superados."
         )
 
     user.mark_email_as_verified()
@@ -144,6 +148,9 @@ def verify_email_otp(
     return {"status": "success", "message": "Cuenta y correo verificados exitosamente."}
 
 
+# ----------------------------------------------------------------------------
+# ENDPOINTS DE INICIO DE SESIÓN
+# ----------------------------------------------------------------------------
 @router.post(
     "/request-otp",
     summary="Solicitar código OTP de inicio de sesión por correo"

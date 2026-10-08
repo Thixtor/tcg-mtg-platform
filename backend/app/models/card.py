@@ -2,7 +2,7 @@
 # ---------------------------------------------------------
 # CATÁLOGO OFICIAL DE SCRYFALL (BASE DE REFERENCIA)
 # ---------------------------------------------------------
-from sqlalchemy import Column, String, Float, Index
+from sqlalchemy import Column, String, Float, Index, Numeric
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, deferred
 from app.database import Base
@@ -11,7 +11,7 @@ from app.database import Base
 class CartaScryfall(Base):
     """
     Catálogo maestro sincronizado con Scryfall.
-    Almacena atributos clave indexados y el payload JSONB íntegro diferido.
+    Almacena atributos clave indexados, cotizaciones Card Kingdom y el payload JSONB íntegro diferido.
     """
     __tablename__ = 'cartas'
 
@@ -29,6 +29,11 @@ class CartaScryfall(Base):
     colors = Column(String, index=True)  # Ej: "W,U" o "C" para incoloro
     color_identity = Column(String, index=True, default="", nullable=False)  # Para reglas Commander
     oracle_text = Column(String, nullable=True)
+
+    # Cotizaciones de Card Kingdom desnormalizadas para renderizado instantáneo
+    cardkingdom_price_retail = Column(Numeric(10, 2), nullable=True)
+    cardkingdom_price_buylist = Column(Numeric(10, 2), nullable=True)
+    cardkingdom_price_foil = Column(Numeric(10, 2), nullable=True)
 
     # Payload JSONB estructurado (marcado como diferido para no saturar memoria)
     scryfall_raw_data = deferred(Column(JSONB, nullable=False))

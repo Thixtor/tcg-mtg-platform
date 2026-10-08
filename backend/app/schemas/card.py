@@ -1,6 +1,10 @@
 # app/schemas/card.py
+# ---------------------------------------------------------
+# ESQUEMAS PYDANTIC: CATÁLOGO, BUSCADOR Y PRECIOS DE MERCADO
+# ---------------------------------------------------------
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, ConfigDict
+
 
 class CardSummary(BaseModel):
     """Esquema ligero para búsquedas, listados, catálogo y binders (Sin JSONB pesado)."""
@@ -11,7 +15,14 @@ class CardSummary(BaseModel):
     mana_cost: Optional[str] = None
     cmc: Optional[float] = None
     image_url: Optional[str] = None
+    
+    # Cotizaciones de referencia
+    cardkingdom_price_retail: Optional[float] = None
+    cardkingdom_price_buylist: Optional[float] = None
+    cardkingdom_price_foil: Optional[float] = None
+
     model_config = ConfigDict(from_attributes=True)
+
 
 class CardDetail(CardSummary):
     """Esquema extendido solo para detalle individual GET /cards/{id}."""
@@ -19,9 +30,11 @@ class CardDetail(CardSummary):
     rarity: Optional[str] = None
     scryfall_raw_data: Optional[Dict[str, Any]] = None
 
+
 class CardResponse(CardDetail):
     """Mantenido por retrocompatibilidad."""
     pass
+
 
 class SimilarCardItem(BaseModel):
     id: str
@@ -34,6 +47,7 @@ class SimilarCardItem(BaseModel):
     similarity_reason: str
     current_price_usd: Optional[float] = None
     model_config = ConfigDict(from_attributes=True)
+
 
 class SimilarCardsResponse(BaseModel):
     base_card_id: str
