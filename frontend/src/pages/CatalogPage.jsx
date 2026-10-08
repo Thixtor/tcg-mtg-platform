@@ -1,6 +1,7 @@
-// ---------------------------------------------------------
-// PÁGINA: CATÁLOGO MTG (BORDES REDONDEADOS & SLIDERS DUALES)
-// ---------------------------------------------------------
+// frontend/src/pages/CatalogPage.jsx
+// ============================================================================
+// PÁGINA: CATÁLOGO MTG (BÚSQUEDA RÁPIDA Y AVANZADA ROBUSTA)
+// ============================================================================
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
@@ -8,7 +9,8 @@ import {
   X,
   Compass,
   ArrowRight,
-  RotateCcw
+  RotateCcw,
+  Loader2
 } from 'lucide-react';
 
 import { useCardSearch } from '../hooks/useCardSearch';
@@ -204,12 +206,14 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
     selectedMechanics.length > 0
   );
 
+  const safeResults = Array.isArray(results) ? results : [];
+
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
       isLightMode ? 'bg-[#FAF7F2] text-[#24211E]' : 'bg-[#0C0B0E] text-neutral-100'
     }`}>
       
-      {/* 1. HERO BANNER FULL-BLEED */}
+      {/* 1. HERO BANNER */}
       <section className="relative w-full overflow-hidden select-none border-b border-[#242129] bg-gradient-to-b from-[#18130E] via-[#0E0C10] to-[#0C0B0E]">
         <div 
           className="absolute right-0 top-0 bottom-0 w-full sm:w-2/3 md:w-1/2 bg-cover bg-center pointer-events-none opacity-20"
@@ -279,8 +283,47 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
               onClear={() => setSearchTerm('')}
               isLightMode={isLightMode}
             />
+
+            {/* Estado de Error */}
+            {error && (
+              <div className="text-center py-4 px-4 text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 rounded-2xl font-mono">
+                {error}
+              </div>
+            )}
+
+            {/* Contador de resultados */}
+            <div className="flex items-center justify-between border-b border-[#2A2733] pb-2 font-mono text-xs text-neutral-400">
+              <span>
+                {loading ? (
+                  <span className="inline-flex items-center gap-2 text-amber-400 font-bold">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Buscando en catálogo...
+                  </span>
+                ) : (
+                  <>
+                    <strong className="text-[#E88B00] font-bold">{safeResults.length}</strong> cartas encontradas
+                  </>
+                )}
+              </span>
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="text-neutral-400 hover:text-white cursor-pointer font-sans text-[11px]"
+                >
+                  Limpiar búsqueda
+                </button>
+              )}
+            </div>
+
+            {/* Mensaje de no encontrado */}
+            {!loading && !error && safeResults.length === 0 && (
+              <div className="text-center py-20 text-xs text-neutral-500 font-mono border border-dashed border-[#2A2733] bg-[#131217]/50 rounded-2xl">
+                No se encontraron cartas que coincidan con "{searchTerm}". Intenta buscar en inglés (ej. "Lightning Bolt", "Sol Ring").
+              </div>
+            )}
+
             <CardGrid
-              cards={results}
+              cards={safeResults}
               loading={loading}
               onSelectCard={(card) => openCard(card)}
               isLightMode={isLightMode}
@@ -365,7 +408,7 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 pb-2 border-b border-[#2A2733] font-mono text-xs">
               <div className="flex items-center gap-3">
                 <span className="text-neutral-400">
-                  <strong className="text-[#E88B00] font-bold">{results.length}</strong> cartas encontradas
+                  <strong className="text-[#E88B00] font-bold">{safeResults.length}</strong> cartas encontradas
                 </span>
                 {hasActiveFilters && (
                   <button
@@ -379,7 +422,6 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                 )}
               </div>
 
-              {/* Chips de filtros activos redondeados */}
               {hasActiveFilters && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {isLegendary !== null && (
@@ -439,7 +481,6 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
               )}
             </div>
 
-            {/* Grilla a Pantalla Completa */}
             <section className="w-full space-y-4">
               {error && (
                 <div className="text-center py-6 px-4 text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 rounded-2xl font-mono">
@@ -447,14 +488,14 @@ export function CatalogPage({ initialSearch = '', onClearInitialSearch }) {
                 </div>
               )}
 
-              {!loading && !error && results.length === 0 && (
+              {!loading && !error && safeResults.length === 0 && (
                 <div className="text-center py-20 text-xs text-neutral-500 font-mono border border-dashed border-[#2A2733] bg-[#131217]/50 rounded-2xl">
                   No se encontraron cartas que coincidan con los criterios seleccionados.
                 </div>
               )}
 
               <CardGrid
-                cards={results}
+                cards={safeResults}
                 loading={loading}
                 onSelectCard={(card) => openCard(card)}
                 isLightMode={isLightMode}
