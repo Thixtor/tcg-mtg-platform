@@ -174,8 +174,8 @@ def _execute_upsert_atomic(batch: List[Dict[str, Any]]) -> None:
 
 def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]]) -> None:
     """
-    Carga todos los precios en una tabla temporal unlogged y hace un UPDATE masivo en un solo query.
-    Tarda ~2-3 segundos en lugar de 20 minutos.
+    Carga los precios en una tabla temporal unlogged y ejecuta un único UPDATE relacional.
+    Tarda ~2-3 segundos en PostgreSQL.
     """
     if not pricing_map:
         return
@@ -201,14 +201,14 @@ def _bulk_update_cartas_fast(pricing_map: Dict[str, Dict[str, Optional[Decimal]]
             ) ON COMMIT DROP;
         """))
 
-        # 2. Carga masiva en bloques de 5000 a la tabla temporal
+        # 2. Carga masiva en bloque a la tabla temporal
         insert_tmp_sql = text("""
             INSERT INTO tmp_ck_precios (card_id, retail, buylist, foil)
             VALUES (:card_id, :retail, :buylist, :foil);
         """)
         conn.execute(insert_tmp_sql, update_records)
 
-        # 3. Un único UPDATE relacional a nivel de motor Postgres
+        # 3. Un solo UPDATE relacional a nivel de motor Postgres
         update_result = conn.execute(text("""
             UPDATE cartas AS c
             SET 
