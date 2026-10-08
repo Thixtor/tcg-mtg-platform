@@ -4,12 +4,14 @@
 # ---------------------------------------------------------
 """
 Módulo de arranque e inicialización de la aplicación FastAPI.
-Configura middlewares CORS, rate limiting distribuido, health checks
-y el manejo estructurado y seguro de excepciones de integridad relacional (PostgreSQL).
+Configura auto-migraciones de BD al inicio, middlewares CORS adaptativos,
+rate limiting distribuido, health checks y manejo estructurado de excepciones.
 """
 import os
 import logging
 from typing import Optional
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +23,7 @@ from slowapi import _rate_limit_exceeded_handler
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.database import SessionLocal
+from app.db_migrations import run_auto_migrations
 from app.routers import (
     cards,
     auth,
@@ -35,6 +38,22 @@ from app.routers import (
 
 logger = logging.getLogger("main")
 
+
+# ---------------------------------------------------------
+# CICLO DE VIDA (LIFESPAN): AUTO-MIGRACIÓN AL INICIAR
+# ---------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Ejecuta verificaciones y migraciones de esquema antes de atender tráfico."""
+    logger.info("Iniciando verificación de esquema de base de datos...")
+    try:
+        run_auto_migrations()
+    except Exception as e:
+        logger.error(f"Fallo durante la auto-migración de arranque: {e}")
+    yield
+    logger.info("Cerrando recursos de la aplicación...")
+
+
 # Desactivar docs interactivas en producción si el entorno está fijado a production
 docs_kwargs = {}
 if getattr(settings, "ENVIRONMENT", "development").lower() == "production":
@@ -44,6 +63,7 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     description="API REST Full Stack para intercambio de cartas, gestión de inventario, mazos y cotizaciones históricas.",
     version=settings.PROJECT_VERSION,
+    lifespan=lifespan,
     **docs_kwargs
 )
 
@@ -64,56 +84,63 @@ def _extract_pgcode(exc: IntegrityError) -> Optional[str]:
 
 @app.exception_handler(IntegrityError)
 async def global_integrity_error_handler(request: Request, exc: IntegrityError):
-    """
-    Captura y clasifica violaciones de integridad relacional sanitizando
-    cualquier fuga de PII en logs y respuestas HTTP:
-      - 23505: unique_violation -> 409 Conflict (Mensaje genérico anti-enumeración)
-      - 23503: foreign_key_violation -> 400 Bad Request
-      - 23502: not_null_violation -> 422 Unprocessable Entity
-      - 23514: check_violation -> 400 Bad Request
-      - Otros / Desconocidos -> 500 Internal Server Error seguro
-    """
     pgcode = _extract_pgcode(exc)
     raw_message = str(getattr(exc, "orig", exc)).lower()
 
-    # Log seguro: Registra la ruta y el código SQLSTATE sin incluir valores sensibles (PII)
     logger.warning(
         f"Violación de integridad de datos en {request.method} {request.url.path} "
         f"[SQLSTATE={pgcode or 'UNKNOWN'}]"
     )
 
-    # 1. Unicidad duplicada (Mitigación de enumeración de cuentas / teléfonos)
     if pgcode == "23505" or "unique constraint" in raw_message:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={"detail": "Uno de los identificadores o valores enviados ya se encuentra registrado."}
         )
 
-    # 2. Violación de clave foránea (Recurso padre o foráneo inexistente)
     if pgcode == "23503" or "foreign key constraint" in raw_message:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"detail": "Uno de los identificadores referenciados no existe en el sistema."}
         )
 
-    # 3. Violación de campo no nulo
     if pgcode == "23502" or "not-null constraint" in raw_message:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": "Uno de los campos obligatorios no ha sido proporcionado."}
         )
 
-    # 4. Violación de restricción CHECK (ej: valores negativos o estados inválidos)
     if pgcode == "23514" or "check constraint" in raw_message:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"detail": "Los datos enviados no cumplen con las reglas de validación del sistema."}
         )
 
-    # 5. Restricción no clasificada
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Error de consistencia de datos en el servidor."}
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Captura cualquier excepción no manejada para evitar que FastAPI termine
+    la conexión abruptamente sin inyectar las cabeceras CORS.
+    """
+    logger.error(f"Excepción no controlada en {request.method} {request.url.path}: {exc}", exc_info=True)
+    origin = request.headers.get("origin")
+    headers = {}
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Access-Control-Allow-Headers"] = "*"
+        headers["Access-Control-Allow-Methods"] = "*"
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Error interno del servidor.", "error_type": type(exc).__name__},
+        headers=headers
     )
 
 
@@ -143,7 +170,7 @@ elif hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"https://.*\.up\.railway\.app",  # Permite cualquier dominio generado por Railway
+    allow_origin_regex=r"https://.*\.up\.railway\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -177,16 +204,11 @@ def health_root():
 
 @app.get("/health/live", tags=["Health Check"], summary="Liveness probe")
 def health_liveness():
-    """Comprueba que el proceso de la aplicación esté activo."""
     return {"status": "alive"}
 
 
 @app.get("/health/ready", tags=["Health Check"], summary="Readiness probe")
 def health_ready():
-    """
-    Comprueba conectividad real con la base de datos PostgreSQL.
-    Retorna 200 si la BD responde 'SELECT 1', de lo contrario 503 Service Unavailable.
-    """
     db = SessionLocal()
     try:
         db.execute(text("SELECT 1"))
