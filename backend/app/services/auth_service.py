@@ -14,21 +14,21 @@ from app.core.security import generate_secure_otp, create_access_token, hash_otp
 from app.services.email_service import EmailService
 from app.schemas.user import UserCreate, RequestCodePayload, VerifyCodePayload, PasswordLoginPayload
 
-logger = logging.getLogger("auth_service")
+logger: logging.Logger = logging.getLogger("auth_service")
 
 
 def hash_password(password: str) -> str:
     """Genera hash bcrypt truncando de forma segura al límite de 72 bytes."""
-    pwd_bytes = password.encode('utf-8')[:72]
-    salt = bcrypt.gensalt()
+    pwd_bytes: bytes = password.encode('utf-8')[:72]
+    salt: bytes = bcrypt.gensalt()
     return bcrypt.hashpw(pwd_bytes, salt).decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica contraseña en texto plano contra el hash bcrypt."""
     try:
-        pwd_bytes = plain_password.encode('utf-8')[:72]
-        hash_bytes = hashed_password.encode('utf-8')
+        pwd_bytes: bytes = plain_password.encode('utf-8')[:72]
+        hash_bytes: bytes = hashed_password.encode('utf-8')
         return bcrypt.checkpw(pwd_bytes, hash_bytes)
     except Exception:
         return False
@@ -42,10 +42,11 @@ class AuthService:
 
     @classmethod
     def register_user(cls, db: Session, payload: UserCreate) -> User:
-        clean_username = payload.username.strip().lower()
-        clean_email = payload.email.strip().lower()
+        """Crea la entidad de usuario en base de datos previo al despacho del OTP."""
+        clean_username: str = payload.username.strip().lower()
+        clean_email: str = payload.email.strip().lower()
 
-        existing = db.query(User).filter(
+        existing: Optional[User] = db.query(User).filter(
             (User.username == clean_username) | (User.email == clean_email)
         ).first()
         if existing:
@@ -54,9 +55,9 @@ class AuthService:
                 detail="El nombre de usuario o correo ya se encuentra registrado."
             )
 
-        hashed_pwd = hash_password(payload.password) if payload.password else None
+        hashed_pwd: Optional[str] = hash_password(payload.password) if payload.password else None
 
-        new_user = User(
+        new_user: User = User(
             username=clean_username,
             email=clean_email,
             password_hash=hashed_pwd,
@@ -80,12 +81,13 @@ class AuthService:
         db: Session, 
         payload: RequestCodePayload
     ) -> Tuple[Dict[str, str], Optional[str]]:
-        email = payload.email.strip().lower()
-        user = db.query(User).filter(User.email == email).with_for_update().first()
+        """Genera un OTP y lo despacha por correo mediante EmailService."""
+        email: str = payload.email.strip().lower()
+        user: Optional[User] = db.query(User).filter(User.email == email).with_for_update().first()
 
         dev_code: Optional[str] = None
         if user and user.can_request_otp():
-            otp_code = generate_secure_otp()
+            otp_code: str = generate_secure_otp()
             user.register_otp_challenge(
                 otp_hash_digest=hash_otp(otp_code, str(user.id)),
                 lifetime_minutes=10
@@ -100,9 +102,11 @@ class AuthService:
                 is_update=False
             )
 
-            dev_code = otp_code
+            # Exponer OTP únicamente si está habilitado explícitamente y fuera de producción
+            if settings.EXPOSE_DEV_OTP and settings.ENVIRONMENT != "production":
+                dev_code = otp_code
 
-        response_data = {
+        response_data: Dict[str, str] = {
             "status": "success",
             "message": "Si el correo electrónico está registrado, recibirás un código de acceso."
         }
@@ -110,8 +114,9 @@ class AuthService:
 
     @classmethod
     def verify_otp_and_login(cls, db: Session, payload: VerifyCodePayload) -> Dict[str, Any]:
-        email = payload.email.strip().lower()
-        user = db.query(User).filter(User.email == email).with_for_update().first()
+        """Valida el código OTP de acceso, activa el correo y genera el token Bearer JWT."""
+        email: str = payload.email.strip().lower()
+        user: Optional[User] = db.query(User).filter(User.email == email).with_for_update().first()
 
         if not user:
             raise HTTPException(
@@ -119,7 +124,7 @@ class AuthService:
                 detail="Código de verificación incorrecto, expirado o intentos máximos superados."
             )
 
-        is_ok = user.verify_otp(payload.code)
+        is_ok: bool = user.verify_otp(payload.code)
         db.commit()
 
         if not is_ok:
@@ -128,12 +133,12 @@ class AuthService:
                 detail="Código de verificación incorrecto, expirado o intentos máximos superados."
             )
 
-        # Si entra con código al correo, se valida automáticamente
-        user.is_email_verified = True
+        # Si ingresa exitosamente con código al correo, se valida automáticamente
+        user.mark_email_as_verified()
         db.commit()
         db.refresh(user)
 
-        access_token = create_access_token(user_id=str(user.id))
+        access_token: str = create_access_token(user_id=str(user.id))
 
         return {
             "access_token": access_token,
@@ -143,8 +148,9 @@ class AuthService:
 
     @classmethod
     def login_with_password(cls, db: Session, payload: PasswordLoginPayload) -> Dict[str, Any]:
-        email = payload.email.strip().lower()
-        user = db.query(User).filter(User.email == email).first()
+        """Autentica por correo y contraseña verificando que la cuenta esté activada."""
+        email: str = payload.email.strip().lower()
+        user: Optional[User] = db.query(User).filter(User.email == email).first()
 
         if not user or not user.password_hash:
             raise HTTPException(
@@ -158,7 +164,13 @@ class AuthService:
                 detail="Credenciales incorrectas."
             )
 
-        access_token = create_access_token(user_id=str(user.id))
+        if not user.is_email_verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Debes verificar tu correo electrónico antes de iniciar sesión. Solicita un código de activación."
+            )
+
+        access_token: str = create_access_token(user_id=str(user.id))
 
         return {
             "access_token": access_token,
