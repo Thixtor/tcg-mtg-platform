@@ -1,6 +1,7 @@
 # app/scripts/ingest_scryfall.py
 # ---------------------------------------------------------
-# SCRIPT ETL: INGESTA STREAMING OPTIMIZADA (SCRYFALL -> POSTGRES)
+# SCRIPT ETL: INGESTA STREAMING RESILIENTE (SCRYFALL -> POSTGRES)
+# RESUELVE EL CORTE DE PROXY TCP Y ERROR SQLALCHEMY e3q8
 # ---------------------------------------------------------
 import os
 import sys
@@ -10,11 +11,12 @@ import json
 import logging
 from typing import Generator, Dict, Any, List, Optional
 import requests
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert
 
-from app.database import SessionLocal, engine
 from app.models.card import CartaScryfall
+from app.database import db_url, connect_args
 
 try:
     from app.core.config import settings
@@ -26,6 +28,13 @@ except Exception:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ingest_scryfall")
+
+# Motor dedicado para ETL con NullPool (abre socket, ejecuta commit y cierra socket)
+etl_engine = create_engine(
+    db_url,
+    poolclass=NullPool,
+    connect_args=connect_args
+)
 
 
 class ScryfallCardNormalizer:
@@ -99,15 +108,13 @@ class ScryfallCardNormalizer:
             "colors": cls._extract_colors(card_data),
             "color_identity": cls._extract_color_identity(card_data),
             "oracle_text": cls._extract_composite_field(card_data, faces, "oracle_text"),
-            "image_url": cls._extract_image_url(card_data, faces),
-            # Omitimos el payload completo para reducir drásticamente el tamaño del paquete SQL
-            "scryfall_raw_data": None
+            "image_url": cls._extract_image_url(card_data, faces)
         }
 
 
 class ScryfallIngestionService:
     BULK_DATA_METADATA_URL: str = "https://api.scryfall.com/bulk-data"
-    BATCH_SIZE: int = 250  # Lote ligero para transacciones atómicas ultra rápidas
+    BATCH_SIZE: int = 500  # Lote óptimo para inserciones directas vía NullPool
 
     def __init__(self) -> None:
         self.headers = {
@@ -178,22 +185,16 @@ class ScryfallIngestionService:
         )
 
         for attempt in range(1, retries + 1):
-            session: Session = SessionLocal()
             try:
-                session.execute(stmt)
-                session.commit()
+                # Cada lote obtiene su propia conexión limpia y atómica desde NullPool
+                with etl_engine.begin() as conn:
+                    conn.execute(stmt)
                 return
             except Exception as e:
-                logger.warning(f"Error en intento {attempt}/{retries} guardando lote: {e}. Reintentando...")
-                try:
-                    session.rollback()
-                except Exception:
-                    pass
-                time.sleep(2)
+                logger.warning(f"Aviso en intento {attempt}/{retries} guardando lote: {e}. Reintentando en 3s...")
+                time.sleep(3)
                 if attempt == retries:
                     raise
-            finally:
-                session.close()
 
     def execute_sync(self) -> int:
         download_uri = self._resolve_download_uri()
