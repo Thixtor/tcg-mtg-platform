@@ -1,7 +1,7 @@
 # app/scripts/ingest_scryfall.py
 # ---------------------------------------------------------
-# SCRIPT ETL: INGESTA STREAMING RESILIENTE (SCRYFALL -> POSTGRES)
-# RESUELVE EL CORTE DE PROXY TCP Y ERROR SQLALCHEMY e3q8
+# SCRIPT ETL: INGESTA STREAMING RESILIENTE (ORACLE CARDS -> POSTGRES)
+# SINCRONIZA EL CATÁLOGO CANÓNICO DE MTG SIN SATURAR DISCO
 # ---------------------------------------------------------
 import os
 import sys
@@ -114,7 +114,7 @@ class ScryfallCardNormalizer:
 
 class ScryfallIngestionService:
     BULK_DATA_METADATA_URL: str = "https://api.scryfall.com/bulk-data"
-    BATCH_SIZE: int = 500  # Lote óptimo para inserciones directas vía NullPool
+    BATCH_SIZE: int = 500  # Lote óptimo para inserciones atómicas
 
     def __init__(self) -> None:
         self.headers = {
@@ -127,14 +127,15 @@ class ScryfallIngestionService:
         with requests.get(self.BULK_DATA_METADATA_URL, headers=self.headers, timeout=30) as response:
             response.raise_for_status()
             items = response.json().get("data", [])
-            target = next((item for item in items if item.get("type") == "default_cards"), None)
+            # Selecciona el catálogo canónico (oracle_cards: ~35k cartas únicas)
+            target = next((item for item in items if item.get("type") == "oracle_cards"), None)
 
         if not target:
-            raise ValueError("No se encontró el objeto 'default_cards' en la API de Scryfall.")
+            raise ValueError("No se encontró el objeto 'oracle_cards' en la API de Scryfall.")
 
         uri = target.get("jsonl_download_uri") or target.get("download_uri")
         if not uri:
-            raise ValueError("URI de descarga vacía para default_cards.")
+            raise ValueError("URI de descarga vacía para oracle_cards.")
         return uri
 
     def stream_cards(self, download_uri: str) -> Generator[Dict[str, Any], None, None]:
@@ -186,7 +187,6 @@ class ScryfallIngestionService:
 
         for attempt in range(1, retries + 1):
             try:
-                # Cada lote obtiene su propia conexión limpia y atómica desde NullPool
                 with etl_engine.begin() as conn:
                     conn.execute(stmt)
                 return
@@ -212,7 +212,7 @@ class ScryfallIngestionService:
                 self.commit_with_retry(batch)
                 total_processed += len(batch)
                 if total_processed % 5000 == 0:
-                    logger.info(f"Progreso: {total_processed} cartas sincronizadas...")
+                    logger.info(f"Progreso: {total_processed} cartas canónicas sincronizadas...")
                 batch.clear()
 
         if batch:
@@ -227,7 +227,7 @@ def run_ingest() -> None:
     try:
         service = ScryfallIngestionService()
         total = service.execute_sync()
-        logger.info(f"Ingesta finalizada con éxito. Total: {total} cartas registradas.")
+        logger.info(f"Ingesta finalizada con éxito. Total: {total} cartas canónicas registradas.")
     except Exception as e:
         logger.error(f"Fallo crítico en la ingesta: {e}", exc_info=True)
         sys.exit(1)
