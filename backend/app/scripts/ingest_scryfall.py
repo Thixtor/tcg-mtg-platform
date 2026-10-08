@@ -1,7 +1,6 @@
 # app/scripts/ingest_scryfall.py
 # ---------------------------------------------------------
-# SCRIPT ETL: INGESTA Y SINCRONIZACIÓN BULK DATA (SCRYFALL)
-# REFACTORIZADO BAJO POO Y DDD LIGERO CON TOLERANCIA A CORTES TCP
+# SCRIPT ETL: INGESTA STREAMING OPTIMIZADA (SCRYFALL -> POSTGRES)
 # ---------------------------------------------------------
 import os
 import sys
@@ -14,10 +13,9 @@ import requests
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 
-from app.database import SessionLocal
+from app.database import SessionLocal, engine
 from app.models.card import CartaScryfall
 
-# Carga segura y opcional de configuración sin bloquear la ejecución si settings no inicializa
 try:
     from app.core.config import settings
     USER_AGENT = getattr(settings, "SCRYFALL_USER_AGENT", "MTGTradeApp/1.0 (Scryfall Sync Engine)")
@@ -102,16 +100,16 @@ class ScryfallCardNormalizer:
             "color_identity": cls._extract_color_identity(card_data),
             "oracle_text": cls._extract_composite_field(card_data, faces, "oracle_text"),
             "image_url": cls._extract_image_url(card_data, faces),
-            "scryfall_raw_data": card_data
+            # Omitimos el payload completo para reducir drásticamente el tamaño del paquete SQL
+            "scryfall_raw_data": None
         }
 
 
 class ScryfallIngestionService:
     BULK_DATA_METADATA_URL: str = "https://api.scryfall.com/bulk-data"
-    BATCH_SIZE: int = 1000  # Reducido de 2000 a 1000 para commits más rápidos y ligeros
+    BATCH_SIZE: int = 250  # Lote ligero para transacciones atómicas ultra rápidas
 
     def __init__(self) -> None:
-        self.session: Session = SessionLocal()
         self.headers = {
             "User-Agent": USER_AGENT,
             "Accept": ACCEPT_HEADER
@@ -155,7 +153,6 @@ class ScryfallIngestionService:
                         continue
 
     def commit_with_retry(self, batch: List[Dict[str, Any]], retries: int = 3) -> None:
-        """Inserta el lote con soporte de reintento y recreación de sesión si el proxy corta la conexión."""
         if not batch:
             return
 
@@ -176,58 +173,53 @@ class ScryfallIngestionService:
                 "colors": stmt.excluded.colors,
                 "color_identity": stmt.excluded.color_identity,
                 "oracle_text": stmt.excluded.oracle_text,
-                "image_url": stmt.excluded.image_url,
-                "scryfall_raw_data": stmt.excluded.scryfall_raw_data
+                "image_url": stmt.excluded.image_url
             }
         )
 
         for attempt in range(1, retries + 1):
+            session: Session = SessionLocal()
             try:
-                self.session.execute(stmt)
-                self.session.commit()
+                session.execute(stmt)
+                session.commit()
                 return
             except Exception as e:
                 logger.warning(f"Error en intento {attempt}/{retries} guardando lote: {e}. Reintentando...")
                 try:
-                    self.session.rollback()
-                    self.session.close()
+                    session.rollback()
                 except Exception:
                     pass
                 time.sleep(2)
-                self.session = SessionLocal()
                 if attempt == retries:
                     raise
+            finally:
+                session.close()
 
     def execute_sync(self) -> int:
         download_uri = self._resolve_download_uri()
         total_processed = 0
         batch: List[Dict[str, Any]] = []
 
-        try:
-            for raw_card in self.stream_cards(download_uri):
-                if not raw_card.get("id"):
-                    continue
+        for raw_card in self.stream_cards(download_uri):
+            if not raw_card.get("id"):
+                continue
 
-                normalized = ScryfallCardNormalizer.to_orm_dict(raw_card)
-                batch.append(normalized)
+            normalized = ScryfallCardNormalizer.to_orm_dict(raw_card)
+            batch.append(normalized)
 
-                if len(batch) >= self.BATCH_SIZE:
-                    self.commit_with_retry(batch)
-                    total_processed += len(batch)
-                    logger.info(f"Cartas sincronizadas: {total_processed}")
-                    batch.clear()
-
-            if batch:
+            if len(batch) >= self.BATCH_SIZE:
                 self.commit_with_retry(batch)
                 total_processed += len(batch)
+                if total_processed % 5000 == 0:
+                    logger.info(f"Progreso: {total_processed} cartas sincronizadas...")
                 batch.clear()
 
-            return total_processed
-        finally:
-            try:
-                self.session.close()
-            except Exception:
-                pass
+        if batch:
+            self.commit_with_retry(batch)
+            total_processed += len(batch)
+            batch.clear()
+
+        return total_processed
 
 
 def run_ingest() -> None:
