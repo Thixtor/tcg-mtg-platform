@@ -3,12 +3,15 @@
 # ROUTER DE CATÁLOGO, BUSCADOR AVANZADO Y RECOMENDACIONES (POO / DDD)
 # ---------------------------------------------------------
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query
+import logging
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.card import CardSummary, CardDetail, SimilarCardsResponse
 from app.services.card_catalog_service import CardCatalogService
+
+logger = logging.getLogger("cards_router")
 
 router: APIRouter = APIRouter(
     prefix="/cards",
@@ -30,6 +33,11 @@ def search_cards(
         max_length=500,
         description="Texto libre o sintaxis Scryfall (ej: Sol Ring, t:artifact, mv<=2, f:commander)"
     ),
+    order: Optional[str] = Query(
+        None,
+        max_length=50,
+        description="Criterio de ordenamiento (ej: edhrec, name, cmc, rarity)"
+    ),
     type: Optional[str] = Query(None, max_length=50, description="Tipo de carta (ej. Creature, Instant)"),
     colors: Optional[str] = Query(None, max_length=20, description="Identidad de color separada por coma"),
     rarity: Optional[str] = Query(None, max_length=20, description="Rareza (common, uncommon, rare, mythic)"),
@@ -39,23 +47,30 @@ def search_cards(
 ) -> List[CardSummary]:
     """
     Busca cartas en el catálogo local y en Scryfall. Si no se especifican filtros,
-    retorna cartas destacadas por popularidad.
+    retorna cartas ordenadas por el criterio solicitado o nombre.
     """
-    cleaned_query: Optional[str] = q.strip() if q and q.strip() else None
+    try:
+        cleaned_query: Optional[str] = q.strip() if q and q.strip() else None
+        cleaned_order: Optional[str] = order.strip().lower() if order and order.strip() else None
 
-    # Fallback si no hay filtros activos para que el catálogo nunca inicie vacío
-    if not cleaned_query and not type and not colors and not rarity and cmc is None:
-        cleaned_query = "order:edhrec"
-
-    return CardCatalogService.search_cards(
-        db=db,
-        q=cleaned_query,
-        card_type=type,
-        colors=colors,
-        rarity=rarity,
-        cmc=cmc,
-        limit=limit
-    )
+        return CardCatalogService.search_cards(
+            db=db,
+            q=cleaned_query,
+            order=cleaned_order,
+            card_type=type,
+            colors=colors,
+            rarity=rarity,
+            cmc=cmc,
+            limit=limit
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error procesando búsqueda de cartas: {str(exc)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al procesar la búsqueda de cartas en el catálogo."
+        )
 
 
 # ---------------------------------------------------------
@@ -72,7 +87,11 @@ def autocomplete_field(
     limit: int = Query(8, ge=1, le=25),
     db: Session = Depends(get_db)
 ) -> List[str]:
-    return CardCatalogService.autocomplete(db=db, q=q, field=field, limit=limit)
+    try:
+        return CardCatalogService.autocomplete(db=db, q=q, field=field, limit=limit)
+    except Exception as exc:
+        logger.error(f"Error en autocompletado: {str(exc)}", exc_info=True)
+        return []
 
 
 # ---------------------------------------------------------

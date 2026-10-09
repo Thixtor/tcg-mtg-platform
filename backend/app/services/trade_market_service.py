@@ -27,7 +27,7 @@ class TradeMarketService:
             .join(UserCard.collection)
             .join(Collection.owner)
             .options(
-                joinedload(UserCard.card_catalog).defer(CartaScryfall.scryfall_raw_data),
+                joinedload(UserCard.card_catalog),
                 contains_eager(UserCard.collection).contains_eager(Collection.owner)
             )
             .filter(

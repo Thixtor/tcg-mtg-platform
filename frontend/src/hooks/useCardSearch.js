@@ -12,11 +12,11 @@ const INITIAL_FILTERS = {
   cmc: null,
 };
 
-export function useCardSearch(initialQuery = '', debounceDelay = 320) {
+export function useCardSearch(initialQuery = '', debounceDelay = 350) {
   const [searchTerm, setSearchTerm] = useState(initialQuery);
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const handleFilterChange = (key, value) => {
@@ -30,6 +30,20 @@ export function useCardSearch(initialQuery = '', debounceDelay = 320) {
   useEffect(() => {
     const trimmed = searchTerm ? searchTerm.trim() : '';
 
+    // Si no hay término de búsqueda ni filtros aplicados, mantener limpio sin consultar cartas
+    const hasActiveFilters = Boolean(
+      (filters.type && filters.type !== 'all') ||
+      filters.colors ||
+      (filters.cmc !== null && filters.cmc !== undefined)
+    );
+
+    if (!trimmed && !hasActiveFilters) {
+      setResults([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -41,13 +55,13 @@ export function useCardSearch(initialQuery = '', debounceDelay = 320) {
           ...(trimmed ? { q: trimmed } : {}),
           ...(filters.type && filters.type !== 'all' ? { type: filters.type } : {}),
           ...(filters.colors ? { colors: filters.colors } : {}),
-          ...(filters.cmc !== null ? { cmc: filters.cmc } : {}),
+          ...(filters.cmc !== null && filters.cmc !== undefined ? { cmc: filters.cmc } : {}),
           limit: 30,
         };
 
         const data = await searchCardsApi(payload, { signal: controller.signal });
         
-        // Maneja respuestas tanto en array plano como en estructura paginada { data: [] } o { items: [] }
+        // Soporte para respuestas en array plano o paginadas
         if (Array.isArray(data)) {
           setResults(data);
         } else if (data && Array.isArray(data.items)) {
@@ -58,11 +72,17 @@ export function useCardSearch(initialQuery = '', debounceDelay = 320) {
           setResults([]);
         }
       } catch (err) {
-        if (axios.isCancel(err) || err.name === 'CanceledError') {
+        if (axios.isCancel(err) || err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
           return;
         }
-        console.error('Error buscando cartas en catálogo:', err);
-        setError('Error al consultar el catálogo. Intenta de nuevo.');
+        
+        if (err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')) {
+          console.warn('La consulta de cartas tardó más de lo esperado (timeout).');
+          setError('El servidor tardó en responder. Por favor reintenta la búsqueda.');
+        } else {
+          console.error('Error buscando cartas en catálogo:', err);
+          setError('Error al consultar el catálogo. Intenta de nuevo.');
+        }
         setResults([]);
       } finally {
         if (!controller.signal.aborted) {

@@ -5,14 +5,14 @@
 """
 Servicio cliente para la sincronización e ingesta de cartas desde la API de Scryfall.
 Normaliza la identidad de color (color_identity) a formato canónico WUBRG,
-gestiona rate-limiting preventivo y cumple las políticas de cabeceras de Scryfall.
+recupera todas las impresiones/versiones (unique=prints), gestiona timeouts
+estrictos y cumple las políticas de cabeceras de Scryfall.
 """
 
-import time
 import logging
 from typing import Optional, Dict, Any, List
 import httpx
-from sqlalchemy.orm import Session, defer
+from sqlalchemy.orm import Session
 
 from app.models.card import CartaScryfall
 from app.core.config import settings
@@ -21,7 +21,7 @@ logger = logging.getLogger("scryfall_service")
 
 SCRYFALL_BASE_URL = "https://api.scryfall.com"
 SCRYFALL_HEADERS = {
-    "User-Agent": f"{settings.PROJECT_NAME}/1.0 (contact: admin@example.com)",
+    "User-Agent": f"{getattr(settings, 'PROJECT_NAME', 'MTGApp')}/1.0 (contact: admin@example.com)",
     "Accept": "application/json;q=0.9,*/*;q=0.8"
 }
 
@@ -42,94 +42,133 @@ class ScryfallService:
         return ",".join(cleaned)
 
     @classmethod
-    def upsert_scryfall_card(cls, db: Session, card_data: Dict[str, Any]) -> CartaScryfall:
+    def upsert_scryfall_card(cls, db: Session, card_data: Dict[str, Any]) -> Optional[CartaScryfall]:
         """
         Crea o actualiza una carta en el catálogo local a partir del payload JSON de Scryfall.
-        Persiste explícitamente la columna nativa color_identity y adapta los nombres de columnas.
+        Persiste únicamente las columnas existentes en el modelo CartaScryfall.
         """
         scryfall_id = card_data.get("id")
         if not scryfall_id:
-            raise ValueError("El objeto de carta de Scryfall carece de campo 'id'.")
+            return None
 
-        card = db.query(CartaScryfall).filter(CartaScryfall.id == scryfall_id).first()
-        color_id_str = cls.normalize_color_identity(card_data.get("color_identity", []))
-        set_value = card_data.get("set", "").upper()
+        try:
+            card = db.query(CartaScryfall).filter(CartaScryfall.id == scryfall_id).first()
+            color_id_str = cls.normalize_color_identity(card_data.get("color_identity", []))
+            colors_list = card_data.get("colors", [])
+            colors_str = ",".join(colors_list) if colors_list else ("C" if card_data.get("type_line", "") and "Land" not in card_data.get("type_line", "") else "")
+            set_value = card_data.get("set", "").upper()
 
-        # Extracción segura de imágenes
-        image_url = None
-        if "image_uris" in card_data and card_data["image_uris"]:
-            image_url = card_data["image_uris"].get("normal") or card_data["image_uris"].get("small")
-        elif "card_faces" in card_data and card_data["card_faces"]:
-            front_face = card_data["card_faces"][0]
-            if "image_uris" in front_face and front_face["image_uris"]:
-                image_url = front_face["image_uris"].get("normal")
+            # Extracción de imagen con fallback a caras dobles
+            image_url = None
+            if "image_uris" in card_data and card_data["image_uris"]:
+                image_url = card_data["image_uris"].get("normal") or card_data["image_uris"].get("small")
+            elif "card_faces" in card_data and card_data["card_faces"]:
+                front_face = card_data["card_faces"][0]
+                if "image_uris" in front_face and front_face["image_uris"]:
+                    image_url = front_face["image_uris"].get("normal")
 
-        if not card:
-            init_kwargs = {
-                "id": scryfall_id,
-                "name": card_data.get("name", "Desconocido"),
-                "collector_number": str(card_data.get("collector_number", "")),
-                "type_line": card_data.get("type_line", ""),
-                "oracle_text": card_data.get("oracle_text", ""),
-                "cmc": float(card_data.get("cmc", 0.0) or 0.0),
-                "color_identity": color_id_str,
-                "image_url": image_url,
-                "scryfall_raw_data": card_data
-            }
-            # Detectar si el modelo usa set o set_code
-            if hasattr(CartaScryfall, "set"):
-                init_kwargs["set"] = set_value
-            elif hasattr(CartaScryfall, "set_code"):
-                init_kwargs["set_code"] = set_value
+            oracle_id = card_data.get("oracle_id")
+            mana_cost = card_data.get("mana_cost")
+            if not mana_cost and "card_faces" in card_data and card_data["card_faces"]:
+                mana_cost = card_data["card_faces"][0].get("mana_cost")
 
-            card = CartaScryfall(**init_kwargs)
-            db.add(card)
-        else:
-            card.name = card_data.get("name", card.name)
-            card.collector_number = str(card_data.get("collector_number", getattr(card, "collector_number", "")))
-            card.type_line = card_data.get("type_line", card.type_line)
-            card.oracle_text = card_data.get("oracle_text", card.oracle_text)
-            card.cmc = float(card_data.get("cmc", card.cmc) or 0.0)
-            card.color_identity = color_id_str
-            card.image_url = image_url or card.image_url
-            card.scryfall_raw_data = card_data
+            if not card:
+                card = CartaScryfall(
+                    id=scryfall_id,
+                    oracle_id=oracle_id,
+                    name=card_data.get("name", "Desconocido"),
+                    set=set_value,
+                    type_line=card_data.get("type_line", ""),
+                    mana_cost=mana_cost,
+                    image_url=image_url,
+                    cmc=float(card_data.get("cmc", 0.0) or 0.0),
+                    rarity=card_data.get("rarity", "").lower(),
+                    colors=colors_str,
+                    color_identity=color_id_str,
+                    oracle_text=card_data.get("oracle_text", "")
+                )
+                db.add(card)
+            else:
+                card.oracle_id = oracle_id or card.oracle_id
+                card.name = card_data.get("name", card.name)
+                card.set = set_value or card.set
+                card.type_line = card_data.get("type_line", card.type_line)
+                card.mana_cost = mana_cost or card.mana_cost
+                card.image_url = image_url or card.image_url
+                card.cmc = float(card_data.get("cmc", card.cmc) or 0.0)
+                card.rarity = card_data.get("rarity", card.rarity)
+                card.colors = colors_str or card.colors
+                card.color_identity = color_id_str
+                card.oracle_text = card_data.get("oracle_text", card.oracle_text)
 
-            if hasattr(card, "set"):
-                setattr(card, "set", set_value)
-            elif hasattr(card, "set_code"):
-                setattr(card, "set_code", set_value)
-
-        db.commit()
-        db.refresh(card)
-        return card
+            db.commit()
+            db.refresh(card)
+            return card
+        except Exception as exc:
+            db.rollback()
+            logger.error(f"Fallo al persistir carta '{card_data.get('name')}' en BD: {exc}")
+            return None
 
     @classmethod
-    def fetch_and_store_by_name(cls, db: Session, card_name: str) -> Optional[CartaScryfall]:
-        url = f"{SCRYFALL_BASE_URL}/cards/named"
-        params = {"fuzzy": card_name.strip()}
+    def fetch_and_store_by_name(cls, db: Session, card_name: str) -> List[CartaScryfall]:
+        """
+        Consulta en Scryfall todas las versiones e impresiones (unique=prints) de una carta
+        y las sincroniza en la base de datos local.
+        """
+        clean_name = card_name.strip()
+        if not clean_name:
+            return []
 
-        with httpx.Client(headers=SCRYFALL_HEADERS, timeout=10.0) as client:
-            response = client.get(url, params=params)
-            time.sleep(0.1)  # Respetar rate limit de Scryfall
+        # Buscamos por nombre con comillas para abarcar todas sus reimpresiones físicas
+        url = f"{SCRYFALL_BASE_URL}/cards/search"
+        params = {
+            "q": f'!"{clean_name}"',
+            "unique": "prints",
+            "order": "released",
+            "dir": "desc"
+        }
 
-            if response.status_code == 404:
-                logger.info(f"Carta no encontrada en Scryfall: '{card_name}'")
-                return None
-            response.raise_for_status()
-            data = response.json()
+        timeout_config = httpx.Timeout(6.0, connect=3.0)
+        stored_cards: List[CartaScryfall] = []
 
-        return cls.upsert_scryfall_card(db, data)
+        try:
+            with httpx.Client(headers=SCRYFALL_HEADERS, timeout=timeout_config) as client:
+                response = client.get(url, params=params)
+
+                # Fallback si no hay coincidencia exacta: buscar por aproximación
+                if response.status_code == 404:
+                    response = client.get(url, params={"q": clean_name, "unique": "prints"})
+                
+                if response.status_code == 404:
+                    return []
+
+                response.raise_for_status()
+                data = response.json()
+                card_list = data.get("data", [])
+
+                for item in card_list:
+                    c = cls.upsert_scryfall_card(db, item)
+                    if c:
+                        stored_cards.append(c)
+
+                return stored_cards
+
+        except (httpx.TimeoutException, httpx.RequestError) as net_err:
+            logger.warning(f"Timeout o error de red con Scryfall para '{clean_name}': {net_err}")
+            return []
+        except Exception as err:
+            logger.error(f"Error procesando impresiones de Scryfall para '{clean_name}': {err}")
+            return []
 
     @classmethod
     def search_local_catalog(
         cls, 
         db: Session, 
         query: str, 
-        limit: int = 20
+        limit: int = 30
     ) -> List[CartaScryfall]:
         return (
             db.query(CartaScryfall)
-            .options(defer(CartaScryfall.scryfall_raw_data))
             .filter(CartaScryfall.name.ilike(f"%{query.strip()}%"))
             .limit(limit)
             .all()

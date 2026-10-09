@@ -4,7 +4,7 @@
 # ---------------------------------------------------------
 import re
 from typing import List, Any
-from sqlalchemy import or_, and_, cast, Integer
+from sqlalchemy import or_, and_
 
 from app.models.card import CartaScryfall
 from app.repositories.card_repository import escape_like
@@ -12,33 +12,6 @@ from app.repositories.card_repository import escape_like
 TOKEN_REGEX = re.compile(
     r'(?P<key>[a-zA-Z]+)(?P<op>[:=<>!]+)(?:"(?P<quoted_val>[^"]+)"|(?P<raw_val>[^\s]+))'
 )
-
-def _build_safe_stat_filter(stat_field: str, op: str, val_str: str):
-    """
-    Construye filtros numéricos para stats (pow/tou) protegiendo contra
-    valores no enteros de MTG (*, 1+*, X, ?) que rompen CAST() en PostgreSQL.
-    """
-    col_as_text = CartaScryfall.scryfall_raw_data[stat_field].astext
-
-    if re.match(r"^-?\d+$", val_str):
-        int_val = int(val_str)
-        is_numeric = col_as_text.op("~")(r"^-?[0-9]+$")
-        casted_col = cast(col_as_text, Integer)
-
-        if op in (":", "="):
-            return and_(is_numeric, casted_col == int_val)
-        elif op == "<=":
-            return and_(is_numeric, casted_col <= int_val)
-        elif op == ">=":
-            return and_(is_numeric, casted_col >= int_val)
-        elif op == "<":
-            return and_(is_numeric, casted_col < int_val)
-        elif op == ">":
-            return and_(is_numeric, casted_col > int_val)
-        elif op == "!=":
-            return or_(~is_numeric, casted_col != int_val)
-
-    return col_as_text == val_str
 
 
 def parse_scryfall_query(query_str: str) -> List[Any]:
@@ -53,6 +26,11 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
         op = match.group("op")
         val = match.group("quoted_val") or match.group("raw_val") or ""
         val = val.strip()
+
+        # Omitir 'order:' o 'sort:' para que no se interpreten como nombre de carta
+        if key in ("order", "sort"):
+            remaining_text = remaining_text.replace(match.group(0), "")
+            continue
 
         # 1. Tipo y Subtipo de carta
         if key in ("t", "type"):
@@ -87,49 +65,19 @@ def parse_scryfall_query(query_str: str) -> List[Any]:
             except ValueError:
                 pass
 
-        # 4. Estadísticas de Combate
-        elif key in ("pow", "power"):
-            condition = _build_safe_stat_filter("power", op, val)
-            if condition is not None:
-                filters.append(condition)
-
-        elif key in ("tou", "toughness"):
-            condition = _build_safe_stat_filter("toughness", op, val)
-            if condition is not None:
-                filters.append(condition)
-
-        # 5. Rareza
+        # 4. Rareza
         elif key in ("r", "rarity"):
             filters.append(CartaScryfall.rarity.ilike(escape_like(val.lower()), escape="\\"))
 
-        # 6. Edición / Código de Set
+        # 5. Edición / Código de Set
         elif key in ("s", "set", "e", "edition"):
             filters.append(CartaScryfall.set.ilike(escape_like(val.lower()), escape="\\"))
 
-        # 7. Reglas (Oracle Text) y Palabras Clave
-        elif key in ("o", "oracle"):
+        # 6. Reglas (Oracle Text) y Palabras Clave
+        elif key in ("o", "oracle", "kw", "keyword"):
             filters.append(CartaScryfall.oracle_text.ilike(f"%{escape_like(val)}%", escape="\\"))
 
-        elif key in ("kw", "keyword"):
-            filters.append(
-                or_(
-                    CartaScryfall.oracle_text.ilike(f"%{escape_like(val)}%", escape="\\"),
-                    CartaScryfall.scryfall_raw_data["keywords"].astext.ilike(f"%{escape_like(val)}%", escape="\\")
-                )
-            )
-
-        # 8. Artista / Ilustrador
-        elif key in ("a", "artist"):
-            filters.append(CartaScryfall.scryfall_raw_data["artist"].astext.ilike(f"%{escape_like(val)}%", escape="\\"))
-
-        # 9. Formato Legal
-        elif key in ("f", "format", "legal"):
-            format_key = val.lower()
-            filters.append(
-                CartaScryfall.scryfall_raw_data["legalities"][format_key].astext == "legal"
-            )
-
-        # 10. Banderas Especiales
+        # 7. Banderas Especiales (ej. is:commander)
         elif key == "is":
             if val.lower() == "commander":
                 filters.append(
