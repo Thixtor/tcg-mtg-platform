@@ -1,7 +1,7 @@
 # app/scripts/ingest_scryfall.py
 # ---------------------------------------------------------
-# SCRIPT ETL: INGESTA STREAMING RESILIENTE (ORACLE CARDS -> POSTGRES)
-# CREACIÓN AUTOMÁTICA DE ESQUEMA + CARGA CANÓNICA LIGERA
+# SCRIPT ETL: INGESTA STREAMING RESILIENTE (DEFAULT CARDS -> POSTGRES)
+# OPTIMIZADO PARA CLOUD (RAILWAY/SUPABASE): IDEMPOTENTE, SIN DDL PESADO, SIN OOM
 # ---------------------------------------------------------
 import os
 import sys
@@ -9,7 +9,7 @@ import time
 import gzip
 import json
 import logging
-from typing import Generator, Dict, Any, List, Optional
+from typing import Generator, Dict, Any, List, Optional, Set
 import requests
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import NullPool
@@ -29,7 +29,6 @@ except Exception:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ingest_scryfall")
 
-# Motor dedicado para ETL con NullPool (abre socket, ejecuta commit y cierra socket)
 etl_engine = create_engine(
     db_url,
     poolclass=NullPool,
@@ -37,30 +36,51 @@ etl_engine = create_engine(
 )
 
 
-def ensure_database_schema() -> None:
-    """Verifica y crea automáticamente las extensiones, tablas e índices si no existen."""
-    logger.info("Comprobando y asegurando el esquema de base de datos...")
-    with etl_engine.begin() as conn:
-        # 1. Habilitar extensión trigramas para búsqueda instantánea
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-    
-    # 2. Crear tabla e índices asociados si aún no existen
-    CartaScryfall.__table__.create(bind=etl_engine, checkfirst=True)
-    logger.info("Esquema de base de datos verificado y listo.")
+def verify_connection() -> None:
+    """Valida la conectividad básica con PostgreSQL sin ejecutar DDL bloqueante."""
+    logger.info("Verificando estado de conexión con PostgreSQL...")
+    retries = 5
+    for attempt in range(1, retries + 1):
+        try:
+            with etl_engine.connect() as conn:
+                conn.execute(text("SELECT 1;"))
+            logger.info("Conexión con PostgreSQL confirmada.")
+            return
+        except Exception as e:
+            wait_s = attempt * 3
+            logger.warning(f"Intento {attempt}/{retries} de conexión fallido: {e}. Esperando {wait_s}s...")
+            time.sleep(wait_s)
+            if attempt == retries:
+                raise
+
+
+def create_indexes_if_missing() -> None:
+    """Asegura el índice GIN de búsqueda de texto solo si no existe."""
+    logger.info("Verificando existencia del índice de búsqueda...")
+    try:
+        with etl_engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_cartas_name_trgm 
+                ON cartas USING gin (name gin_trgm_ops);
+            """))
+        logger.info("Índice de búsqueda verificado.")
+    except Exception as exc:
+        logger.warning(f"Aviso al verificar índices (no crítico): {exc}")
 
 
 class ScryfallCardNormalizer:
     @staticmethod
     def _extract_image_url(card_data: Dict[str, Any], faces: List[Dict[str, Any]]) -> Optional[str]:
         image_uris = card_data.get("image_uris")
-        if isinstance(image_uris, dict) and image_uris.get("normal"):
-            return image_uris.get("normal")
+        if isinstance(image_uris, dict):
+            return image_uris.get("normal") or image_uris.get("small")
 
         if faces:
             first_face = faces[0]
             face_uris = first_face.get("image_uris")
             if isinstance(face_uris, dict):
-                return face_uris.get("normal")
+                return face_uris.get("normal") or face_uris.get("small")
 
         return None
 
@@ -79,16 +99,23 @@ class ScryfallCardNormalizer:
 
     @staticmethod
     def _extract_colors(card_data: Dict[str, Any]) -> str:
-        raw_colors = card_data.get("colors") or []
+        raw_colors = card_data.get("colors")
         if isinstance(raw_colors, list) and raw_colors:
             return ",".join(raw_colors)
-        return "C"
+        
+        type_line = str(card_data.get("type_line", ""))
+        if "Land" not in type_line:
+            return "C"
+        return ""
 
     @staticmethod
     def _extract_color_identity(card_data: Dict[str, Any]) -> str:
         raw_identity = card_data.get("color_identity") or []
         if isinstance(raw_identity, list) and raw_identity:
-            return ",".join(sorted(str(c).upper().strip() for c in raw_identity))
+            wubrg_order = {"W": 0, "U": 1, "B": 2, "R": 3, "G": 4}
+            cleaned = [str(c).upper().strip() for c in raw_identity if str(c).upper().strip() in wubrg_order]
+            cleaned.sort(key=lambda c: wubrg_order.get(c, 99))
+            return ",".join(cleaned)
         return ""
 
     @staticmethod
@@ -111,8 +138,8 @@ class ScryfallCardNormalizer:
         return {
             "id": str(card_data.get("id")),
             "oracle_id": cls._extract_oracle_id(card_data, faces),
-            "name": str(card_data.get("name", "Unknown")),
-            "set": str(card_data.get("set", "")).lower(),
+            "name": str(card_data.get("name", "Desconocido")),
+            "set": str(card_data.get("set", "")).upper(),
             "type_line": cls._extract_composite_field(card_data, faces, "type_line"),
             "mana_cost": cls._extract_composite_field(card_data, faces, "mana_cost"),
             "cmc": cmc_val,
@@ -126,7 +153,7 @@ class ScryfallCardNormalizer:
 
 class ScryfallIngestionService:
     BULK_DATA_METADATA_URL: str = "https://api.scryfall.com/bulk-data"
-    BATCH_SIZE: int = 500
+    BATCH_SIZE: int = 250
 
     def __init__(self) -> None:
         self.headers = {
@@ -139,19 +166,19 @@ class ScryfallIngestionService:
         with requests.get(self.BULK_DATA_METADATA_URL, headers=self.headers, timeout=30) as response:
             response.raise_for_status()
             items = response.json().get("data", [])
-            target = next((item for item in items if item.get("type") == "oracle_cards"), None)
+            target = next((item for item in items if item.get("type") == "default_cards"), None)
 
         if not target:
-            raise ValueError("No se encontró el objeto 'oracle_cards' en la API de Scryfall.")
+            raise ValueError("No se encontró 'default_cards' en Bulk Data.")
 
-        uri = target.get("jsonl_download_uri") or target.get("download_uri")
+        uri = target.get("download_uri") or target.get("jsonl_download_uri")
         if not uri:
-            raise ValueError("URI de descarga vacía para oracle_cards.")
+            raise ValueError("URI de descarga vacía para default_cards.")
         return uri
 
     def stream_cards(self, download_uri: str) -> Generator[Dict[str, Any], None, None]:
         logger.info(f"Iniciando descarga streaming desde: {download_uri}")
-        with requests.get(download_uri, headers=self.headers, stream=True, timeout=120) as resp:
+        with requests.get(download_uri, headers=self.headers, stream=True, timeout=180) as resp:
             resp.raise_for_status()
 
             if download_uri.endswith(".gz") or resp.headers.get("Content-Type") == "application/gzip":
@@ -171,7 +198,7 @@ class ScryfallIngestionService:
                     except json.JSONDecodeError:
                         continue
 
-    def commit_with_retry(self, batch: List[Dict[str, Any]], retries: int = 3) -> None:
+    def commit_with_retry(self, batch: List[Dict[str, Any]], retries: int = 5) -> None:
         if not batch:
             return
 
@@ -200,10 +227,12 @@ class ScryfallIngestionService:
             try:
                 with etl_engine.begin() as conn:
                     conn.execute(stmt)
+                time.sleep(0.03)  # Pausa breve para mitigar consumo de RAM en Railway
                 return
             except Exception as e:
-                logger.warning(f"Aviso en intento {attempt}/{retries} guardando lote: {e}. Reintentando en 3s...")
-                time.sleep(3)
+                sleep_time = attempt * 3
+                logger.warning(f"Aviso en intento {attempt}/{retries} guardando lote: {e}. Esperando {sleep_time}s...")
+                time.sleep(sleep_time)
                 if attempt == retries:
                     raise
 
@@ -222,8 +251,8 @@ class ScryfallIngestionService:
             if len(batch) >= self.BATCH_SIZE:
                 self.commit_with_retry(batch)
                 total_processed += len(batch)
-                if total_processed % 5000 == 0:
-                    logger.info(f"Progreso: {total_processed} cartas canónicas sincronizadas...")
+                if total_processed % 6000 == 0:
+                    logger.info(f"Progreso: {total_processed} cartas procesadas...")
                 batch.clear()
 
         if batch:
@@ -236,12 +265,13 @@ class ScryfallIngestionService:
 
 def run_ingest() -> None:
     try:
-        # Asegura la existencia de la tabla e índices automáticamente
-        ensure_database_schema()
-        
+        verify_connection()
         service = ScryfallIngestionService()
         total = service.execute_sync()
-        logger.info(f"Ingesta finalizada con éxito. Total: {total} cartas canónicas registradas.")
+        logger.info(f"Carga de cartas finalizada: {total} procesadas.")
+        
+        create_indexes_if_missing()
+        logger.info("Proceso ETL completado con éxito al 100%.")
     except Exception as e:
         logger.error(f"Fallo crítico en la ingesta: {e}", exc_info=True)
         sys.exit(1)

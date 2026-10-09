@@ -128,7 +128,6 @@ class CardCatalogService:
         is_direct_name_query = bool(search_term and not any([card_type, colors, rarity, cmc is not None]) and not (":" in search_term))
         if is_direct_name_query:
             count_local = db.query(CartaScryfall).filter(CartaScryfall.name.ilike(f"%{escape_like(search_term)}%", escape="\\")).count()
-            # Si hay menos de 5 versiones de una carta con tantas ediciones como Sol Ring, sincronizar versiones completas
             if count_local < 5:
                 logger.info(f"Pocas variantes en BD local ({count_local}) para '{search_term}'. Sincronizando desde Scryfall...")
                 ScryfallService.fetch_and_store_by_name(db, search_term)
@@ -147,12 +146,10 @@ class CardCatalogService:
                 safe_q = escape_like(search_term)
                 conditions.append(CartaScryfall.name.ilike(f"%{safe_q}%", escape="\\"))
 
-        # Filtro por tipo de carta
         if card_type and card_type.lower() != "all":
             safe_type: str = escape_like(card_type.strip())
             conditions.append(CartaScryfall.type_line.ilike(f"%{safe_type}%", escape="\\"))
 
-        # Filtro por colores
         if colors:
             c_upper: str = colors.strip().upper()
             if c_upper == "C":
@@ -167,12 +164,10 @@ class CardCatalogService:
                 if color_filters:
                     conditions.append(and_(*color_filters))
 
-        # Filtro por rareza
         if rarity:
             safe_rarity: str = escape_like(rarity.strip().lower())
             conditions.append(CartaScryfall.rarity.ilike(safe_rarity, escape="\\"))
 
-        # Coste de maná convertido (CMC)
         if cmc is not None:
             conditions.append(CartaScryfall.cmc == cmc)
 
@@ -180,7 +175,6 @@ class CardCatalogService:
         if conditions:
             query = query.filter(and_(*conditions))
 
-        # 4. Ordenamiento
         if active_order == "cmc":
             query = query.order_by(CartaScryfall.cmc.asc(), CartaScryfall.name.asc())
         elif active_order == "rarity":
@@ -190,7 +184,6 @@ class CardCatalogService:
 
         results: List[CartaScryfall] = query.limit(limit).all()
 
-        # 5. Contingencia final si tras la consulta sigue vacía
         if not results and search_term and len(search_term) >= 2:
             scryfall_prints = ScryfallService.fetch_and_store_by_name(db, search_term)
             if scryfall_prints:
@@ -253,10 +246,18 @@ class CardCatalogService:
     @classmethod
     def get_card_by_id_or_fail(cls, db: Session, card_id: str) -> CartaScryfall:
         carta: Optional[CartaScryfall] = CardRepository.get_by_id(db, card_id=card_id)
+
+        # Autorreparación: Si no existe o tiene datos incompletos / 'Desconocido', sincronizar de Scryfall
+        if not carta or not carta.name or carta.name == "Desconocido" or not carta.image_url:
+            logger.info(f"Carta '{card_id}' no encontrada o con datos incompletos. Sincronizando con Scryfall API...")
+            repaired = ScryfallService.fetch_and_store_by_id(db, card_id)
+            if repaired:
+                return repaired
+
         if not carta:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"La carta con ID '{card_id}' no fue encontrada en el catálogo."
+                detail=f"La carta con ID '{card_id}' no fue encontrada en el catálogo ni en Scryfall."
             )
         return carta
 

@@ -62,16 +62,6 @@ def escape_like(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def extract_oracle_text(raw_data: Optional[dict]) -> str:
-    if not raw_data:
-        return ""
-    if raw_data.get("oracle_text"):
-        return raw_data["oracle_text"]
-    if "card_faces" in raw_data and isinstance(raw_data["card_faces"], list):
-        return " // ".join(face.get("oracle_text", "") for face in raw_data["card_faces"] if face.get("oracle_text"))
-    return ""
-
-
 def get_mechanic_ids(oracle_text: Optional[str]) -> Set[str]:
     text = oracle_text or ""
     return {rule["id"] for rule in MECHANIC_RULES if rule["test"](text)}
@@ -145,14 +135,13 @@ class CardRepository:
         if not base_card:
             return None
 
-        raw_base = base_card.scryfall_raw_data or {}
-        base_oracle = base_card.oracle_text or extract_oracle_text(raw_base)
+        base_oracle = base_card.oracle_text or ""
         base_mechanics = get_mechanic_ids(base_oracle)
         role_label = get_primary_role_label(base_oracle, base_card.type_line)
 
         type_line_str = base_card.type_line or ""
         base_primary_type = type_line_str.split("—")[0].replace("Legendary", "").replace("Snow", "").strip()
-        base_cmc = base_card.cmc or 0.0
+        base_cmc = float(base_card.cmc or 0.0)
 
         query = (
             db.query(CartaScryfall)
@@ -180,16 +169,15 @@ class CardRepository:
         }
 
         for cand in candidates:
-            cand_raw = cand.scryfall_raw_data or {}
             cand_data = {
-                "oracle_text": cand.oracle_text or extract_oracle_text(cand_raw),
+                "oracle_text": cand.oracle_text or "",
                 "type_line": cand.type_line,
-                "cmc": cand.cmc
+                "cmc": float(cand.cmc or 0.0)
             }
 
             score = cls.score_candidate(base_data, cand_data, base_mechanics)
-            prices = cand_raw.get("prices", {})
-            price_val = float(prices.get("usd") or prices.get("usd_foil") or 0.0) if (prices.get("usd") or prices.get("usd_foil")) else None
+            # Uso de precios Card Kingdom locales
+            retail_price = float(cand.cardkingdom_price_retail) if cand.cardkingdom_price_retail is not None else None
 
             scored_candidates.append({
                 "card": {
@@ -201,7 +189,7 @@ class CardRepository:
                     "rarity": cand.rarity or "common",
                     "set": (cand.set or "").upper(),
                     "similarity_reason": f"{role_label} ({score}% afín)",
-                    "current_price_usd": price_val
+                    "current_price_usd": retail_price
                 },
                 "score": score
             })

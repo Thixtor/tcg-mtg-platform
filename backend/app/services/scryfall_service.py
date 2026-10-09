@@ -58,7 +58,7 @@ class ScryfallService:
             colors_str = ",".join(colors_list) if colors_list else ("C" if card_data.get("type_line", "") and "Land" not in card_data.get("type_line", "") else "")
             set_value = card_data.get("set", "").upper()
 
-            # Extracción de imagen con fallback a caras dobles
+            # Extracción segura de imágenes (incluyendo cartas de doble cara)
             image_url = None
             if "image_uris" in card_data and card_data["image_uris"]:
                 image_url = card_data["image_uris"].get("normal") or card_data["image_uris"].get("small")
@@ -69,14 +69,23 @@ class ScryfallService:
 
             oracle_id = card_data.get("oracle_id")
             mana_cost = card_data.get("mana_cost")
-            if not mana_cost and "card_faces" in card_data and card_data["card_faces"]:
-                mana_cost = card_data["card_faces"][0].get("mana_cost")
+            oracle_text = card_data.get("oracle_text")
+
+            # Fallback para cartas split/doble cara sin texto u oráculo frontal
+            if "card_faces" in card_data and card_data["card_faces"]:
+                faces = card_data["card_faces"]
+                if not mana_cost and len(faces) > 0:
+                    mana_cost = faces[0].get("mana_cost")
+                if not oracle_text:
+                    oracle_text = " // ".join(f.get("oracle_text", "") for f in faces if f.get("oracle_text"))
+
+            card_name = card_data.get("name", "Desconocido")
 
             if not card:
                 card = CartaScryfall(
                     id=scryfall_id,
                     oracle_id=oracle_id,
-                    name=card_data.get("name", "Desconocido"),
+                    name=card_name,
                     set=set_value,
                     type_line=card_data.get("type_line", ""),
                     mana_cost=mana_cost,
@@ -85,12 +94,12 @@ class ScryfallService:
                     rarity=card_data.get("rarity", "").lower(),
                     colors=colors_str,
                     color_identity=color_id_str,
-                    oracle_text=card_data.get("oracle_text", "")
+                    oracle_text=oracle_text or ""
                 )
                 db.add(card)
             else:
                 card.oracle_id = oracle_id or card.oracle_id
-                card.name = card_data.get("name", card.name)
+                card.name = card_name if card_name != "Desconocido" else card.name
                 card.set = set_value or card.set
                 card.type_line = card_data.get("type_line", card.type_line)
                 card.mana_cost = mana_cost or card.mana_cost
@@ -99,7 +108,7 @@ class ScryfallService:
                 card.rarity = card_data.get("rarity", card.rarity)
                 card.colors = colors_str or card.colors
                 card.color_identity = color_id_str
-                card.oracle_text = card_data.get("oracle_text", card.oracle_text)
+                card.oracle_text = oracle_text or card.oracle_text
 
             db.commit()
             db.refresh(card)
@@ -107,6 +116,31 @@ class ScryfallService:
         except Exception as exc:
             db.rollback()
             logger.error(f"Fallo al persistir carta '{card_data.get('name')}' en BD: {exc}")
+            return None
+
+    @classmethod
+    def fetch_and_store_by_id(cls, db: Session, card_id: str) -> Optional[CartaScryfall]:
+        """
+        Recupera una carta directamente por su UUID desde la API de Scryfall
+        y la guarda en la base de datos local para autorreparar registros incompletos.
+        """
+        clean_id = card_id.strip()
+        if not clean_id:
+            return None
+
+        url = f"{SCRYFALL_BASE_URL}/cards/{clean_id}"
+        timeout_config = httpx.Timeout(5.0, connect=3.0)
+
+        try:
+            with httpx.Client(headers=SCRYFALL_HEADERS, timeout=timeout_config) as client:
+                response = client.get(url)
+                if response.status_code == 404:
+                    logger.warning(f"Carta no encontrada en Scryfall por ID: '{clean_id}'")
+                    return None
+                response.raise_for_status()
+                return cls.upsert_scryfall_card(db, response.json())
+        except Exception as exc:
+            logger.error(f"Error al sincronizar carta por ID '{clean_id}': {exc}")
             return None
 
     @classmethod
@@ -119,7 +153,6 @@ class ScryfallService:
         if not clean_name:
             return []
 
-        # Buscamos por nombre con comillas para abarcar todas sus reimpresiones físicas
         url = f"{SCRYFALL_BASE_URL}/cards/search"
         params = {
             "q": f'!"{clean_name}"',
@@ -135,7 +168,6 @@ class ScryfallService:
             with httpx.Client(headers=SCRYFALL_HEADERS, timeout=timeout_config) as client:
                 response = client.get(url, params=params)
 
-                # Fallback si no hay coincidencia exacta: buscar por aproximación
                 if response.status_code == 404:
                     response = client.get(url, params={"q": clean_name, "unique": "prints"})
                 
