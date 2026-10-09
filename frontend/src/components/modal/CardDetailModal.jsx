@@ -25,7 +25,7 @@ import CardOracleRules from './card-detail/CardOracleRules';
 export default function CardDetailModal({ card, isOpen, onClose }) {
   const { isLightMode } = useTheme();
   const [faceIndex, setFaceIndex] = useState(0);
-  const [activeVersion, setActiveVersion] = useState(null);
+  const [activeVersion, setActiveVersion] = useState(card || null);
   const [hoveredPrint, setHoveredPrint] = useState(null);
   const [availablePrints, setAvailablePrints] = useState([]);
   const [loadingPrints, setLoadingPrints] = useState(false);
@@ -67,6 +67,8 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
       return;
     }
 
+    setActiveVersion(card);
+
     const cardId = card.id || card.scryfall_card_id;
     let isCancelled = false;
     setLoadingDetails(true);
@@ -76,32 +78,63 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
       try {
         let baseData = { ...card };
 
+        // 1.1 Intentar enriquecer con el endpoint de detalle local
         try {
           const localRes = await apiClient.get(`/cards/${cardId}`);
           if (localRes?.data) {
-            baseData = { ...baseData, ...localRes.data };
+            baseData = {
+              ...baseData,
+              ...localRes.data,
+              // Preservar precios si la respuesta local no los traía
+              prices: localRes.data.prices || baseData.prices
+            };
           }
-        } catch {
-          if (!card.oracle_text && !card.scryfall_raw_data?.oracle_text) {
-            const res = await fetch(`https://api.scryfall.com/cards/${cardId}`);
-            if (res.ok) {
-              const scryJson = await res.json();
+        } catch (localErr) {
+          console.warn('[CardDetailModal] Error consultando backend local:', localErr);
+        }
+
+        // 1.2 Si faltan precios o número de coleccionista, consultar la API en vivo de Scryfall
+        const hasLivePrices = Boolean(baseData.prices?.usd || baseData.prices?.usd_foil || baseData.tcg_price);
+        if (!hasLivePrices || !baseData.collector_number) {
+          try {
+            const scryRes = await fetch(`https://api.scryfall.com/cards/${cardId}`);
+            if (scryRes.ok) {
+              const scryJson = await scryRes.json();
               baseData = { ...baseData, ...scryJson };
             }
+          } catch (scryErr) {
+            console.warn('[CardDetailModal] Fallback a Scryfall API falló:', scryErr);
           }
         }
 
-        if (!isCancelled) setActiveVersion(baseData);
+        if (!isCancelled) {
+          setActiveVersion(baseData);
+        }
 
+        // 1.3 Obtener impresiones/ediciones de esta carta
         const cardName = baseData.name || card.name;
+        if (!cardName) return;
+
         const printsUri = baseData.prints_search_uri || 
           `https://api.scryfall.com/cards/search?q=%21%22${encodeURIComponent(cardName)}%22+unique%3Aprints&order=released`;
 
         const printsRes = await fetch(printsUri);
         if (printsRes.ok) {
           const printsData = await printsRes.json();
-          if (!isCancelled && printsData.data) {
+          if (!isCancelled && Array.isArray(printsData.data)) {
             setAvailablePrints(printsData.data);
+
+            // Identificar la versión exacta abierta y cargar sus precios/número de inmediato
+            const currentMatchingPrint = printsData.data.find(
+              (p) => p.id === cardId || (p.set && p.set.toLowerCase() === (baseData.set || '').toLowerCase())
+            );
+            if (currentMatchingPrint) {
+              setActiveVersion((prev) => ({
+                ...prev,
+                ...currentMatchingPrint,
+                prices: currentMatchingPrint.prices || prev?.prices
+              }));
+            }
           }
         }
       } catch (err) {
@@ -125,6 +158,8 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     setTradeMetrics({ copiesForTrade: 0, requestedCount: 0, loading: true });
 
     const scryId = activeVersion.id || activeVersion.scryfall_card_id;
+    if (!scryId) return;
+
     apiClient.get(`/trade/market?scryfall_card_id=${scryId}`)
       .then((res) => {
         if (!isMounted) return;
@@ -162,6 +197,8 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
 
     const scryId = activeVersion.id || activeVersion.scryfall_card_id;
     const cardName = activeVersion.name || card?.name || '';
+    if (!scryId) return;
+
     setMyInventory((prev) => ({ ...prev, isLoggedIn: true, loading: true }));
 
     apiClient.get(`/collections/cards/my-copies/${scryId}`, {
@@ -195,13 +232,13 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     fetchMyInventoryCopies();
   }, [fetchMyInventoryCopies]);
 
-  // Normalización exhaustiva de datos
+  // Normalización de datos para la UI
   const normalizedCard = useMemo(() => {
     const activeData = hoveredPrint || activeVersion || card;
     if (!activeData) return null;
 
     const raw = activeData.scryfall_raw_data || activeData;
-    const faces = raw.card_faces || null;
+    const faces = raw.card_faces || activeData.card_faces || null;
     const isMultiFace = Array.isArray(faces) && faces.length > 1;
     const currentFace = isMultiFace ? faces[faceIndex] : raw;
 
@@ -209,34 +246,37 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
       currentFace?.image_uris?.normal ||
       currentFace?.image_uris?.large ||
       raw.image_uris?.normal ||
+      raw.image_uris?.large ||
+      currentFace?.image_url ||
       raw.image_url ||
       activeData.image_url ||
+      card?.image_url ||
       '/placeholder-card.png';
 
-    const name = currentFace?.name || raw.name || activeData.name || 'Carta Desconocida';
-    const manaCost = currentFace?.mana_cost !== undefined ? currentFace.mana_cost : raw.mana_cost || '';
-    const typeLine = currentFace?.type_line || raw.type_line || activeData.type_line || '';
-    const oracleText = currentFace?.oracle_text || raw.oracle_text || '';
+    const name = currentFace?.name || raw.name || activeData.name || card?.name || 'Carta Desconocida';
+    const manaCost = currentFace?.mana_cost !== undefined ? currentFace.mana_cost : (raw.mana_cost || activeData.mana_cost || card?.mana_cost || '');
+    const typeLine = currentFace?.type_line || raw.type_line || activeData.type_line || card?.type_line || '';
+    const oracleText = currentFace?.oracle_text || raw.oracle_text || activeData.oracle_text || card?.oracle_text || '';
     const printedText = currentFace?.printed_text || raw.printed_text || null;
     const flavorText = currentFace?.flavor_text || raw.flavor_text || '';
-    const power = currentFace?.power !== undefined ? currentFace.power : raw.power;
-    const toughness = currentFace?.toughness !== undefined ? currentFace.toughness : raw.toughness;
-    const loyalty = currentFace?.loyalty !== undefined ? currentFace.loyalty : raw.loyalty;
+    const power = currentFace?.power !== undefined ? currentFace.power : (raw.power ?? activeData.power);
+    const toughness = currentFace?.toughness !== undefined ? currentFace.toughness : (raw.toughness ?? activeData.toughness);
+    const loyalty = currentFace?.loyalty !== undefined ? currentFace.loyalty : (raw.loyalty ?? activeData.loyalty);
 
-    const setCode = (raw.set || activeData.set_code || activeData.set || '').toUpperCase();
-    const setName = raw.set_name || setCode;
-    const collectorNumber = raw.collector_number || '';
-    const rarity = raw.rarity || activeData.rarity || 'common';
+    const setCode = (raw.set || activeData.set_code || activeData.set || card?.set || '').toUpperCase();
+    const setName = raw.set_name || activeData.set_name || setCode;
+    const collectorNumber = raw.collector_number || activeData.collector_number || card?.collector_number || '';
+    const rarity = raw.rarity || activeData.rarity || card?.rarity || 'common';
 
-    // Precios TCGplayer
-    const prices = raw.prices || activeData.prices || {};
-    const tcgPrice = prices.usd || activeData.tcg_price || raw.tcg_price || null;
-    const tcgPriceFoil = prices.usd_foil || activeData.tcg_foil_price || raw.tcg_foil_price || null;
+    // Extracción robusta de precios
+    const prices = raw.prices || activeData.prices || card?.prices || {};
+    const tcgPrice = prices.usd ?? activeData.tcg_price ?? raw.tcg_price ?? card?.tcg_price ?? null;
+    const tcgPriceFoil = prices.usd_foil ?? activeData.tcg_foil_price ?? raw.tcg_foil_price ?? card?.tcg_foil_price ?? null;
 
-    // Precios Card Kingdom
     const rawCkRetail = 
       activeData.cardkingdom_price_retail ?? 
       raw.cardkingdom_price_retail ?? 
+      card?.cardkingdom_price_retail ??
       prices.cardkingdom ?? 
       prices.cardkingdom_retail ?? 
       activeData.ck_price ?? 
@@ -245,12 +285,14 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
     const rawCkBuy = 
       activeData.cardkingdom_price_buylist ?? 
       raw.cardkingdom_price_buylist ?? 
+      card?.cardkingdom_price_buylist ??
       prices.cardkingdom_buylist ?? 
       null;
 
     const rawCkFoil = 
       activeData.cardkingdom_price_foil ?? 
       raw.cardkingdom_price_foil ?? 
+      card?.cardkingdom_price_foil ??
       prices.cardkingdom_foil ?? 
       null;
 
@@ -266,10 +308,10 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
       ? parseFloat(rawCkFoil).toFixed(2)
       : null;
 
-    const scryfallUri = raw.scryfall_uri || `https://scryfall.com/search?q=!%22${encodeURIComponent(name)}%22`;
+    const scryfallUri = raw.scryfall_uri || activeData.scryfall_uri || `https://scryfall.com/search?q=!%22${encodeURIComponent(name)}%22`;
 
     return {
-      id: raw.id,
+      id: raw.id || activeData.id || card?.id,
       isMultiFace,
       name,
       imageUrl,
@@ -285,6 +327,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
       setName,
       collectorNumber,
       rarity,
+      prices,
       tcgPrice,
       tcgPriceFoil,
       ckPriceRetail,
@@ -317,7 +360,6 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
           isLightMode ? 'bg-[#FAF7F2] text-[#24211E] border-neutral-300' : 'bg-[#121214] text-neutral-100 border-neutral-800'
         }`}>
 
-          {/* Botón Cerrar Flotante Touch-friendly */}
           <button
             type="button"
             onClick={onClose}
@@ -331,14 +373,14 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
-          {/* 1. Columna Izquierda: Visor de Carta e Inventario (Fluido en Móvil) */}
+          {/* 1. Columna Izquierda: Visor e Inventario */}
           <div className={`w-full md:w-5/12 p-4 sm:p-6 flex flex-col justify-between overflow-y-auto space-y-4 border-b md:border-b-0 md:border-r shrink-0 ${
             isLightMode ? 'bg-[#EFEAE1] border-neutral-300' : 'bg-[#0B0B0C] border-neutral-800'
           }`}>
             <CardImagePreview
               normalizedCard={normalizedCard}
               activeVersion={activeVersion}
-              baseCardId={card.id}
+              baseCardId={card.id || card.scryfall_card_id}
               faceIndex={faceIndex}
               onToggleFace={() => setFaceIndex((p) => (p === 0 ? 1 : 0))}
               availablePrints={availablePrints}
@@ -356,7 +398,7 @@ export default function CardDetailModal({ card, isOpen, onClose }) {
             />
           </div>
 
-          {/* 2. Columna Derecha: Información, Reglas y Acciones */}
+          {/* 2. Columna Derecha: Información y Precios */}
           <div className="w-full md:w-7/12 p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 flex flex-col justify-between scrollbar-thin scrollbar-thumb-neutral-700">
             <div className="space-y-4">
               {loadingDetails && (

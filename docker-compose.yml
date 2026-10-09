@@ -9,8 +9,14 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # Sobreescribe cualquier valor previo y fija la conexión al Postgres local de Docker
+      - DATABASE_URL=postgresql://admin:una_contrasena_segura_de_produccion@db:5432/mtg_market
     volumes:
       - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
 
   frontend:
     build:
@@ -25,22 +31,22 @@ services:
     environment:
       - CHOKIDAR_USEPOLLING=true
 
-  # Contenedor Postgres local (opcional / testing offline).
-  # El backend consumirá directamente la DATABASE_URL declarada en tu .env.
   db:
     image: postgres:15-alpine
     container_name: mtg_db
     restart: always
+    ports:
+      - "5432:5432"
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secretpassword}
-      POSTGRES_DB: ${POSTGRES_DB:-mtg_market}
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: una_contrasena_segura_de_produccion
+      POSTGRES_DB: mtg_market
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-mtg_market}"]
-      interval: 5s
-      timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U admin -d mtg_market"]
+      interval: 3s
+      timeout: 3s
       retries: 5
 
 volumes:

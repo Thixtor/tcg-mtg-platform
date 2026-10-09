@@ -1,9 +1,6 @@
+// TCG/frontend/src/components/modal/card-detail/CardImagePreview.jsx
 // ============================================================================
 // COMPONENTE: VISOR DE ILUSTRACIÓN & SELECTOR DE IMPRESIONES (DFC)
-// ============================================================================
-// ARQUITECTURA & REGLAS:
-// - Despliega la cara activa de la carta con soporte para cartas de doble cara (DFC).
-// - Maneja el botón de volteo rápido sobre la imagen y selector de estilos/sets.
 // ============================================================================
 
 import React from 'react';
@@ -21,6 +18,8 @@ export default function CardImagePreview({
   onHoverPrint,
   onLeavePrint
 }) {
+  const currentSelectedId = activeVersion?.id || activeVersion?.scryfall_card_id || baseCardId;
+
   return (
     <div className="w-full flex flex-col items-center">
       {/* Marco de la Ilustración */}
@@ -68,7 +67,7 @@ export default function CardImagePreview({
         {availablePrints.length > 1 ? (
           <div className="flex gap-2 overflow-x-auto p-1.5 scrollbar-thin scrollbar-thumb-neutral-700 max-w-full rounded-lg bg-neutral-900/30 border border-neutral-800/60">
             {availablePrints.map((print) => {
-              const isSelected = (activeVersion?.id || baseCardId) === print.id;
+              const isSelected = String(currentSelectedId) === String(print.id);
               const thumb = print.image_uris?.small || print.card_faces?.[0]?.image_uris?.small;
 
               return (

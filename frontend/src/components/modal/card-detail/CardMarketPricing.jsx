@@ -20,14 +20,28 @@ function formatDisplayPrice(num) {
 export default function CardMarketPricing({ normalizedCard, isLightMode }) {
   if (!normalizedCard) return null;
 
-  const tcgNum = parseToNum(normalizedCard.tcgPrice);
-  const tcgFoilNum = parseToNum(normalizedCard.tcgPriceFoil);
+  const pricesObj = normalizedCard.prices || {};
 
-  // 1. Prioridad: Cotización directa de Card Kingdom en BD
-  let ckRetailNum = parseToNum(normalizedCard.ckPriceRetail || normalizedCard.cardkingdom_price_retail);
-  let ckBuyNum = parseToNum(normalizedCard.ckPriceBuy || normalizedCard.cardkingdom_price_buylist);
+  // 1. TCG Market (Normal y Foil)
+  const tcgNum = parseToNum(normalizedCard.tcgPrice ?? pricesObj.usd);
+  const tcgFoilNum = parseToNum(normalizedCard.tcgPriceFoil ?? pricesObj.usd_foil);
 
-  // 2. Fallback asistido si la impresión específica no tiene precio CK directo pero hay referencia de mercado
+  // 2. Card Kingdom Retail
+  let ckRetailNum = parseToNum(
+    normalizedCard.ckPriceRetail ?? 
+    normalizedCard.cardkingdom_price_retail ?? 
+    pricesObj.cardkingdom ?? 
+    pricesObj.cardkingdom_retail
+  );
+
+  // 3. Card Kingdom Buylist
+  let ckBuyNum = parseToNum(
+    normalizedCard.ckPriceBuy ?? 
+    normalizedCard.cardkingdom_price_buylist ?? 
+    pricesObj.cardkingdom_buylist
+  );
+
+  // 4. Estimación asistida si no hay cotización directa de CK pero sí hay TCG Market
   if (ckRetailNum === null && tcgNum !== null) {
     ckRetailNum = parseFloat((tcgNum * 1.08).toFixed(2));
   }
